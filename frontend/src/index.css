@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  /* Vintage Baseball Color Palette */
+  --color-cream: #F5F5DC;
+  --color-sepia: #704214;
+  --color-cardboard: #D4B896;
+  --color-grass: #228B22;
+  --color-leather: #8B4513;
+  --color-pinstripe: #1C2951;
+  --color-chalk: #FFFFFF;
+  --color-dirt: #8B7355;
+  --color-gold: #D4AF37;
+
+  /* Primary colors */
+  --color-primary: var(--color-pinstripe);
+  --color-secondary: var(--color-leather);
+  --color-accent: var(--color-gold);
+  --color-background: var(--color-cream);
+  --color-foreground: var(--color-sepia);
+
+  /* Typography */
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'Libre Baskerville', serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background-color: var(--color-cream);
+  color: var(--color-sepia);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+a {
+  color: var(--color-pinstripe);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Utility classes for star ratings */
+.star-rating {
+  color: var(--color-gold);
+  font-size: 1.25rem;
+}
+
+/* Stats display */
+.stat-number {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-pinstripe);
+  outline-offset: 2px;
+}
