@@ -10,11 +10,11 @@ function Badge({ className, variant = 'default', ...props }: BadgeProps) {
     <div
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors",
-        variant === 'default' && "bg-sepia text-cream",
-        variant === 'secondary' && "bg-cardboard text-pinstripe",
-        variant === 'outline' && "border border-sepia text-sepia bg-transparent",
+        variant === 'default' && "bg-gold text-navy",
+        variant === 'secondary' && "bg-navy-light text-cream border border-cream/20",
+        variant === 'outline' && "border border-gold text-gold bg-transparent",
         variant === 'success' && "bg-grass text-chalk",
-        variant === 'warning' && "bg-gold text-pinstripe",
+        variant === 'warning' && "bg-red text-chalk",
         className
       )}
       {...props}

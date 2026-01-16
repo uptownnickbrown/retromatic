@@ -26,7 +26,7 @@ export function StarRating({ rating, showLabel = false, size = 'md', className }
             key={i}
             className={cn(
               sizeClasses[size],
-              filled ? "text-gold" : "text-cardboard"
+              filled ? "text-gold" : "text-cream/20"
             )}
             fill="currentColor"
             viewBox="0 0 20 20"
@@ -41,7 +41,7 @@ export function StarRating({ rating, showLabel = false, size = 'md', className }
           size === 'sm' && "text-xs",
           size === 'md' && "text-sm",
           size === 'lg' && "text-base",
-          "text-dirt"
+          "text-cream/60"
         )}>
           {getStarLabel(rating)}
         </span>

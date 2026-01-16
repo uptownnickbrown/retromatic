@@ -1,9 +1,20 @@
 import OpenAI from 'openai';
 import type { Player } from '../db/schema.js';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy-load OpenAI client only when needed
+let openai: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI | null {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openai;
+}
 
 interface TeamScoreResult {
   totalScore: number;
@@ -54,8 +65,14 @@ Write a short, punchy commentary that:
 
 Keep it under 100 words.`;
 
+  const client = getOpenAIClient();
+  if (!client) {
+    // No API key configured, use default commentary
+    return getDefaultCommentary(teamScore.percentile);
+  }
+
   try {
-    const response = await openai.chat.completions.create({
+    const response = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 150,

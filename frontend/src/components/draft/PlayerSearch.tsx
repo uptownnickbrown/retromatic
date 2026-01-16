@@ -60,34 +60,34 @@ export function PlayerSearch({
           placeholder="Search players by name..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="text-lg"
+          className="text-lg h-12"
         />
         {isLoading && query.length >= 2 && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="animate-spin h-5 w-5 border-2 border-sepia border-t-transparent rounded-full" />
+            <div className="animate-spin h-5 w-5 border-2 border-gold border-t-transparent rounded-full" />
           </div>
         )}
       </div>
 
       {error && (
-        <div className="p-4 bg-red-100 border border-red-300 rounded-md text-red-800">
+        <div className="p-4 bg-red/20 border border-red/30 rounded-lg text-red-light">
           Error searching players: {error.message}
         </div>
       )}
 
       {filteredPlayers.length > 0 && (
-        <div className="border-2 border-cardboard rounded-lg overflow-hidden bg-chalk max-h-96 overflow-y-auto">
+        <div className="border border-cream/10 rounded-xl overflow-hidden bg-navy-light max-h-96 overflow-y-auto">
           {filteredPlayers.map((player) => (
-            <div key={player.id} className="border-b border-cardboard last:border-b-0">
+            <div key={player.id} className="border-b border-cream/10 last:border-b-0">
               <button
                 onClick={() => handlePlayerClick(player)}
-                className="w-full px-4 py-3 text-left hover:bg-cardboard/20 transition-colors flex items-center justify-between"
+                className="w-full px-4 py-3 text-left hover:bg-gold/10 transition-colors flex items-center justify-between group"
               >
                 <div>
-                  <div className="font-display font-semibold text-pinstripe">
+                  <div className="font-display font-semibold text-cream group-hover:text-gold transition-colors">
                     {player.name}
                   </div>
-                  <div className="text-sm text-dirt font-body">
+                  <div className="text-sm text-cream/60 font-body">
                     {player.yearRange} · {player.teams.join(', ')}
                   </div>
                 </div>
@@ -107,8 +107,8 @@ export function PlayerSearch({
 
               {/* Season selector for multi-season players */}
               {player.seasons.length > 1 && (
-                <div className="px-4 pb-3 pt-1 bg-cream/50">
-                  <div className="text-xs text-dirt mb-2 font-body">Select a season:</div>
+                <div className="px-4 pb-3 pt-1 bg-navy/50">
+                  <div className="text-xs text-cream/50 mb-2 font-body">Select a season:</div>
                   <div className="flex flex-wrap gap-2">
                     {player.seasons.map((season) => {
                       const isDisabled = disabledPlayerIds.includes(season.id);
@@ -118,10 +118,10 @@ export function PlayerSearch({
                           onClick={() => handleSeasonSelect(player, season)}
                           disabled={isDisabled}
                           className={cn(
-                            "px-3 py-1 rounded-md text-sm font-mono transition-colors",
+                            "px-3 py-1 rounded-lg text-sm font-mono transition-colors",
                             isDisabled
-                              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                              : "bg-cardboard hover:bg-sepia hover:text-cream"
+                              ? "bg-cream/10 text-cream/30 cursor-not-allowed"
+                              : "bg-gold/20 text-gold hover:bg-gold hover:text-navy"
                           )}
                         >
                           {season.year} · {season.team}
@@ -137,13 +137,13 @@ export function PlayerSearch({
       )}
 
       {query.length >= 2 && !isLoading && filteredPlayers.length === 0 && (
-        <div className="text-center py-8 text-dirt font-body">
+        <div className="text-center py-8 text-cream/60 font-body">
           No players found for "{query}"
         </div>
       )}
 
       {query.length < 2 && query.length > 0 && (
-        <div className="text-center py-4 text-dirt/60 font-body text-sm">
+        <div className="text-center py-4 text-cream/40 font-body text-sm">
           Type at least 2 characters to search
         </div>
       )}

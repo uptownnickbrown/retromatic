@@ -70,6 +70,3 @@ Thumbs.db
 
 # Claude
 .claude/
-
-# Git backup (temporary)
-.git-backup/

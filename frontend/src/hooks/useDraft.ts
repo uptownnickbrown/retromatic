@@ -16,7 +16,8 @@ export function useCreateDraft() {
   return useMutation({
     mutationFn: api.createDraft,
     onSuccess: (data) => {
-      queryClient.setQueryData(['draft', data.draftId], data);
+      // Invalidate to ensure fresh fetch - don't cache partial response
+      queryClient.invalidateQueries({ queryKey: ['draft', data.draftId] });
     },
   });
 }

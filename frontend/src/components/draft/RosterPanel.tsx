@@ -32,14 +32,14 @@ export function RosterPanel({
         onClick={() => isAvailable && onSelectSlot(slot.id)}
         disabled={!isAvailable && !pick}
         className={cn(
-          "w-full px-3 py-2 rounded-lg border-2 transition-all text-left",
+          "w-full px-3 py-2 rounded-lg border transition-all text-left",
           pick
-            ? "border-grass bg-grass/10 cursor-default"
+            ? "border-grass/50 bg-grass/10"
             : isSelected
-            ? "border-sepia bg-sepia/10 ring-2 ring-sepia"
+            ? "border-gold bg-gold/10 ring-2 ring-gold/30"
             : isAvailable
-            ? "border-cardboard hover:border-sepia hover:bg-cardboard/20 cursor-pointer"
-            : "border-gray-300 bg-gray-100 cursor-not-allowed opacity-50"
+            ? "border-cream/20 hover:border-gold/50 hover:bg-gold/5 cursor-pointer"
+            : "border-cream/10 bg-cream/5 cursor-not-allowed opacity-40"
         )}
       >
         <div className="flex items-center gap-2">
@@ -51,15 +51,15 @@ export function RosterPanel({
           </Badge>
           {pick ? (
             <div className="flex-1 min-w-0">
-              <div className="font-display font-semibold text-pinstripe truncate">
+              <div className="font-display font-semibold text-cream truncate">
                 {pick.playerName}
               </div>
-              <div className="text-xs text-dirt font-mono">
+              <div className="text-xs text-cream/60 font-mono">
                 {pick.year} · {pick.team}
               </div>
             </div>
           ) : (
-            <div className="flex-1 text-dirt/60 font-body text-sm">
+            <div className="flex-1 text-cream/40 font-body text-sm">
               {isAvailable ? 'Click to fill' : 'Empty'}
             </div>
           )}
@@ -72,17 +72,17 @@ export function RosterPanel({
   const totalSlots = ROSTER_CONFIG.length;
 
   return (
-    <div className="bg-cream border-2 border-cardboard rounded-xl p-4 space-y-6">
+    <div className="bg-navy-light/50 backdrop-blur-sm border border-cream/10 rounded-xl p-4 space-y-6">
       {/* Header with progress */}
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-xl font-bold text-sepia">Your Roster</h2>
+        <h2 className="font-display text-xl font-bold text-cream">Your Roster</h2>
         <div className="flex items-center gap-2">
-          <div className="text-sm font-mono text-dirt">
+          <div className="text-sm font-mono text-gold">
             {filledCount}/{totalSlots}
           </div>
-          <div className="w-24 h-2 bg-cardboard rounded-full overflow-hidden">
+          <div className="w-24 h-2 bg-navy rounded-full overflow-hidden">
             <div
-              className="h-full bg-grass transition-all duration-300"
+              className="h-full bg-gradient-to-r from-gold to-gold-light transition-all duration-300"
               style={{ width: `${(filledCount / totalSlots) * 100}%` }}
             />
           </div>
@@ -91,7 +91,8 @@ export function RosterPanel({
 
       {/* Batters Section */}
       <div>
-        <h3 className="text-sm font-display font-semibold text-dirt uppercase tracking-wide mb-2">
+        <h3 className="text-sm font-display font-semibold text-cream/60 uppercase tracking-wide mb-2 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-gold"></span>
           Batters ({BATTER_SLOTS.filter(s => getPickForSlot(s.id)).length}/{BATTER_SLOTS.length})
         </h3>
         <div className="space-y-2">
@@ -101,7 +102,8 @@ export function RosterPanel({
 
       {/* Pitchers Section */}
       <div>
-        <h3 className="text-sm font-display font-semibold text-dirt uppercase tracking-wide mb-2">
+        <h3 className="text-sm font-display font-semibold text-cream/60 uppercase tracking-wide mb-2 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-grass"></span>
           Pitchers ({PITCHER_SLOTS.filter(s => getPickForSlot(s.id)).length}/{PITCHER_SLOTS.length})
         </h3>
         <div className="space-y-2">

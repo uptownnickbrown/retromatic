@@ -1,27 +1,23 @@
 @import "tailwindcss";
 
 @theme {
-  /* Vintage Baseball Color Palette */
-  --color-cream: #F5F5DC;
-  --color-sepia: #704214;
-  --color-cardboard: #D4B896;
-  --color-grass: #228B22;
-  --color-leather: #8B4513;
-  --color-pinstripe: #1C2951;
-  --color-chalk: #FFFFFF;
-  --color-dirt: #8B7355;
-  --color-gold: #D4AF37;
-
-  /* Primary colors */
-  --color-primary: var(--color-pinstripe);
-  --color-secondary: var(--color-leather);
-  --color-accent: var(--color-gold);
-  --color-background: var(--color-cream);
-  --color-foreground: var(--color-sepia);
+  /* Bold Baseball Color Palette */
+  --color-navy: #0a1628;
+  --color-navy-light: #1a2d4a;
+  --color-grass: #2d5a27;
+  --color-grass-light: #3d7a37;
+  --color-gold: #d4a012;
+  --color-gold-light: #f4c842;
+  --color-cream: #f5f0e1;
+  --color-red: #c41e3a;
+  --color-red-light: #e63950;
+  --color-chalk: #ffffff;
+  --color-dirt: #8b7355;
+  --color-leather: #6b4423;
 
   /* Typography */
   --font-display: 'Playfair Display', serif;
-  --font-body: 'Libre Baskerville', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 }
 
@@ -33,8 +29,8 @@
 body {
   margin: 0;
   font-family: var(--font-body);
-  background-color: var(--color-cream);
-  color: var(--color-sepia);
+  background-color: var(--color-navy);
+  color: var(--color-cream);
   min-height: 100vh;
 }
 
@@ -49,29 +45,120 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
 }
 
-a {
-  color: var(--color-pinstripe);
-  text-decoration: none;
+/* Hero gradient background */
+.hero-gradient {
+  background: linear-gradient(
+    135deg,
+    var(--color-navy) 0%,
+    var(--color-navy-light) 50%,
+    var(--color-grass) 100%
+  );
 }
 
-a:hover {
-  text-decoration: underline;
+/* Stadium lights effect */
+.stadium-glow {
+  box-shadow:
+    0 0 60px rgba(212, 160, 18, 0.3),
+    0 0 100px rgba(212, 160, 18, 0.1);
 }
 
-/* Utility classes for star ratings */
+/* Baseball stitching pattern */
+.baseball-stitch {
+  background-image:
+    radial-gradient(circle at 2px 2px, var(--color-red) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Gold shine effect */
+.gold-shine {
+  background: linear-gradient(
+    135deg,
+    var(--color-gold) 0%,
+    var(--color-gold-light) 50%,
+    var(--color-gold) 100%
+  );
+  background-size: 200% 200%;
+  animation: shine 3s ease-in-out infinite;
+}
+
+@keyframes shine {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Scoreboard style text */
+.scoreboard-text {
+  font-family: var(--font-mono);
+  text-shadow:
+    0 0 10px currentColor,
+    0 0 20px currentColor;
+}
+
+/* Card with premium feel */
+.premium-card {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Grass texture overlay */
+.grass-texture {
+  background:
+    linear-gradient(90deg, transparent 49%, rgba(0,0,0,0.03) 50%, transparent 51%),
+    linear-gradient(var(--color-grass) 0%, var(--color-grass-light) 100%);
+  background-size: 4px 100%, 100% 100%;
+}
+
+/* Pulse animation for CTA */
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(212, 160, 18, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(212, 160, 18, 0.8), 0 0 60px rgba(212, 160, 18, 0.4);
+  }
+}
+
+/* Star rating gold */
 .star-rating {
   color: var(--color-gold);
-  font-size: 1.25rem;
 }
 
-/* Stats display */
+/* Stat number styling */
 .stat-number {
   font-family: var(--font-mono);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* Focus styles */
 :focus-visible {
-  outline: 2px solid var(--color-pinstripe);
+  outline: 2px solid var(--color-gold);
   outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-navy);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-navy-light);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
 }

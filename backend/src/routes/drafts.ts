@@ -146,14 +146,24 @@ router.post('/:id/picks', async (req, res) => {
     }
 
     // Specific position validation (excluding UTIL and P slots which are flexible)
-    const slotBase = rosterSlot.replace(/[0-9]/g, '');
-    if (!['UTIL', 'P'].includes(slotBase)) {
-      if (slotBase === 'OF' && !positions.some(p => ['LF', 'CF', 'RF', 'OF'].includes(p))) {
+    // Map slot names to required positions (strip only trailing numbers, not position numbers like 1B, 2B, 3B)
+    const slotToPosition: Record<string, string> = {
+      'C': 'C', '1B': '1B', '2B': '2B', '3B': '3B', 'SS': 'SS',
+      'OF1': 'OF', 'OF2': 'OF', 'OF3': 'OF',
+      'UTIL': 'UTIL',
+      'SP1': 'SP', 'SP2': 'SP', 'SP3': 'SP',
+      'RP1': 'RP', 'RP2': 'RP',
+      'P1': 'P', 'P2': 'P',
+    };
+    const requiredPosition = slotToPosition[rosterSlot];
+
+    if (requiredPosition && !['UTIL', 'P'].includes(requiredPosition)) {
+      if (requiredPosition === 'OF' && !positions.some(p => ['LF', 'CF', 'RF', 'OF'].includes(p))) {
         return res.status(400).json({ error: 'Player not eligible for outfield' });
-      } else if (['SP', 'RP'].includes(slotBase) && !positions.includes(slotBase)) {
-        return res.status(400).json({ error: `Player not eligible for ${slotBase}` });
-      } else if (!['OF', 'SP', 'RP'].includes(slotBase) && !positions.includes(slotBase)) {
-        return res.status(400).json({ error: `Player not eligible for ${slotBase}` });
+      } else if (['SP', 'RP'].includes(requiredPosition) && !positions.includes(requiredPosition)) {
+        return res.status(400).json({ error: `Player not eligible for ${requiredPosition}` });
+      } else if (!['OF', 'SP', 'RP'].includes(requiredPosition) && !positions.includes(requiredPosition)) {
+        return res.status(400).json({ error: `Player not eligible for ${requiredPosition}` });
       }
     }
 
