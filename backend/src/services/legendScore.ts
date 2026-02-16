@@ -1,6 +1,7 @@
 import { db } from '../db/index.js';
 import { players, challengeRounds, roundOptions, gameSessions, userPicks } from '../db/schema.js';
 import { eq, and, sql, desc, lt } from 'drizzle-orm';
+import { toNum } from '../lib/numeric.js';
 
 // Legend Score: maps position-adjusted Z-score to a 1.0-10.0 scale
 // Calibrated against actual distribution:
@@ -66,7 +67,7 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
           .limit(1);
 
         if (playerRecord) {
-          const legendScore = calculateLegendScore(Number(playerRecord.zScorePosition));
+          const legendScore = calculateLegendScore(toNum(playerRecord.zScorePosition));
           if (legendScore > bestScore) {
             bestScore = legendScore;
             bestPick = { playerName: option.playerName, year, legendScore };
@@ -101,6 +102,8 @@ export async function calculateSessionPercentile(
       eq(gameSessions.status, 'completed')
     ));
 
-  if (!result || result.total === 0) return 50; // Default if no other sessions
-  return Math.round((result.below / result.total) * 100);
+  const total = toNum(result?.total);
+  const below = toNum(result?.below);
+  if (total === 0) return 50; // Default if no other sessions
+  return Math.round((below / total) * 100);
 }

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { gameSessions, challenges } from '../db/schema.js';
 import { eq, desc, gte, and, sql } from 'drizzle-orm';
+import { toNum } from '../lib/numeric.js';
 
 const router = Router();
 
@@ -71,8 +72,8 @@ router.get('/', async (req, res) => {
     const ranked = leaderboard.map((entry, index) => ({
       rank: index + 1,
       displayName: `Player_${entry.guestToken?.substring(0, 6) || 'anon'}`,
-      score: parseFloat(entry.totalLegendScore as string || '0'),
-      percentile: entry.percentile,
+      score: toNum(entry.totalLegendScore),
+      percentile: toNum(entry.percentile, 50),
       completedAt: entry.completedAt,
     }));
 
