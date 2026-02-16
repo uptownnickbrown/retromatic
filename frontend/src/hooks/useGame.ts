@@ -74,41 +74,26 @@ export function useGame() {
     setState(s => ({ ...s, phase: 'loading', error: null }));
     try {
       const { session, round } = await api.startGame(state.challenge.id);
+      // Server returned a completed session — go straight to results
+      if (session.status === 'completed' || !round) {
+        setState(s => ({
+          ...s,
+          phase: 'complete',
+          sessionId: session.id,
+        }));
+        return;
+      }
       setState(s => ({
         ...s,
         phase: 'picking',
         sessionId: session.id,
         currentRound: round,
         roundNumber: round.roundNumber,
-        picks: [],
       }));
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.includes('already')) {
-        // Session exists, reload
-        await loadChallenge();
-      } else {
-        setState(s => ({ ...s, phase: 'idle', error: msg }));
-      }
+      setState(s => ({ ...s, phase: 'idle', error: (err as Error).message }));
     }
-  }, [state.challenge, loadChallenge]);
-
-  const resumeGame = useCallback(async () => {
-    if (!state.challenge) return;
-    setState(s => ({ ...s, phase: 'loading', error: null }));
-    try {
-      const { session, round } = await api.startGame(state.challenge.id);
-      setState(s => ({
-        ...s,
-        phase: 'picking',
-        sessionId: session.id,
-        currentRound: round,
-        roundNumber: round.roundNumber,
-      }));
-    } catch {
-      await loadChallenge();
-    }
-  }, [state.challenge, loadChallenge]);
+  }, [state.challenge]);
 
   const submitPick = useCallback(async (playerId: number, year: number, wasTimeout = false) => {
     if (!state.challenge || !state.sessionId || !state.currentRound || submittingRef.current) return;
@@ -164,9 +149,9 @@ export function useGame() {
 
   return {
     ...state,
+    isSubmitting: submittingRef,
     loadChallenge,
     startGame,
-    resumeGame,
     submitPick,
     advanceRound,
   };

@@ -39,8 +39,8 @@ export async function getTodaysChallenge(): Promise<{
 }
 
 export async function startGame(challengeId: number): Promise<{
-  session: { id: string; currentRound: number };
-  round: RoundData;
+  session: { id: string; currentRound: number; status?: string };
+  round: RoundData | null;
 }> {
   return fetchAPI(`/challenge/${challengeId}/start`, { method: 'POST' });
 }
