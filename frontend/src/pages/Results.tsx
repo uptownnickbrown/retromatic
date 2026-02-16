@@ -3,8 +3,8 @@ import { motion } from 'framer-motion';
 import { Home, Trophy, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import { useChallengeResults } from '../hooks/useChallenge';
-import { cn } from '../lib/utils';
-import { getOrdinalSuffix } from '../lib/utils';
+import { cn, getOrdinalSuffix } from '../lib/utils';
+import { safeNum } from '../lib/numeric';
 import { getLegendScoreTier } from '../types';
 import { LegendScoreBadge } from '../components/game/LegendScoreBadge';
 import { FinalLineup } from '../components/results/FinalLineup';
@@ -43,8 +43,10 @@ export function Results() {
   }
 
   const { session, picks, perfectLineup, totalParticipants } = data;
-  const percentileRank = Math.max(1, 100 - Math.round(session.percentile));
-  const isGreatScore = session.totalLegendScore >= 70;
+  const totalScore = safeNum(session.totalLegendScore);
+  const percentile = safeNum(session.percentile, 50);
+  const percentileRank = Math.max(1, 100 - Math.round(percentile));
+  const isGreatScore = totalScore >= 70;
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-4 py-5 safe-bottom">
@@ -59,10 +61,10 @@ export function Results() {
           Final Legend Score
         </p>
         <div className="flex justify-center mb-2">
-          <LegendScoreBadge score={session.totalLegendScore} size="lg" animate showLabel />
+          <LegendScoreBadge score={totalScore} size="lg" animate showLabel />
         </div>
         <p className="font-score text-3xl font-bold text-cardboard mt-2">
-          {session.totalLegendScore.toFixed(1)}
+          {totalScore.toFixed(1)}
           <span className="text-base text-cardboard/40">/100</span>
         </p>
       </motion.div>
@@ -97,10 +99,10 @@ export function Results() {
         className="mb-4"
       >
         <ShareCard
-          totalScore={session.totalLegendScore}
-          percentile={session.percentile}
+          totalScore={totalScore}
+          percentile={percentile}
           picks={picks}
-          date={session.completedAt.split('T')[0]}
+          date={session.completedAt?.split('T')[0] ?? ''}
         />
       </motion.div>
 
@@ -128,7 +130,7 @@ export function Results() {
         >
           <span className="font-heading">Perfect Lineup</span>
           <span className="scoreboard text-[10px] px-1.5 py-0.5">
-            {perfectLineup.totalScore.toFixed(1)}
+            {safeNum(perfectLineup.totalScore).toFixed(1)}
           </span>
           {showPerfect ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
@@ -153,11 +155,11 @@ export function Results() {
                 <span
                   className={cn(
                     'font-score text-xs font-bold px-1.5 py-0.5 rounded text-white',
-                    getLegendScoreTier(pick.legendScore),
+                    getLegendScoreTier(safeNum(pick.legendScore)),
                   )}
                   style={{ background: 'var(--ls-bg)' }}
                 >
-                  {pick.legendScore.toFixed(1)}
+                  {safeNum(pick.legendScore).toFixed(1)}
                 </span>
               </div>
             ))}

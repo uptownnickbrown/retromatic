@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { Share2 } from 'lucide-react';
 import type { ResultsPick } from '../../types';
+import { safeNum } from '../../lib/numeric';
 
 interface ShareCardProps {
   totalScore: number;
@@ -19,14 +20,14 @@ function getScoreEmoji(score: number): string {
 
 export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProps) {
   const generateShareText = useCallback(() => {
-    const grid = picks.map(p => getScoreEmoji(p.legendScore)).join('');
+    const grid = picks.map(p => getScoreEmoji(safeNum(p.legendScore))).join('');
     const lines = [
       `\u{26BE} Sandlot ${date}`,
       '',
       grid,
       '',
-      `Legend Score: ${totalScore.toFixed(1)}/100`,
-      `Top ${Math.max(1, 100 - Math.round(percentile))}%`,
+      `Legend Score: ${safeNum(totalScore).toFixed(1)}/100`,
+      `Top ${Math.max(1, 100 - Math.round(safeNum(percentile)))}%`,
       '',
       'playsandlot.com',
     ];

@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { getLegendScoreLabel, getLegendScoreTier } from '../../types';
+import { safeNum } from '../../lib/numeric';
 
 interface LegendScoreBadgeProps {
   score: number;
@@ -9,7 +10,8 @@ interface LegendScoreBadgeProps {
   showLabel?: boolean;
 }
 
-export function LegendScoreBadge({ score, size = 'md', animate = false, showLabel = false }: LegendScoreBadgeProps) {
+export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false, showLabel = false }: LegendScoreBadgeProps) {
+  const score = safeNum(rawScore);
   const label = getLegendScoreLabel(score);
   const tier = getLegendScoreTier(score);
   const isLegendary = score >= 9.0;

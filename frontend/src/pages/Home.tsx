@@ -4,6 +4,7 @@ import { Play, BarChart3, Trophy, Flame } from 'lucide-react';
 import { useTodaysChallenge, useStreak } from '../hooks/useChallenge';
 import { cn } from '../lib/utils';
 import { LegendScoreBadge } from '../components/game/LegendScoreBadge';
+import { safeNum } from '../lib/numeric';
 
 export function Home() {
   const navigate = useNavigate();
@@ -71,7 +72,7 @@ export function Home() {
                 <p className="card-banner text-[10px] inline-block mb-1">Today's Result</p>
                 <p className="text-field-dark/50 text-xs font-score mt-1">{challenge.date}</p>
               </div>
-              <LegendScoreBadge score={session.totalLegendScore ?? 0} size="md" showLabel />
+              <LegendScoreBadge score={safeNum(session.totalLegendScore)} size="md" showLabel />
             </div>
 
             {session.percentile !== null && (
@@ -79,7 +80,7 @@ export function Home() {
                 <p className="text-center text-sm font-body text-cardboard-light">
                   You scored better than{' '}
                   <span className="font-heading text-amber-light text-lg">
-                    {Math.round(session.percentile)}%
+                    {Math.round(safeNum(session.percentile, 50))}%
                   </span>{' '}
                   of players
                 </p>
