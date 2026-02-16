@@ -1,155 +1,152 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { drafts, teamPool } from '../db/schema.js';
-import { eq, desc, gte, and, sql, isNotNull } from 'drizzle-orm';
+import { gameSessions, challenges } from '../db/schema.js';
+import { eq, desc, gte, and, sql } from 'drizzle-orm';
 
 const router = Router();
 
-// Get leaderboard
+// GET /api/leaderboard - Get leaderboard
 router.get('/', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-    const period = req.query.period as string || 'all';
+    const period = req.query.period as string || 'today';
+
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
 
     let dateFilter;
-    const now = new Date();
-
     switch (period) {
-      case 'week':
-        dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      case 'today':
+        dateFilter = today;
         break;
-      case 'month':
-        dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      case 'week': {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        dateFilter = weekAgo.toISOString().split('T')[0];
         break;
+      }
       default:
-        dateFilter = null;
+        dateFilter = null; // all time
     }
 
-    let query = db.select({
-      id: drafts.id,
-      guestToken: drafts.guestToken,
-      totalScore: drafts.totalScore,
-      percentile: drafts.percentile,
-      rotoPlacement: drafts.rotoPlacement,
-      completedAt: drafts.completedAt,
-    })
-      .from(drafts)
-      .where(eq(drafts.status, 'completed'));
+    // For "today", get scores for today's challenge only
+    // For "week" or "alltime", aggregate best scores
+    let leaderboard;
 
-    if (dateFilter) {
-      query = query.where(
-        and(
-          eq(drafts.status, 'completed'),
-          gte(drafts.completedAt, dateFilter)
-        )
-      );
+    if (period === 'today') {
+      leaderboard = await db.select({
+        guestToken: gameSessions.guestToken,
+        totalLegendScore: gameSessions.totalLegendScore,
+        percentile: gameSessions.percentile,
+        completedAt: gameSessions.completedAt,
+      })
+        .from(gameSessions)
+        .innerJoin(challenges, eq(gameSessions.challengeId, challenges.id))
+        .where(and(
+          eq(gameSessions.status, 'completed'),
+          eq(challenges.challengeDate, today)
+        ))
+        .orderBy(desc(gameSessions.totalLegendScore))
+        .limit(limit);
+    } else {
+      // For week/alltime, show best single-day score per user
+      const conditions = [eq(gameSessions.status, 'completed')];
+      if (dateFilter) {
+        conditions.push(gte(challenges.challengeDate, dateFilter));
+      }
+
+      leaderboard = await db.select({
+        guestToken: gameSessions.guestToken,
+        totalLegendScore: sql<string>`max(${gameSessions.totalLegendScore})`,
+        percentile: sql<number>`max(${gameSessions.percentile})`,
+        completedAt: sql<Date>`max(${gameSessions.completedAt})`,
+      })
+        .from(gameSessions)
+        .innerJoin(challenges, eq(gameSessions.challengeId, challenges.id))
+        .where(and(...conditions))
+        .groupBy(gameSessions.guestToken)
+        .orderBy(desc(sql`max(${gameSessions.totalLegendScore})`))
+        .limit(limit);
     }
 
-    const leaderboard = await query
-      .orderBy(desc(drafts.totalScore))
-      .limit(limit);
-
-    // Add rank
-    const rankedLeaderboard = leaderboard.map((entry, index) => ({
+    const ranked = leaderboard.map((entry, index) => ({
       rank: index + 1,
-      displayName: `Guest_${entry.guestToken?.substring(0, 6) || 'anon'}`,
-      score: parseFloat(entry.totalScore as string || '0'),
+      displayName: `Player_${entry.guestToken?.substring(0, 6) || 'anon'}`,
+      score: parseFloat(entry.totalLegendScore as string || '0'),
       percentile: entry.percentile,
-      rotoPlacement: entry.rotoPlacement,
       completedAt: entry.completedAt,
-      draftId: entry.id,
     }));
 
-    // Get total count
-    const totalResult = await db.select({
-      count: sql<number>`count(*)`,
-    })
-      .from(drafts)
-      .where(eq(drafts.status, 'completed'));
-
-    res.json({
-      leaderboard: rankedLeaderboard,
-      totalTeams: totalResult[0].count,
-      period,
-    });
+    res.json({ leaderboard: ranked, period });
   } catch (error) {
     console.error('Leaderboard error:', error);
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
   }
 });
 
-// Get user's drafts
-router.get('/user/:guestToken/drafts', async (req, res) => {
+// GET /api/leaderboard/streak - Get current user's streak
+router.get('/streak', async (req, res) => {
   try {
-    const { guestToken } = req.params;
-
-    const userDrafts = await db.select({
-      id: drafts.id,
-      status: drafts.status,
-      totalScore: drafts.totalScore,
-      percentile: drafts.percentile,
-      rotoPlacement: drafts.rotoPlacement,
-      createdAt: drafts.createdAt,
-      completedAt: drafts.completedAt,
-    })
-      .from(drafts)
-      .where(eq(drafts.guestToken, guestToken))
-      .orderBy(desc(drafts.createdAt));
-
-    res.json({ drafts: userDrafts });
-  } catch (error) {
-    console.error('User drafts error:', error);
-    res.status(500).json({ error: 'Failed to fetch user drafts' });
-  }
-});
-
-// Get user's rank
-router.get('/user/:guestToken/rank', async (req, res) => {
-  try {
-    const { guestToken } = req.params;
-
-    // Get user's best score
-    const userBest = await db.select({
-      totalScore: drafts.totalScore,
-    })
-      .from(drafts)
-      .where(and(
-        eq(drafts.guestToken, guestToken),
-        eq(drafts.status, 'completed')
-      ))
-      .orderBy(desc(drafts.totalScore))
-      .limit(1);
-
-    if (userBest.length === 0) {
-      return res.json({ rank: null, totalTeams: 0 });
+    const guestToken = req.headers['x-guest-token'] as string;
+    if (!guestToken) {
+      res.json({ current: 0, longest: 0 });
+      return;
     }
 
-    const userScore = userBest[0].totalScore;
-
-    // Count teams with higher scores
-    const rankResult = await db.select({
-      count: sql<number>`count(*)`,
+    // Get all completed challenge dates for this user, ordered desc
+    const sessions = await db.select({
+      date: challenges.challengeDate,
     })
-      .from(drafts)
+      .from(gameSessions)
+      .innerJoin(challenges, eq(gameSessions.challengeId, challenges.id))
       .where(and(
-        eq(drafts.status, 'completed'),
-        sql`${drafts.totalScore} > ${userScore}`
-      ));
+        eq(gameSessions.guestToken, guestToken),
+        eq(gameSessions.status, 'completed')
+      ))
+      .orderBy(desc(challenges.challengeDate));
 
-    const totalResult = await db.select({
-      count: sql<number>`count(*)`,
-    })
-      .from(drafts)
-      .where(eq(drafts.status, 'completed'));
+    if (sessions.length === 0) {
+      res.json({ current: 0, longest: 0 });
+      return;
+    }
 
-    res.json({
-      rank: rankResult[0].count + 1,
-      totalTeams: totalResult[0].count,
-      bestScore: parseFloat(userScore as string || '0'),
-    });
+    // Calculate streaks
+    const dates = sessions.map(s => s.date);
+    const today = new Date().toISOString().split('T')[0];
+
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let tempStreak = 1;
+
+    // Check if streak includes today or yesterday
+    const firstDate = new Date(dates[0]);
+    const todayDate = new Date(today);
+    const diffDays = Math.floor((todayDate.getTime() - firstDate.getTime()) / (86400000));
+
+    if (diffDays <= 1) {
+      currentStreak = 1;
+
+      // Count consecutive days backwards
+      for (let i = 1; i < dates.length; i++) {
+        const prev = new Date(dates[i - 1]);
+        const curr = new Date(dates[i]);
+        const diff = Math.floor((prev.getTime() - curr.getTime()) / 86400000);
+
+        if (diff === 1) {
+          currentStreak++;
+          tempStreak++;
+        } else {
+          longestStreak = Math.max(longestStreak, tempStreak);
+          tempStreak = 1;
+        }
+      }
+    }
+
+    longestStreak = Math.max(longestStreak, tempStreak, currentStreak);
+
+    res.json({ current: currentStreak, longest: longestStreak });
   } catch (error) {
-    console.error('User rank error:', error);
-    res.status(500).json({ error: 'Failed to fetch user rank' });
+    console.error('Streak error:', error);
+    res.status(500).json({ error: 'Failed to calculate streak' });
   }
 });
 

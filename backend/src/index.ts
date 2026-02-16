@@ -1,9 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import playersRouter from './routes/players.js';
-import draftsRouter from './routes/drafts.js';
+import challengeRouter from './routes/challenge.js';
 import leaderboardRouter from './routes/leaderboard.js';
+import adminRouter from './routes/admin.js';
+import { activateTodaysChallenge } from './services/dailyScheduler.js';
 
 dotenv.config();
 
@@ -15,9 +16,9 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-app.use('/api/players', playersRouter);
-app.use('/api/drafts', draftsRouter);
+app.use('/api/challenge', challengeRouter);
 app.use('/api/leaderboard', leaderboardRouter);
+app.use('/api/admin', adminRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -30,8 +31,16 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// On startup, try to activate today's challenge
+activateTodaysChallenge()
+  .then(result => {
+    if (result.activated) console.log(`Activated challenge ${result.activated} for today`);
+    if (result.completed) console.log(`Completed ${result.completed} past challenges`);
+  })
+  .catch(err => console.error('Scheduler error on startup:', err));
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Sandlot API running on port ${PORT}`);
 });
 
 export default app;
