@@ -192,6 +192,27 @@ router.post('/:id/pick', async (req, res) => {
       return;
     }
 
+    if (session.currentRound > 10) {
+      res.status(400).json({ error: 'Game already completed' });
+      return;
+    }
+
+    // Validate round belongs to this challenge and matches current round
+    const [round] = await db.select()
+      .from(challengeRounds)
+      .where(eq(challengeRounds.id, roundId))
+      .limit(1);
+
+    if (!round || round.challengeId !== challengeId || round.roundNumber !== session.currentRound) {
+      res.status(400).json({ error: 'Invalid round for this session' });
+      return;
+    }
+
+    // Fetch round options once for validation + blurb lookup
+    const roundOptionsList = await db.select()
+      .from(roundOptions)
+      .where(eq(roundOptions.roundId, roundId));
+
     // Look up the player record for this player+year
     const [playerRecord] = await db.select()
       .from(players)
@@ -247,17 +268,7 @@ router.post('/:id/pick', async (req, res) => {
       percentage: totalPicks > 0 ? Math.round((s.pickCount / totalPicks) * 100) : 0,
     }));
 
-    // Get the round's blurb for the selected player-year
-    const [round] = await db.select()
-      .from(challengeRounds)
-      .where(eq(challengeRounds.id, roundId))
-      .limit(1);
-
-    const roundOptionsList = await db.select()
-      .from(roundOptions)
-      .where(eq(roundOptions.roundId, roundId));
-
-    // Find the blurb for the selected player+year
+    // Find the blurb for the selected player+year (roundOptionsList already fetched above)
     let blurb = '';
     for (const opt of roundOptionsList) {
       const yearOptions = opt.yearOptions as number[];
@@ -269,7 +280,7 @@ router.post('/:id/pick', async (req, res) => {
     }
 
     // Determine if this is the last round
-    const isLastRound = session.currentRound >= 10;
+    const isLastRound = session.currentRound === 10;
     const nextRoundNumber = session.currentRound + 1;
 
     if (isLastRound) {
