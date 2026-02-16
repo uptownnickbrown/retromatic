@@ -4,6 +4,7 @@ import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pic
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { calculatePerfectLineup, calculateSessionPercentile } from '../services/legendScore.js';
+import { toNum } from '../lib/numeric.js';
 
 const router = Router();
 
@@ -62,9 +63,9 @@ router.get('/today', async (req, res) => {
           id: existingSession.id,
           currentRound: existingSession.currentRound,
           status: existingSession.status,
-          totalLegendScore: existingSession.totalLegendScore,
-          percentile: existingSession.percentile,
-          picks,
+          totalLegendScore: toNum(existingSession.totalLegendScore),
+          percentile: toNum(existingSession.percentile, 50),
+          picks: picks.map(p => ({ ...p, legendScore: toNum(p.legendScore) })),
         };
       }
     }
@@ -90,6 +91,11 @@ router.post('/:id/start', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
     const guestToken = getGuestToken(req);
+
+    if (isNaN(challengeId)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
 
     if (!guestToken) {
       res.status(400).json({ error: 'Guest token required' });
@@ -117,7 +123,19 @@ router.post('/:id/start', async (req, res) => {
       .limit(1);
 
     if (existing) {
-      res.status(409).json({ error: 'Session already exists', sessionId: existing.id });
+      // Idempotent: return existing session with current round data
+      if (existing.status === 'completed') {
+        res.json({
+          session: { id: existing.id, currentRound: existing.currentRound, status: 'completed' },
+          round: null,
+        });
+        return;
+      }
+      const existingRound = await getRoundData(challengeId, existing.currentRound);
+      res.json({
+        session: { id: existing.id, currentRound: existing.currentRound },
+        round: existingRound,
+      });
       return;
     }
 
@@ -148,6 +166,11 @@ router.post('/:id/pick', async (req, res) => {
     const challengeId = parseInt(req.params.id);
     const guestToken = getGuestToken(req);
     const { sessionId, roundId, playerId, year, wasTimeout } = req.body;
+
+    if (isNaN(challengeId)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
 
     if (!sessionId || !roundId || !playerId || !year) {
       res.status(400).json({ error: 'Missing required fields' });
@@ -181,25 +204,36 @@ router.post('/:id/pick', async (req, res) => {
     }
 
     // Calculate Legend Score
-    const legendScore = calculateLegendScore(Number(playerRecord.zScorePosition));
+    const legendScore = calculateLegendScore(toNum(playerRecord.zScorePosition));
 
-    // Insert pick
-    await db.insert(userPicks).values({
-      sessionId,
-      roundId,
-      selectedPlayerId: playerId,
-      selectedYear: year,
-      legendScore: String(legendScore),
-      wasTimeout: wasTimeout || false,
-    });
+    // Check if pick already exists for this round (idempotent)
+    const [existingPick] = await db.select()
+      .from(userPicks)
+      .where(and(
+        eq(userPicks.sessionId, sessionId),
+        eq(userPicks.roundId, roundId)
+      ))
+      .limit(1);
 
-    // Update pick stats
-    await db.execute(sql`
-      INSERT INTO pick_stats (round_id, player_id, selected_year, pick_count)
-      VALUES (${roundId}, ${playerId}, ${year}, 1)
-      ON CONFLICT (round_id, player_id, selected_year)
-      DO UPDATE SET pick_count = pick_stats.pick_count + 1, updated_at = NOW()
-    `);
+    if (!existingPick) {
+      // Insert pick
+      await db.insert(userPicks).values({
+        sessionId,
+        roundId,
+        selectedPlayerId: playerId,
+        selectedYear: year,
+        legendScore: String(legendScore),
+        wasTimeout: wasTimeout || false,
+      });
+
+      // Update pick stats (only on first submission, not retries)
+      await db.execute(sql`
+        INSERT INTO pick_stats (round_id, player_id, selected_year, pick_count)
+        VALUES (${roundId}, ${playerId}, ${year}, 1)
+        ON CONFLICT (round_id, player_id, selected_year)
+        DO UPDATE SET pick_count = pick_stats.pick_count + 1, updated_at = NOW()
+      `);
+    }
 
     // Get pick percentages for this round
     const allStats = await db.select()
@@ -244,7 +278,7 @@ router.post('/:id/pick', async (req, res) => {
         .from(userPicks)
         .where(eq(userPicks.sessionId, sessionId));
 
-      const totalScore = allPicks.reduce((sum, p) => sum + Number(p.legendScore), 0);
+      const totalScore = allPicks.reduce((sum, p) => sum + toNum(p.legendScore), 0);
       const roundedTotal = Math.round(totalScore * 10) / 10;
 
       // Calculate percentile
@@ -297,6 +331,11 @@ router.get('/:id/results', async (req, res) => {
     const challengeId = parseInt(req.params.id);
     const guestToken = getGuestToken(req);
 
+    if (isNaN(challengeId)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
+
     // Get session
     const [session] = await db.select()
       .from(gameSessions)
@@ -344,13 +383,13 @@ router.get('/:id/results', async (req, res) => {
 
     res.json({
       session: {
-        totalLegendScore: session.totalLegendScore,
-        percentile: session.percentile,
+        totalLegendScore: toNum(session.totalLegendScore),
+        percentile: toNum(session.percentile, 50),
         completedAt: session.completedAt,
       },
-      picks,
+      picks: picks.map(p => ({ ...p, legendScore: toNum(p.legendScore) })),
       perfectLineup,
-      totalParticipants: countResult?.count || 0,
+      totalParticipants: toNum(countResult?.count),
     });
   } catch (error) {
     console.error('Error fetching results:', error);
@@ -378,7 +417,7 @@ async function getRoundData(challengeId: number, roundNumber: number) {
   // For each option, resolve the player record IDs for each year
   const playerOptions = await Promise.all(options.map(async (opt) => {
     const years = opt.yearOptions as number[];
-    const yearOptionsWithIds = await Promise.all(years.map(async (year) => {
+    const yearOptionsRaw = await Promise.all(years.map(async (year) => {
       const [record] = await db.select({ id: players.id })
         .from(players)
         .where(and(
@@ -386,8 +425,13 @@ async function getRoundData(challengeId: number, roundNumber: number) {
           eq(players.year, year)
         ))
         .limit(1);
-      return { year, playerRecordId: record?.id || 0 };
+      if (!record) {
+        console.warn(`Missing player record for playerId=${opt.playerId} year=${year}`);
+        return null;
+      }
+      return { year, playerRecordId: record.id };
     }));
+    const yearOptionsWithIds = yearOptionsRaw.filter((y): y is { year: number; playerRecordId: number } => y !== null);
 
     return {
       slot: opt.playerSlot,
