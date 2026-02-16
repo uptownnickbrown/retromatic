@@ -1,73 +1,163 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Retromatic is a fantasy baseball draft game where users draft historical MLB players (1961-2023) to create all-time dream teams. Teams are scored using rotisserie scoring across 10 statistical categories (5 batting, 5 pitching) with percentile-based rankings.
+**Sandlot** is a mobile-first daily fantasy baseball draft challenge. Each day, all users play the same 10-round draft, picking from curated historical MLB player-seasons (1961-2025). Inspired by DraftKings Flash Draft and Immaculate Grid.
+
+### Core Game Loop
+1. All 10 rounds of data loaded upfront at game start (single API call)
+2. Each round shows 3 players × 3 year options = 9 choices for one roster position
+3. 30-second timer per pick (auto-random on timeout)
+4. After picking: instant client-side reveal with Sandlot Score, AI blurb, community pick % (no server round-trip)
+5. 10 rounds total (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P — order randomized daily)
+6. Game state saved to localStorage after each pick (crash recovery)
+7. Final results: all picks submitted in one batch, server re-validates scores
+
+### Sandlot Score
+The game's signature 1.0–10.0 metric. Measures how dominant a player-season was relative to others at the same position.
+
+**How it's computed** (data pipeline, `preprocess-to-postgres.py`):
+1. **Individual stat z-scores** — each counting stat is z-scored within the player's position group (e.g., HR for catchers only). `zscore = (value - position_mean) / position_std_dev`.
+2. **Composite z-score** — the individual z-scores are **summed** into a single `z_score_position`:
+   - Batters: `R_z + HR_z + RBI_z + SB_z + H_z − Outs_z` (6 components)
+   - Pitchers: `W_z + SV_z + SO_z + ER_saved_z + BR_saved_z` (5 components; W and SV use overall z-scores to avoid degenerate variance within SP/RP)
+3. **Linear mapping** — `z_score_position` is mapped to 1.0–10.0 (clamped at z=−2 and z=10):
+   `sandlotScore = 1.0 + ((clamp(z, -2, 10) + 2) / 12) × 9.0`
+
+Because it's a **sum of multiple z-scores**, values well above 10 are possible. A `z_score_position` of 18 doesn't mean "18 standard deviations above the mean" — it means the player averaged ~3σ above their position's mean across each of the 6 stat categories. Scores ≥ 9.5 (z ≥ 9.33) earn "Sandlot Legend" status.
+
+**Special cases**: UTIL batters and P-position pitchers have tiny pools, so they z-score against all batters / all pitchers respectively.
 
 ## Commands
 
 ```bash
-# Development
-npm start              # Start React dev server at http://localhost:3000
-npm run build          # Production build
-npm test               # Run tests via react-scripts
+# Start PostgreSQL
+docker compose up -d
 
-# Data preprocessing (requires Python with pandas, numpy, scipy)
-python data-preprocessing/preprocess-to-sqlite.py \
-  data-preprocessing/lahman_1871-2023_csv \
-  ./data/retromatic.db
+# Backend (Terminal 1)
+cd backend && npm run dev    # Express server at http://localhost:3001
+
+# Frontend (Terminal 2)
+cd frontend && npm run dev   # Vite dev server at http://localhost:3000
+
+# Database migration
+cd backend && npx drizzle-kit push
+
+# Data pipeline (one-time, populates player data)
+cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2025_csv
+
+# CI verification (run before pushing — matches GitHub Actions exactly)
+cd frontend && npm run lint && npx tsc -b --noEmit && npm test
+cd backend && npm run lint && npx tsc --noEmit && npm test
 ```
+
+**Important:** The frontend CI uses `tsc -b --noEmit` (build mode), which is stricter than `tsc --noEmit`. Always use `-b` locally to catch errors before pushing.
 
 ## Architecture
 
 ### Tech Stack
-- **Frontend**: React 18 + TypeScript, Material-UI (MUI) 6, React Router 6, Framer Motion
-- **Backend**: Supabase (PostgreSQL) or local SQLite for development
-- **Data Processing**: Python scripts process Lahman Baseball Database CSVs
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS 4, TanStack React Query, Framer Motion, Lucide icons
+- **Backend**: Express 5, TypeScript, Drizzle ORM, PostgreSQL, OpenAI API (for blurbs)
+- **Data Pipeline**: Python (pandas, numpy, scipy) processes Lahman Baseball Database
 
 ### Key Directories
-- `src/pages/` - Main application pages (Home, Draft, Results)
-- `src/services/` - Data layer abstraction (`supabase.ts` for production, `localData.ts` for local dev)
-- `src/types/` - TypeScript definitions for Player, Draft, Pick, Roster types
-- `src/theme/` - MUI theme with baseball-inspired colors
-- `data-preprocessing/` - Python ETL scripts for player statistics
-- `docs/` - Design documentation (Architecture.md, PRD.md, CoreFlows.md)
+- `frontend/src/pages/` — Home, Game, Results, AdminLogin, AdminDashboard, AdminChallengeDetail
+- `frontend/src/components/game/` — PickGrid, Timer, LineupCard, RevealCard, SandlotScoreBadge, PlayerPortrait
+- `frontend/src/components/admin/` — AdminGuard, StatusBadge, HealthIndicators
+- `frontend/src/components/ui/` — PaperCard, VintageButton (shared design system)
+- `frontend/src/hooks/` — useGame (state machine), useTimer, useChallenge, useAdmin (admin mutations)
+- `frontend/src/lib/` — api.ts (game API client), adminApi.ts (admin API client), sandlotScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
+- `backend/src/routes/` — challenge.ts, admin.ts
+- `backend/src/services/` — sandlotScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts, portraitGenerator.ts, statsPreseeder.ts
+- `backend/src/db/` — Drizzle schema and connection
+- `data-preprocessing/` — Jupyter notebook, Python preprocessing scripts
+- `data-pipeline/` — PostgreSQL data ingestion
 
-### Data Flow
-1. Lahman CSV data → Python preprocessing → SQLite/Supabase
-2. Service layer (`src/services/`) abstracts database backend
-3. Draft page loads players, manages pick state, calculates scores
-4. Results page displays team composition and percentile ranking
+### Database Tables
+- `players` — ~36,500 player-season records with pre-computed Z-scores (read-only data, 1961-2025)
+- `challenges` — daily challenge definitions with position order and theme
+- `challenge_rounds` — 10 rounds per challenge, each with a position
+- `round_options` — 3 players per round, each with 3 year options, portrait URL, AI blurbs
+- `game_sessions` — user game state (current round, total score, completion)
+- `user_picks` — individual pick records with Sandlot Score
+- `pick_stats` — aggregated pick counts for "X% picked this"
 
-### Core Types (src/types/index.ts)
-- `Player`: id, name, position, year, stats (batting or pitching), zScore, posZScore
-- `Draft`: id, status ('created'|'in_progress'|'completed'), picks[], score, percentile
-- `Pick`: player selection with round/pick number
-- `BattingStats`: R, HR, RBI, SB, AVG
-- `PitchingStats`: W, SV, K, ERA, WHIP
+### API Routes
 
-### Scoring System
-- Z-scores are pre-computed during data preprocessing for fair cross-era player comparisons
-- Both position-relative (posZScore) and overall (zScore) rankings available
-- Team scores calculated by summing player z-scores across categories
+**Game (public)**:
+- `GET /api/challenge/today` — today's challenge + user's session status
+- `POST /api/challenge/:id/start` — begin game, returns ALL round data upfront (enriched players, stats, community picks)
+- `POST /api/challenge/:id/complete` — submit all 10 picks at once, get final results
+- `GET /api/challenge/:id/results` — completed game results with community stats
+- `GET /api/challenge/streak` — current user's play streak
+
+**Admin**: Protected by auth + rate limiting. See `backend/src/routes/admin.ts` for endpoints.
+
+### Frontend Game State Machine
+```
+LOADING → PICKING (30s timer, client-side) → REVEALING (5s) → next round or SUBMITTING_FINAL → COMPLETE
+```
+Picks are computed client-side (Sandlot Score from z-scores). Game state saved to localStorage after each pick. Single batch submission at game end.
 
 ### Routing
-- `/` - Home page
-- `/draft` - New solo draft
-- `/draft/:draftId` - Resume existing draft
-- `/results/:draftId` - View completed draft results
+- `/` — Home (daily challenge launcher)
+- `/play` — Game (10-round draft); supports `?playtest=<challengeId>` for admin playtest mode
+- `/results/:challengeId` — Results page
+- `/admin/login` — Admin login
+- `/admin` — Admin "Front Office" dashboard (pipeline overview, calendar strip, generation controls)
+- `/admin/challenge/:id` — Challenge detail (health, rounds, players, blurbs, playtest button)
+
+### Admin UI ("Front Office")
+The admin dashboard at `/admin` provides:
+- **Calendar strip**: 14-day view with green/amber/empty dots showing challenge coverage
+- **Pipeline view**: challenges grouped by Active / Upcoming / Draft with health indicators
+- **Generation**: single challenge, 25-themed batch, or activate today's challenge
+- **Challenge detail page**: per-round breakdown of players, Sandlot Scores, blurb previews, portrait thumbnails
+- **Action buttons**: Generate Blurbs, Generate Portraits, Preseed Stats, Schedule, Playtest, Delete
+- **Playtest mode**: plays any challenge in-browser with a yellow "Playtest Mode" banner, no real session created, returns to admin detail on completion
+
+### Challenge Data Pipeline
+A fully baked challenge requires these steps (can be done from admin UI or API):
+1. **Generate** — creates challenge with 10 rounds, 3 players each, 3 year options per player
+2. **Generate Blurbs** — AI-written player-season blurbs via OpenAI (~45s for 90 blurbs, parallelized 8-way)
+3. **Generate Portraits** — AI stipple-engraving portraits via Gemini
+4. **Preseed Stats** — 200 synthetic community picks for realistic "X% picked this" on day one
+5. **Schedule** — assign a date and set status to "scheduled"
+6. **Activate** — daily scheduler sets today's challenge to "active" (automatic or manual via admin)
 
 ## Environment Configuration
 
-Copy `.env.example` to `.env`. The app supports two modes:
-- **Local**: Uses SQLite database at `./data/retromatic.db`
-- **Production**: Set `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` for Supabase
+Copy `backend/.env.example` to `backend/.env`. See that file for required variables.
 
-## Important Notes
+### Network / Mobile Testing
+- Vite dev server listens on all interfaces (`host: true` in vite.config.ts)
+- Access from other devices on the same Wi-Fi via `http://<laptop-ip>:3000`
+- The Vite proxy forwards `/api` requests to the backend at `localhost:3001`
 
-- README mentions Chakra UI but codebase actually uses Material-UI (MUI)
-- Draft interface intentionally has no search/filter - this is a memory-based game design choice
-- Multiplayer functionality is planned for future phases but not yet implemented
-- The `contexts/`, `hooks/`, and `utils/` directories exist but are empty (reserved for future use)
+### Fonts
+Only two font families are defined in the theme (`index.css`):
+- `font-editorial` — Playfair Display (headings, player names, scores)
+- `font-mono` — Space Mono (stats, labels, body text, blurbs)
+
+Do not use `font-hand`, `font-sans`, or other undefined font classes.
+
+### Data Model: Players Table
+Each row in `players` is a **player-season** (e.g., "Mike Trout 2019" and "Mike Trout 2020" are separate rows with different IDs). This means `playerRecordId` is unique per player-year, not per player name. When matching across year options for the same player, use the set of all `playerRecordId` values, not a single ID.
+
+## Deployment
+
+Hosted on Railway. See `.claude/PRIVATE_NOTES.md` for deploy pipeline details (not tracked in git).
+
+## Working Principles
+
+- **Check docs before inventing solutions.** When facing infrastructure, deployment, or tooling problems, research the platform's documentation first. Use built-in primitives rather than building custom workarounds.
+- **One change at a time for infrastructure.** Don't switch the builder, migration strategy, and deploy config all at once. Make incremental changes so failures are easy to diagnose.
+
+## Design Principles
+
+- **Mobile-first**: All UI optimized for phone screens (375px viewport). Touch targets 44px+.
+- **Fun over depth**: Quick 5-minute daily game, not a complex fantasy simulator
+- **Sandlot Score is the star**: The branded 1-10 metric should feel satisfying and shareable
+- **Daily challenge = social glue**: Same slate for everyone enables comparison and conversation
