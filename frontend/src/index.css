@@ -138,6 +138,11 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
 }
 
+/* Safe area for mobile */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
 /* Focus styles */
 :focus-visible {
   outline: 2px solid var(--color-gold);

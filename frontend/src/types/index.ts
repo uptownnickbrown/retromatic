@@ -1,0 +1,129 @@
+export const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] as const;
+export type Position = typeof POSITIONS[number];
+
+export interface Challenge {
+  id: number;
+  date: string;
+  positionOrder: string[];
+  theme: string | null;
+  totalRounds: number;
+}
+
+export interface GameSession {
+  id: string;
+  currentRound: number;
+  status: 'in_progress' | 'completed';
+  totalLegendScore: number | null;
+  percentile: number | null;
+  picks: PickSummary[];
+}
+
+export interface PickSummary {
+  roundNumber: number;
+  position: string;
+  playerName: string;
+  year: number;
+  legendScore: number;
+}
+
+export interface YearOption {
+  year: number;
+  playerRecordId: number;
+}
+
+export interface PlayerOption {
+  slot: number;
+  name: string;
+  portraitUrl: string | null;
+  yearOptions: YearOption[];
+}
+
+export interface RoundData {
+  roundId: number;
+  roundNumber: number;
+  position: string;
+  players: PlayerOption[];
+  timeLimit: number;
+}
+
+export interface PickPercentage {
+  playerId: number;
+  year: number;
+  percentage: number;
+}
+
+export interface RevealData {
+  legendScore: number;
+  blurb: string;
+  stats: Record<string, number>;
+  playerName: string;
+  year: number;
+  team: string;
+  pickPercentages: PickPercentage[];
+}
+
+export interface ResultsPick {
+  roundNumber: number;
+  position: string;
+  playerName: string;
+  year: number;
+  team: string;
+  legendScore: number;
+  stats: Record<string, number>;
+  wasTimeout: boolean;
+}
+
+export interface PerfectLineup {
+  picks: Array<{ roundNumber: number; position: string; playerName: string; year: number; legendScore: number }>;
+  totalScore: number;
+}
+
+export interface ResultsData {
+  session: { totalLegendScore: number; percentile: number; completedAt: string };
+  picks: ResultsPick[];
+  perfectLineup: PerfectLineup;
+  totalParticipants: number;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  displayName: string;
+  score: number;
+  percentile: number;
+  completedAt: string;
+}
+
+// Legend Score helpers
+export function getLegendScoreColor(score: number): string {
+  if (score >= 9.0) return 'text-yellow-400';
+  if (score >= 7.0) return 'text-emerald-400';
+  if (score >= 5.0) return 'text-slate-300';
+  if (score >= 3.0) return 'text-amber-500';
+  return 'text-red-400';
+}
+
+export function getLegendScoreBg(score: number): string {
+  if (score >= 9.0) return 'bg-yellow-400/20 border-yellow-400/50';
+  if (score >= 7.0) return 'bg-emerald-400/20 border-emerald-400/50';
+  if (score >= 5.0) return 'bg-slate-400/20 border-slate-400/50';
+  if (score >= 3.0) return 'bg-amber-500/20 border-amber-500/50';
+  return 'bg-red-400/20 border-red-400/50';
+}
+
+export function getLegendScoreLabel(score: number): string {
+  if (score >= 9.5) return 'LEGENDARY';
+  if (score >= 8.5) return 'ELITE';
+  if (score >= 7.0) return 'ALL-STAR';
+  if (score >= 5.0) return 'SOLID';
+  if (score >= 3.0) return 'AVERAGE';
+  return 'BENCH';
+}
+
+export function getPositionEmoji(position: string): string {
+  const map: Record<string, string> = {
+    C: '\u{1F3D1}', '1B': '\u{1F94E}', '2B': '\u{1F94E}', SS: '\u{1F94E}',
+    '3B': '\u{1F94E}', OF: '\u{1F3DF}', UTIL: '\u{26A1}',
+    SP: '\u{1F4A8}', RP: '\u{1F525}', P: '\u{1F3AF}',
+  };
+  return map[position] || '\u{26BE}';
+}
