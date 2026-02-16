@@ -27,16 +27,17 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
       {players.map((player, i) => (
         <motion.div
           key={player.slot}
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: i * 0.1 }}
+          initial={{ opacity: 0, x: -30, rotateY: -10 }}
+          animate={{ opacity: 1, x: 0, rotateY: 0 }}
+          transition={{ delay: i * 0.12, type: 'spring', stiffness: 200, damping: 18 }}
           className={cn(
-            'premium-card rounded-xl p-3 transition-all',
-            selectedPlayer === player.slot && 'ring-2 ring-gold',
+            'card p-3 transition-all',
+            selectedPlayer === player.slot && 'ring-3 ring-amber',
             disabled && 'opacity-60 pointer-events-none',
           )}
         >
-          <div className="flex items-center gap-3 mb-2.5">
+          {/* Player header row */}
+          <div className="flex items-center gap-3 mb-2.5 relative z-10">
             <PlayerPortrait
               name={player.name}
               portraitUrl={player.portraitUrl}
@@ -44,24 +45,27 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
               size="md"
             />
             <div className="flex-1 min-w-0">
-              <h3 className="font-display text-cream text-base font-bold truncate">
+              <h3 className="font-heading text-field-dark text-base truncate leading-tight">
                 {player.name}
               </h3>
-              <span className="text-xs text-cream/50 font-mono">{position}</span>
+              <span className="card-banner text-[10px] inline-block mt-1 py-0.5 px-2">
+                {position}
+              </span>
             </div>
           </div>
-          <div className="flex gap-2">
+
+          {/* Year selection — ticket stub buttons */}
+          <div className="flex gap-2 relative z-10">
             {player.yearOptions.map(yo => (
               <button
                 key={yo.year}
                 onClick={() => handleYearPick(player, yo.year)}
                 disabled={disabled}
                 className={cn(
-                  'flex-1 py-2.5 rounded-lg font-mono font-bold text-sm',
-                  'bg-navy-light/80 text-cream border border-cream/10',
-                  'hover:border-gold hover:text-gold hover:bg-gold/10',
-                  'active:scale-95 transition-all duration-150',
-                  'focus-visible:ring-2 focus-visible:ring-gold',
+                  'ticket-btn flex-1 py-2.5 text-base',
+                  'hover:border-card-red hover:bg-card-red/5',
+                  'active:translate-y-0.5',
+                  'focus-visible:ring-2 focus-visible:ring-amber',
                   'min-h-[44px]',
                 )}
               >

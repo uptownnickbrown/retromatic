@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import type { ResultsPick } from '../../types';
-import { getLegendScoreColor, getLegendScoreBg } from '../../types';
+import { getLegendScoreTier } from '../../types';
 import { PlayerPortrait } from '../game/PlayerPortrait';
 
 interface FinalLineupProps {
@@ -16,14 +16,13 @@ export function FinalLineup({ picks }: FinalLineupProps) {
           key={i}
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: i * 0.08 }}
+          transition={{ delay: i * 0.06 }}
           className={cn(
-            'flex items-center gap-3 px-3 py-2.5 rounded-xl',
-            'bg-white/5 border border-white/5',
-            pick.wasTimeout && 'opacity-60',
+            'card flex items-center gap-3 px-3 py-2.5',
+            pick.wasTimeout && 'opacity-50',
           )}
         >
-          <span className="text-[10px] font-bold text-cream/40 w-6 text-center font-mono">
+          <span className="text-[10px] font-heading text-field-dark/40 w-7 text-center">
             {pick.position}
           </span>
           <PlayerPortrait
@@ -32,18 +31,23 @@ export function FinalLineup({ picks }: FinalLineupProps) {
             position={pick.position}
             size="sm"
           />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-cream truncate">{pick.playerName}</p>
-            <p className="text-xs text-cream/50 font-mono">
+          <div className="flex-1 min-w-0 relative z-10">
+            <p className="text-sm font-heading text-field-dark truncate">{pick.playerName}</p>
+            <p className="text-xs text-field-dark/50 font-body">
               {pick.year} &middot; {pick.team}
               {pick.wasTimeout && ' (auto)'}
             </p>
           </div>
-          <div className={cn(
-            'px-2 py-1 rounded-lg text-xs font-mono font-bold border',
-            getLegendScoreBg(pick.legendScore),
-            getLegendScoreColor(pick.legendScore),
-          )}>
+          <div
+            className={cn(
+              'px-2 py-1 rounded text-xs font-score font-bold text-white relative z-10',
+              getLegendScoreTier(pick.legendScore),
+            )}
+            style={{
+              background: 'var(--ls-bg)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }}
+          >
             {pick.legendScore.toFixed(1)}
           </div>
         </motion.div>

@@ -49,7 +49,7 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
   return (
     <button
       onClick={handleShare}
-      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gold text-navy font-bold text-sm hover:bg-gold-light active:scale-[0.98] transition-all min-h-[44px]"
+      className="card-banner w-full flex items-center justify-center gap-2 py-3.5 rounded-lg text-base min-h-[48px]"
     >
       <Share2 size={18} />
       Share Results

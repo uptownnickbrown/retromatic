@@ -97,16 +97,16 @@ export interface LeaderboardEntry {
 export function getLegendScoreColor(score: number): string {
   if (score >= 9.0) return 'text-yellow-400';
   if (score >= 7.0) return 'text-emerald-400';
-  if (score >= 5.0) return 'text-slate-300';
-  if (score >= 3.0) return 'text-amber-500';
+  if (score >= 5.0) return 'text-blue-400';
+  if (score >= 3.0) return 'text-orange-400';
   return 'text-red-400';
 }
 
 export function getLegendScoreBg(score: number): string {
   if (score >= 9.0) return 'bg-yellow-400/20 border-yellow-400/50';
   if (score >= 7.0) return 'bg-emerald-400/20 border-emerald-400/50';
-  if (score >= 5.0) return 'bg-slate-400/20 border-slate-400/50';
-  if (score >= 3.0) return 'bg-amber-500/20 border-amber-500/50';
+  if (score >= 5.0) return 'bg-blue-400/20 border-blue-400/50';
+  if (score >= 3.0) return 'bg-orange-400/20 border-orange-400/50';
   return 'bg-red-400/20 border-red-400/50';
 }
 
@@ -117,6 +117,15 @@ export function getLegendScoreLabel(score: number): string {
   if (score >= 5.0) return 'SOLID';
   if (score >= 3.0) return 'AVERAGE';
   return 'BENCH';
+}
+
+export function getLegendScoreTier(score: number): string {
+  if (score >= 9.5) return 'legend-legendary';
+  if (score >= 8.5) return 'legend-elite';
+  if (score >= 7.0) return 'legend-allstar';
+  if (score >= 5.0) return 'legend-solid';
+  if (score >= 3.0) return 'legend-average';
+  return 'legend-bench';
 }
 
 export function getPositionEmoji(position: string): string {

@@ -5,10 +5,10 @@ import { useState } from 'react';
 import { useChallengeResults } from '../hooks/useChallenge';
 import { cn } from '../lib/utils';
 import { getOrdinalSuffix } from '../lib/utils';
+import { getLegendScoreTier } from '../types';
 import { LegendScoreBadge } from '../components/game/LegendScoreBadge';
 import { FinalLineup } from '../components/results/FinalLineup';
 import { ShareCard } from '../components/results/ShareCard';
-import { getLegendScoreColor } from '../types';
 
 export function Results() {
   const { challengeId } = useParams<{ challengeId: string }>();
@@ -21,7 +21,7 @@ export function Results() {
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-3 border-card-red border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -29,12 +29,12 @@ export function Results() {
   if (error || !data) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-        <p className="text-cream/60 text-sm mb-4">
+        <p className="text-cardboard/60 text-sm font-body mb-4">
           {error ? (error as Error).message : 'Results not found'}
         </p>
         <button
           onClick={() => navigate('/')}
-          className="px-6 py-3 rounded-xl bg-cream/10 text-cream font-bold text-sm min-h-[44px]"
+          className="card-banner-blue px-6 py-3 text-sm min-h-[44px]"
         >
           Back Home
         </button>
@@ -44,40 +44,47 @@ export function Results() {
 
   const { session, picks, perfectLineup, totalParticipants } = data;
   const percentileRank = Math.max(1, 100 - Math.round(session.percentile));
+  const isGreatScore = session.totalLegendScore >= 70;
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-5 py-6 safe-bottom">
-      {/* Header score */}
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-4 py-5 safe-bottom">
+      {/* Header score — the big reveal */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-6"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+        className="text-center mb-5"
       >
-        <p className="text-xs text-cream/40 uppercase tracking-wider font-bold mb-3">
+        <p className="card-banner text-[10px] inline-block mb-3">
           Final Legend Score
         </p>
-        <LegendScoreBadge score={session.totalLegendScore} size="lg" animate showLabel />
-        <p className="text-3xl font-mono font-black text-cream mt-3">
+        <div className="flex justify-center mb-2">
+          <LegendScoreBadge score={session.totalLegendScore} size="lg" animate showLabel />
+        </div>
+        <p className="font-score text-3xl font-bold text-cardboard mt-2">
           {session.totalLegendScore.toFixed(1)}
-          <span className="text-base text-cream/40">/100</span>
+          <span className="text-base text-cardboard/40">/100</span>
         </p>
       </motion.div>
 
-      {/* Percentile */}
+      {/* Percentile rank card */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="premium-card rounded-2xl p-4 text-center mb-5"
+        className="dirt-card p-4 text-center mb-4"
       >
-        <p className="text-sm text-cream/80">
+        <p className="text-sm font-body text-cardboard-light">
           You placed{' '}
-          <span className="font-bold text-gold font-mono text-lg">
+          <span className={cn(
+            'font-heading text-xl',
+            isGreatScore ? 'text-amber-light' : 'text-cardboard',
+          )}>
             {getOrdinalSuffix(percentileRank)}
           </span>{' '}
           percentile
         </p>
-        <p className="text-xs text-cream/40 mt-1">
+        <p className="text-xs text-cardboard/40 font-body mt-1">
           out of {totalParticipants} player{totalParticipants !== 1 ? 's' : ''}
         </p>
       </motion.div>
@@ -87,7 +94,7 @@ export function Results() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="mb-5"
+        className="mb-4"
       >
         <ShareCard
           totalScore={session.totalLegendScore}
@@ -102,9 +109,9 @@ export function Results() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
-        className="mb-5"
+        className="mb-4"
       >
-        <h3 className="font-display text-lg text-cream font-bold mb-3">Your Lineup</h3>
+        <h3 className="font-heading text-cardboard text-lg mb-3">Your Lineup</h3>
         <FinalLineup picks={picks} />
       </motion.div>
 
@@ -113,15 +120,15 @@ export function Results() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        className="mb-5"
+        className="mb-4"
       >
         <button
           onClick={() => setShowPerfect(!showPerfect)}
-          className="flex items-center gap-2 text-sm text-cream/60 hover:text-cream transition-colors mb-3"
+          className="flex items-center gap-2 text-sm text-cardboard/60 hover:text-cardboard transition-colors mb-3 font-body"
         >
-          <span className="font-display font-bold">Perfect Lineup</span>
-          <span className="font-mono text-gold text-xs">
-            ({perfectLineup.totalScore.toFixed(1)})
+          <span className="font-heading">Perfect Lineup</span>
+          <span className="scoreboard text-[10px] px-1.5 py-0.5">
+            {perfectLineup.totalScore.toFixed(1)}
           </span>
           {showPerfect ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
@@ -134,15 +141,22 @@ export function Results() {
             {perfectLineup.picks.map((pick, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/5"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.06)' }}
               >
-                <span className="text-[10px] font-bold text-cream/40 w-6 text-center font-mono">
+                <span className="text-[10px] font-heading text-cardboard/40 w-6 text-center">
                   {pick.position}
                 </span>
-                <span className="flex-1 text-sm text-cream/80 truncate">
+                <span className="flex-1 text-sm text-cardboard/80 truncate font-body">
                   {pick.playerName} ({pick.year})
                 </span>
-                <span className={cn('font-mono text-xs font-bold', getLegendScoreColor(pick.legendScore))}>
+                <span
+                  className={cn(
+                    'font-score text-xs font-bold px-1.5 py-0.5 rounded text-white',
+                    getLegendScoreTier(pick.legendScore),
+                  )}
+                  style={{ background: 'var(--ls-bg)' }}
+                >
                   {pick.legendScore.toFixed(1)}
                 </span>
               </div>
@@ -155,14 +169,14 @@ export function Results() {
       <div className="flex gap-3 mt-auto pt-4">
         <button
           onClick={() => navigate('/')}
-          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-cream/10 text-cream font-bold text-sm hover:bg-cream/20 transition-all min-h-[44px]"
+          className="card-banner-blue flex-1 flex items-center justify-center gap-2 py-3 text-sm min-h-[44px]"
         >
           <Home size={16} />
           Home
         </button>
         <button
           onClick={() => navigate('/leaderboard')}
-          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-cream/10 text-cream font-bold text-sm hover:bg-cream/20 transition-all min-h-[44px]"
+          className="card-banner-blue flex-1 flex items-center justify-center gap-2 py-3 text-sm min-h-[44px]"
         >
           <Trophy size={16} />
           Leaderboard
