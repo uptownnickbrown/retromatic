@@ -1,15 +1,14 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Home } from "./pages/Home";
-import { Draft } from "./pages/Draft";
-import { Results } from "./pages/Results";
-import { Leaderboard } from "./pages/Leaderboard";
-import { History } from "./pages/History";
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Home } from './pages/Home';
+import { Game } from './pages/Game';
+import { Results } from './pages/Results';
+import { Leaderboard } from './pages/Leaderboard';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30000,
+      staleTime: 30_000,
       retry: 1,
     },
   },
@@ -21,10 +20,9 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/draft/:id" element={<Draft />} />
-          <Route path="/results/:id" element={<Results />} />
+          <Route path="/play" element={<Game />} />
+          <Route path="/results/:challengeId" element={<Results />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/history" element={<History />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
