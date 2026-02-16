@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Trophy, Medal } from 'lucide-react';
 import { useLeaderboard } from '../hooks/useChallenge';
-import { cn } from '../lib/utils';
-import { getOrdinalSuffix } from '../lib/utils';
+import { cn, getOrdinalSuffix } from '../lib/utils';
 import { getLegendScoreTier } from '../types';
+import { safeNum } from '../lib/numeric';
 
 const PERIODS = [
   { key: 'today', label: 'Today' },
@@ -103,20 +103,20 @@ export function Leaderboard() {
                   'text-xs font-body',
                   entry.rank <= 3 ? 'text-field-dark/50' : 'text-cardboard/40',
                 )}>
-                  {getOrdinalSuffix(Math.max(1, 100 - Math.round(entry.percentile)))} percentile
+                  {getOrdinalSuffix(Math.max(1, 100 - Math.round(safeNum(entry.percentile, 50))))} percentile
                 </p>
               </div>
               <span
                 className={cn(
                   'font-score font-bold text-sm px-2 py-1 rounded text-white relative z-10',
-                  getLegendScoreTier(entry.score / 10),
+                  getLegendScoreTier(safeNum(entry.score) / 10),
                 )}
                 style={{
                   background: 'var(--ls-bg)',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 }}
               >
-                {entry.score.toFixed(1)}
+                {safeNum(entry.score).toFixed(1)}
               </span>
             </motion.div>
           ))}

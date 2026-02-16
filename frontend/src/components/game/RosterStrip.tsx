@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import type { PickSummary } from '../../types';
 import { getLegendScoreTier } from '../../types';
+import { safeNum } from '../../lib/numeric';
 
 interface RosterStripProps {
   totalRounds: number;
@@ -28,14 +29,14 @@ export function RosterStrip({ totalRounds, currentRound, picks, positions }: Ros
                 transition={{ type: 'spring', stiffness: 300, damping: 15 }}
                 className={cn(
                   'w-7 h-7 rounded flex items-center justify-center text-[10px] font-score font-bold text-white',
-                  getLegendScoreTier(pick.legendScore),
+                  getLegendScoreTier(safeNum(pick.legendScore)),
                 )}
                 style={{
                   background: 'var(--ls-bg)',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
                 }}
               >
-                {pick.legendScore.toFixed(1)}
+                {safeNum(pick.legendScore).toFixed(1)}
               </motion.div>
             ) : isCurrent ? (
               <motion.div

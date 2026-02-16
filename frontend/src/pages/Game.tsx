@@ -8,6 +8,7 @@ import { RosterStrip } from '../components/game/RosterStrip';
 import { PickGrid } from '../components/game/PickGrid';
 import { RevealCard } from '../components/game/RevealCard';
 import { Loader2 } from 'lucide-react';
+import { safeNum } from '../lib/numeric';
 
 export function Game() {
   const navigate = useNavigate();
@@ -183,7 +184,7 @@ export function Game() {
       {game.picks.length > 0 && game.phase !== 'complete' && (
         <div className="text-center pb-3">
           <span className="scoreboard text-sm px-3 py-1">
-            {game.picks.reduce((sum, p) => sum + p.legendScore, 0).toFixed(1)}
+            {game.picks.reduce((sum, p) => sum + safeNum(p.legendScore), 0).toFixed(1)}
           </span>
         </div>
       )}

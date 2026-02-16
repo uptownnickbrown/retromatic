@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import type { ResultsPick } from '../../types';
 import { getLegendScoreTier } from '../../types';
+import { safeNum } from '../../lib/numeric';
 import { PlayerPortrait } from '../game/PlayerPortrait';
 
 interface FinalLineupProps {
@@ -41,14 +42,14 @@ export function FinalLineup({ picks }: FinalLineupProps) {
           <div
             className={cn(
               'px-2 py-1 rounded text-xs font-score font-bold text-white relative z-10',
-              getLegendScoreTier(pick.legendScore),
+              getLegendScoreTier(safeNum(pick.legendScore)),
             )}
             style={{
               background: 'var(--ls-bg)',
               boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
             }}
           >
-            {pick.legendScore.toFixed(1)}
+            {safeNum(pick.legendScore).toFixed(1)}
           </div>
         </motion.div>
       ))}
