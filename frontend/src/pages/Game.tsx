@@ -74,7 +74,7 @@ export function Game() {
     return (
       <div className="flex-1 flex items-center justify-center">
         <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
-          <Loader2 className="w-8 h-8 text-gold" />
+          <Loader2 className="w-8 h-8 text-amber" />
         </motion.div>
       </div>
     );
@@ -83,10 +83,10 @@ export function Game() {
   if (game.error && !game.challenge) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-        <p className="text-cream/60 text-sm mb-4">{game.error}</p>
+        <p className="text-cardboard/60 text-sm font-body mb-4">{game.error}</p>
         <button
           onClick={() => navigate('/')}
-          className="px-6 py-3 rounded-xl bg-cream/10 text-cream font-bold text-sm hover:bg-cream/20 transition-all min-h-[44px]"
+          className="card-banner-blue px-6 py-3 text-sm min-h-[44px]"
         >
           Back Home
         </button>
@@ -96,34 +96,34 @@ export function Game() {
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2">
-        <div className="flex-1">
-          <RosterStrip
-            totalRounds={game.totalRounds}
-            currentRound={game.roundNumber}
-            picks={game.picks}
-            positions={positions}
-          />
-        </div>
+      {/* Header: scoreboard strip */}
+      <div className="px-3 pt-2">
+        <RosterStrip
+          totalRounds={game.totalRounds}
+          currentRound={game.roundNumber}
+          picks={game.picks}
+          positions={positions}
+        />
       </div>
 
       {/* Round info + Timer */}
       {game.phase === 'picking' && game.currentRound && (
-        <div className="flex items-center justify-between px-4 py-2">
-          <div>
-            <h2 className="font-display text-lg text-cream font-bold">
+        <div className="flex items-center justify-between px-4 py-2 gap-3">
+          <div className="flex-shrink-0">
+            <h2 className="font-heading text-cardboard text-lg leading-tight">
               Round {game.currentRound.roundNumber}
             </h2>
-            <p className="text-xs text-gold font-bold uppercase tracking-wider">
+            <span className="card-banner text-[10px] inline-block py-0.5 px-2 mt-0.5">
               {game.currentRound.position}
-            </p>
+            </span>
           </div>
-          <Timer
-            timeLeft={timer.timeLeft}
-            progress={timer.progress}
-            isUrgent={timer.isUrgent}
-          />
+          <div className="flex-1 max-w-[180px]">
+            <Timer
+              timeLeft={timer.timeLeft}
+              progress={timer.progress}
+              isUrgent={timer.isUrgent}
+            />
+          </div>
         </div>
       )}
 
@@ -154,7 +154,7 @@ export function Game() {
               className="flex items-center justify-center py-12"
             >
               <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
-                <Loader2 className="w-8 h-8 text-gold" />
+                <Loader2 className="w-8 h-8 text-amber" />
               </motion.div>
             </motion.div>
           )}
@@ -176,11 +176,11 @@ export function Game() {
         </AnimatePresence>
       </div>
 
-      {/* Running score */}
+      {/* Running score — scoreboard style */}
       {game.picks.length > 0 && game.phase !== 'complete' && (
         <div className="text-center pb-3">
-          <span className="text-xs text-cream/40 font-mono">
-            Score: {game.picks.reduce((sum, p) => sum + p.legendScore, 0).toFixed(1)}
+          <span className="scoreboard text-sm px-3 py-1">
+            {game.picks.reduce((sum, p) => sum + p.legendScore, 0).toFixed(1)}
           </span>
         </div>
       )}
