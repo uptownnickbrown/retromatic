@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import type { RevealData } from '../../types';
@@ -45,10 +45,13 @@ function Confetti() {
 }
 
 export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps) {
+  const onContinueRef = useRef(onContinue);
+  onContinueRef.current = onContinue;
+
   useEffect(() => {
-    const timer = setTimeout(onContinue, 6000);
+    const timer = setTimeout(() => onContinueRef.current(), 6000);
     return () => clearTimeout(timer);
-  }, [onContinue]);
+  }, []);
 
   const maxPct = Math.max(...reveal.pickPercentages.map(p => p.percentage), 1);
   const isLegendary = reveal.legendScore >= 9.0;

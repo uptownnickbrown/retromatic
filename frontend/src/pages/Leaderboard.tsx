@@ -23,7 +23,7 @@ function getRankDisplay(rank: number) {
 export function Leaderboard() {
   const navigate = useNavigate();
   const [period, setPeriod] = useState('today');
-  const { data, isLoading } = useLeaderboard(period);
+  const { data, isLoading, error, refetch } = useLeaderboard(period);
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-4 py-5">
@@ -57,7 +57,17 @@ export function Leaderboard() {
       </div>
 
       {/* Leaderboard list */}
-      {isLoading ? (
+      {error ? (
+        <div className="text-center py-12">
+          <p className="text-red-400/70 text-sm font-body mb-3">{(error as Error).message}</p>
+          <button
+            onClick={() => refetch()}
+            className="card-banner-blue px-5 py-2.5 text-sm min-h-[44px]"
+          >
+            Retry
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-12">
           <div className="w-8 h-8 border-3 border-card-red border-t-transparent rounded-full animate-spin" />
         </div>

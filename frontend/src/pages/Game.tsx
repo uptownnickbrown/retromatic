@@ -14,12 +14,12 @@ export function Game() {
   const game = useGame();
 
   const handleTimeout = useCallback(() => {
-    if (game.phase !== 'picking' || !game.currentRound) return;
+    if (game.phase !== 'picking' || !game.currentRound || game.isSubmitting.current) return;
     const players = game.currentRound.players;
     const randomPlayer = players[Math.floor(Math.random() * players.length)];
     const randomYear = randomPlayer.yearOptions[Math.floor(Math.random() * randomPlayer.yearOptions.length)];
     game.submitPick(randomYear.playerRecordId, randomYear.year, true);
-  }, [game]);
+  }, [game.phase, game.currentRound, game.submitPick, game.isSubmitting]);
 
   const timer = useTimer({
     duration: game.currentRound?.timeLimit ?? 30,
@@ -34,13 +34,9 @@ export function Game() {
   // Auto-start or resume when challenge loads
   useEffect(() => {
     if (game.phase === 'idle' && game.challenge) {
-      if (game.sessionId) {
-        game.resumeGame();
-      } else {
-        game.startGame();
-      }
+      game.startGame();
     }
-  }, [game.phase, game.challenge, game.sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [game.phase, game.challenge]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Start timer when picking
   useEffect(() => {
@@ -62,11 +58,11 @@ export function Game() {
   const handlePick = useCallback((playerId: number, year: number) => {
     timer.stop();
     game.submitPick(playerId, year);
-  }, [timer, game]);
+  }, [timer.stop, game.submitPick]);
 
   const handleContinue = useCallback(() => {
     game.advanceRound();
-  }, [game]);
+  }, [game.advanceRound]);
 
   const positions = game.challenge?.positionOrder ?? [];
 
@@ -96,6 +92,13 @@ export function Game() {
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom">
+      {/* Error banner */}
+      {game.error && game.challenge && (
+        <div className="mx-3 mt-2 px-3 py-2 rounded-lg bg-red-500/20 border border-red-500/40 text-red-200 text-xs font-body text-center">
+          {game.error}
+        </div>
+      )}
+
       {/* Header: scoreboard strip */}
       <div className="px-3 pt-2">
         <RosterStrip
