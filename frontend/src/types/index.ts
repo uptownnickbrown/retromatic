@@ -139,14 +139,6 @@ export interface ResultsData {
   communityStats?: RoundCommunityStats[];
 }
 
-export interface LeaderboardEntry {
-  rank: number;
-  displayName: string;
-  score: number;
-  percentile: number;
-  completedAt: string;
-}
-
 // Legend Score helpers — 3-tier system
 export function getLegendScoreColor(score: number): string {
   if (score >= 9.5) return 'text-gold';
