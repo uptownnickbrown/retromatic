@@ -53,7 +53,8 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
     return () => clearTimeout(timer);
   }, []);
 
-  const maxPct = Math.max(...reveal.pickPercentages.map(p => p.percentage), 1);
+  const pickPcts = reveal.pickPercentages ?? [];
+  const maxPct = Math.max(...pickPcts.map(p => p.percentage), 1);
   const isLegendary = reveal.legendScore >= 9.0;
   const tier = getLegendScoreTier(reveal.legendScore);
 
@@ -111,7 +112,7 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
           </motion.div>
 
           {/* Community picks */}
-          {reveal.pickPercentages.length > 0 && (
+          {pickPcts.length > 0 && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -121,7 +122,7 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
               <p className="text-[10px] uppercase tracking-widest text-field-dark/40 font-heading text-center mb-2">
                 Community Picks
               </p>
-              {reveal.pickPercentages.map(pp => (
+              {pickPcts.map(pp => (
                 <div key={`${pp.playerId}-${pp.year}`} className="flex items-center gap-2">
                   <div className="flex-1 h-4 bg-field-dark/10 rounded overflow-hidden">
                     <motion.div
