@@ -3,6 +3,7 @@ import type { Challenge, RoundData, RoundCommunityStats, RevealData, PickSummary
 import { calculateLegendScore } from '../lib/legendScore';
 import { saveGame, loadSavedGame, clearSavedGame } from '../lib/gameStorage';
 import * as api from '../lib/api';
+import * as adminApi from '../lib/adminApi';
 
 export type GamePhase =
   | 'loading'
@@ -40,9 +41,15 @@ const initialState: GameState = {
   error: null,
 };
 
+function isPlaytestSession(sessionId: string | null): boolean {
+  return !!sessionId && sessionId.startsWith('playtest-');
+}
+
 export function useGame() {
   const [state, setState] = useState<GameState>(initialState);
   const submittingRef = useRef(false);
+
+  const isPlaytest = isPlaytestSession(state.sessionId);
 
   // Combined load + start: check localStorage first, then fetch from server
   const loadAndStart = useCallback(async () => {
@@ -124,6 +131,30 @@ export function useGame() {
     }
   }, []);
 
+  // Playtest: load a challenge by ID via admin API, no real session
+  const loadPlaytest = useCallback(async (challengeId: number) => {
+    setState(s => ({ ...s, phase: 'loading', error: null }));
+
+    try {
+      const data = await adminApi.startPlaytest(challengeId);
+
+      setState(s => ({
+        ...s,
+        phase: 'picking',
+        challenge: data.challenge,
+        sessionId: data.session.id, // "playtest-{id}-{timestamp}"
+        rounds: data.rounds,
+        communityStats: data.communityStats,
+        currentRoundIndex: 0,
+        picks: [],
+        pickSubmissions: [],
+      }));
+      // No localStorage save for playtest
+    } catch (err) {
+      setState(s => ({ ...s, phase: 'idle', error: (err as Error).message }));
+    }
+  }, []);
+
   // Synchronous pick: compute Legend Score locally, build reveal data, save to localStorage
   const submitPick = useCallback((playerRecordId: number, year: number, wasTimeout = false) => {
     if (submittingRef.current) return;
@@ -188,8 +219,8 @@ export function useGame() {
       const newSubmissions = [...prev.pickSubmissions, newSubmission];
       const newRoundIndex = prev.currentRoundIndex + 1;
 
-      // Save to localStorage
-      if (prev.challenge) {
+      // Save to localStorage (skip for playtest)
+      if (prev.challenge && !isPlaytestSession(prev.sessionId)) {
         saveGame({
           challengeId: prev.challenge.id,
           challengeDate: prev.challenge.date,
@@ -229,6 +260,26 @@ export function useGame() {
     if (!state.challenge || !state.sessionId || submittingRef.current) return;
     submittingRef.current = true;
 
+    // Playtest: skip server submission, compute results client-side
+    if (isPlaytestSession(state.sessionId)) {
+      const totalScore = state.picks.reduce((sum, p) => sum + p.legendScore, 0);
+      const roundedTotal = Math.round(totalScore * 10) / 10;
+
+      setState(s => ({
+        ...s,
+        phase: 'complete',
+        completeResponse: {
+          totalLegendScore: roundedTotal,
+          percentile: 0,
+          totalParticipants: 0,
+          communityStats: [],
+          perfectLineup: { picks: [], totalScore: 0 },
+        },
+      }));
+      submittingRef.current = false;
+      return;
+    }
+
     try {
       const response = await api.completeGame(
         state.challenge.id,
@@ -248,7 +299,7 @@ export function useGame() {
     } finally {
       submittingRef.current = false;
     }
-  }, [state.challenge, state.sessionId, state.pickSubmissions]);
+  }, [state.challenge, state.sessionId, state.pickSubmissions, state.picks]);
 
   // Derived values
   const currentRound = state.rounds[state.currentRoundIndex] ?? null;
@@ -267,7 +318,9 @@ export function useGame() {
     totalRounds,
     error: state.error,
     isSubmitting: submittingRef,
+    isPlaytest,
     loadAndStart,
+    loadPlaytest,
     submitPick,
     advanceRound,
     submitFinal,

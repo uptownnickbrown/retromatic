@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../hooks/useGame';
 import { useTimer } from '../hooks/useTimer';
@@ -8,11 +8,15 @@ import { LineupCard } from '../components/game/LineupCard';
 import { PickGrid } from '../components/game/PickGrid';
 import { RevealCard } from '../components/game/RevealCard';
 import { VintageButton } from '../components/ui/VintageButton';
-import { Loader2 } from 'lucide-react';
+import { Loader2, FlaskConical } from 'lucide-react';
 import { safeNum } from '../lib/numeric';
 
 export function Game() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const playtestId = searchParams.get('playtest');
+  const playtestChallengeId = playtestId ? parseInt(playtestId) : null;
+
   const game = useGame();
 
   const handleTimeout = useCallback(() => {
@@ -29,7 +33,11 @@ export function Game() {
   });
 
   useEffect(() => {
-    game.loadAndStart();
+    if (playtestChallengeId) {
+      game.loadPlaytest(playtestChallengeId);
+    } else {
+      game.loadAndStart();
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -49,9 +57,14 @@ export function Game() {
 
   useEffect(() => {
     if (game.phase === 'complete' && game.challenge) {
-      navigate(`/results/${game.challenge.id}`, { replace: true });
+      if (game.isPlaytest) {
+        // Return to admin challenge detail with playtest flag
+        navigate(`/admin/challenge/${game.challenge.id}?playtested=true`, { replace: true });
+      } else {
+        navigate(`/results/${game.challenge.id}`, { replace: true });
+      }
     }
-  }, [game.phase, game.challenge, navigate]);
+  }, [game.phase, game.challenge, game.isPlaytest, navigate]);
 
   const handlePick = useCallback((playerId: number, year: number) => {
     timer.stop();
@@ -79,8 +92,8 @@ export function Game() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
         <p className="text-muted text-sm font-mono mb-4">{game.error}</p>
-        <VintageButton variant="section" onClick={() => navigate('/')}>
-          Back Home
+        <VintageButton variant="section" onClick={() => navigate(game.isPlaytest ? '/admin' : '/')}>
+          {game.isPlaytest ? 'Back to Admin' : 'Back Home'}
         </VintageButton>
       </div>
     );
@@ -88,6 +101,16 @@ export function Game() {
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom">
+      {/* Playtest banner */}
+      {game.isPlaytest && (
+        <div className="bg-gold/15 border-b-2 border-gold/30 px-4 py-2 flex items-center justify-center gap-2">
+          <FlaskConical className="w-3.5 h-3.5 text-gold" />
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-navy/70">
+            Playtest Mode
+          </span>
+        </div>
+      )}
+
       {/* Error banner */}
       {game.error && game.challenge && (
         <div className="mx-3 mt-2 px-3 py-2 rounded bg-red/10 border border-red/20 text-red text-xs font-mono text-center">
@@ -156,7 +179,9 @@ export function Game() {
               <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
                 <Loader2 className="w-6 h-6 text-navy" />
               </motion.div>
-              <p className="text-muted text-sm font-mono">Submitting your lineup...</p>
+              <p className="text-muted text-sm font-mono">
+                {game.isPlaytest ? 'Finishing playtest...' : 'Submitting your lineup...'}
+              </p>
             </motion.div>
           )}
 
