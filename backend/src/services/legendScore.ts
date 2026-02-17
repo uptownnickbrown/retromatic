@@ -35,9 +35,23 @@ export function getLegendScoreColor(score: number): string {
   return 'red';
 }
 
+// Enriched perfect lineup pick — includes stats, blurbs, player type for head-to-head
+export interface EnrichedPerfectPick {
+  roundNumber: number;
+  position: string;
+  playerName: string;
+  year: number;
+  legendScore: number;
+  stats?: Record<string, number>;
+  categoryZscores?: Record<string, number>;
+  playerType?: 'batter' | 'pitcher';
+  team?: string;
+  blurb?: string;
+}
+
 // Find the best possible pick for each round in a challenge
 export async function calculatePerfectLineup(challengeId: number): Promise<{
-  picks: Array<{ roundNumber: number; position: string; playerName: string; year: number; legendScore: number }>;
+  picks: EnrichedPerfectPick[];
   totalScore: number;
 }> {
   const rounds = await db.select()
@@ -45,7 +59,7 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
     .where(eq(challengeRounds.challengeId, challengeId))
     .orderBy(challengeRounds.roundNumber);
 
-  const picks: Array<{ roundNumber: number; position: string; playerName: string; year: number; legendScore: number }> = [];
+  const picks: EnrichedPerfectPick[] = [];
 
   for (const round of rounds) {
     const options = await db.select()
@@ -53,10 +67,12 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
       .where(eq(roundOptions.roundId, round.id));
 
     let bestScore = -Infinity;
-    let bestPick = { playerName: '', year: 0, legendScore: 0 };
+    let bestPick: EnrichedPerfectPick = { roundNumber: round.roundNumber, position: round.position, playerName: '', year: 0, legendScore: 0 };
 
     for (const option of options) {
       const years = option.yearOptions as number[];
+      const blurbs = (option.blurbs ?? {}) as Record<string, string>;
+
       for (const year of years) {
         const [playerRecord] = await db.select()
           .from(players)
@@ -70,17 +86,24 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
           const legendScore = calculateLegendScore(toNum(playerRecord.zScorePosition));
           if (legendScore > bestScore) {
             bestScore = legendScore;
-            bestPick = { playerName: option.playerName, year, legendScore };
+            bestPick = {
+              roundNumber: round.roundNumber,
+              position: round.position,
+              playerName: option.playerName,
+              year,
+              legendScore,
+              stats: (playerRecord.stats ?? {}) as Record<string, number>,
+              categoryZscores: (playerRecord.categoryZscores ?? {}) as Record<string, number>,
+              playerType: (playerRecord.playerType ?? 'batter') as 'batter' | 'pitcher',
+              team: playerRecord.team ?? undefined,
+              blurb: blurbs[String(year)] ?? undefined,
+            };
           }
         }
       }
     }
 
-    picks.push({
-      roundNumber: round.roundNumber,
-      position: round.position,
-      ...bestPick,
-    });
+    picks.push(bestPick);
   }
 
   const totalScore = picks.reduce((sum, p) => sum + p.legendScore, 0);
