@@ -1,44 +1,27 @@
 @import "tailwindcss";
 
 @theme {
-  /* === SANDLOT COLOR PALETTE === */
-  /* Outfield grass & field */
-  --color-field: #1a472a;
-  --color-field-light: #2d6b3f;
-  --color-field-dark: #0f2d1a;
+  /* === THE CLUBHOUSE PALETTE === */
+  --color-paper: #F9F7F1;
+  --color-bone: #F2EFE9;
+  --color-navy: #0A1E2F;
+  --color-navy-light: #1A3A5C;
+  --color-red: #D32F2F;
+  --color-red-dark: #9A2020;
+  --color-gold: #C9A84C;
+  --color-gold-light: #E8D48B;
+  --color-muted: #8A8A7A;
 
-  /* Infield dirt */
-  --color-dirt: #8B6914;
-  --color-dirt-light: #c49b2a;
-  --color-dirt-dark: #5a4410;
+  /* === TYPOGRAPHY === */
+  --font-editorial: 'Playfair Display', Georgia, serif;
+  --font-mono: 'Space Mono', 'Courier New', monospace;
+  --font-hand: 'Caveat', cursive;
 
-  /* Baseball card red */
-  --color-card-red: #c41e3a;
-  --color-card-red-light: #e63950;
-  --color-card-red-dark: #8b1528;
-
-  /* Baseball card blue */
-  --color-card-blue: #1e4d8c;
-  --color-card-blue-light: #2b6bc4;
-
-  /* Cream / cardboard */
-  --color-cardboard: #f2e8d0;
-  --color-cardboard-dark: #d4c4a0;
-  --color-cardboard-light: #faf5eb;
-
-  /* Chalk white */
-  --color-chalk: #ffffff;
-
-  /* Scoreboard amber */
-  --color-amber: #ff9500;
-  --color-amber-light: #ffb340;
-
-  /* Typography */
-  --font-display: 'Righteous', cursive;
-  --font-heading: 'Archivo Black', sans-serif;
-  --font-body: 'Barlow Condensed', sans-serif;
-  --font-score: 'Oswald', sans-serif;
-  --font-typewriter: 'Special Elite', cursive;
+  /* === HARD SHADOWS === */
+  --shadow-card: 2px 2px 0px rgba(10, 30, 47, 0.15);
+  --shadow-card-hover: 3px 3px 0px rgba(10, 30, 47, 0.2);
+  --shadow-btn: 2px 2px 0px var(--color-navy);
+  --shadow-btn-active: 0px 0px 0px var(--color-navy);
 }
 
 /* ===== BASE STYLES ===== */
@@ -49,12 +32,13 @@
 
 body {
   margin: 0;
-  font-family: var(--font-body);
-  font-weight: 500;
-  background-color: var(--color-field-dark);
-  color: var(--color-cardboard);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  background-color: var(--color-bone);
+  color: var(--color-navy);
   min-height: 100dvh;
   overflow-x: hidden;
+  font-size: 14px;
 }
 
 #root {
@@ -64,210 +48,255 @@ body {
   position: relative;
 }
 
-/* Grass texture background for the whole app */
+/* Paper texture background */
 #root::before {
   content: '';
   position: fixed;
   inset: 0;
-  background:
-    repeating-linear-gradient(
-      90deg,
-      transparent,
-      transparent 3px,
-      rgba(0, 0, 0, 0.03) 3px,
-      rgba(0, 0, 0, 0.03) 4px
-    ),
-    linear-gradient(180deg, var(--color-field-dark) 0%, var(--color-field) 40%, var(--color-field-dark) 100%);
+  background-image: url('/paper-texture.png');
+  background-repeat: repeat;
+  background-size: 512px 512px;
   z-index: -1;
   pointer-events: none;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-heading);
-  font-weight: 400;
-  letter-spacing: 0.02em;
-}
-
-/* ===== CARDBOARD CARD ===== */
-.card {
-  background: linear-gradient(
-    145deg,
-    var(--color-cardboard) 0%,
-    var(--color-cardboard-dark) 100%
-  );
-  border: 3px solid var(--color-dirt-dark);
-  border-radius: 12px;
-  box-shadow:
-    0 2px 0 var(--color-dirt-dark),
-    0 4px 8px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
-  color: var(--color-field-dark);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Subtle paper grain on cards */
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
-  pointer-events: none;
-  border-radius: inherit;
-}
-
-/* Red stripe banner used on card headers */
-.card-banner {
-  background: linear-gradient(
-    180deg,
-    var(--color-card-red) 0%,
-    var(--color-card-red-dark) 100%
-  );
-  color: var(--color-chalk);
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  padding: 6px 12px;
-  border-radius: 6px;
-}
-
-/* Blue stripe banner variant */
-.card-banner-blue {
-  background: linear-gradient(
-    180deg,
-    var(--color-card-blue) 0%,
-    var(--color-card-blue-light) 100%
-  );
-  color: var(--color-chalk);
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  padding: 6px 12px;
-  border-radius: 6px;
-}
-
-/* ===== DIRT INFIELD CARD ===== */
-.dirt-card {
-  background: linear-gradient(
-    145deg,
-    var(--color-dirt) 0%,
-    var(--color-dirt-dark) 100%
-  );
-  border: 2px solid var(--color-dirt-dark);
-  border-radius: 10px;
-  box-shadow:
-    0 2px 0 rgba(0, 0, 0, 0.2),
-    0 4px 8px rgba(0, 0, 0, 0.3);
-  color: var(--color-cardboard-light);
-}
-
-/* ===== TICKET STUB BUTTONS ===== */
-.ticket-btn {
-  background: linear-gradient(
-    180deg,
-    var(--color-cardboard-light) 0%,
-    var(--color-cardboard) 100%
-  );
-  border: 2px solid var(--color-dirt);
-  border-radius: 8px;
-  color: var(--color-field-dark);
-  font-family: var(--font-score);
+  font-family: var(--font-editorial);
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: -0.01em;
+  color: var(--color-navy);
+}
+
+/* ===== PAPER CARD ===== */
+.paper-card {
+  background: var(--color-paper);
+  border: 1px solid rgba(10, 30, 47, 0.12);
+  border-radius: 4px;
+  box-shadow: var(--shadow-card);
+  color: var(--color-navy);
   position: relative;
-  box-shadow:
-    0 2px 0 var(--color-dirt-dark),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  transition: all 0.1s ease;
 }
 
-.ticket-btn:active {
-  transform: translateY(2px);
-  box-shadow: none;
-}
-
-/* Perforated edge effect */
-.ticket-btn::before {
+/* Double-line border effect */
+.paper-card::after {
   content: '';
   position: absolute;
-  left: -1px;
-  top: 25%;
-  bottom: 25%;
+  inset: 3px;
+  border: 1px solid rgba(10, 30, 47, 0.06);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* ===== VINTAGE BUTTONS ===== */
+
+/* Ticket CTA — primary red action */
+.btn-ticket {
+  background: var(--color-red);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 12px 24px;
+  border: 2px solid var(--color-red-dark);
+  border-radius: 3px;
+  box-shadow: var(--shadow-btn);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  position: relative;
+}
+
+.btn-ticket:active {
+  transform: translate(2px, 2px);
+  box-shadow: var(--shadow-btn-active);
+}
+
+.btn-ticket:hover {
+  background: var(--color-red-dark);
+}
+
+/* Perforated right edge */
+.btn-ticket::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 20%;
+  bottom: 20%;
   width: 3px;
   background: repeating-linear-gradient(
     180deg,
     transparent 0px,
-    transparent 3px,
-    var(--color-dirt) 3px,
-    var(--color-dirt) 5px
+    transparent 4px,
+    var(--color-red-dark) 4px,
+    var(--color-red-dark) 6px
   );
 }
 
-/* ===== SCOREBOARD FLIP DIGITS ===== */
-.scoreboard {
-  font-family: var(--font-score);
+/* Section button — secondary navy outlined */
+.btn-section {
+  background: transparent;
+  color: var(--color-navy);
+  font-family: var(--font-mono);
   font-weight: 700;
-  letter-spacing: 0.02em;
-  background: #1a1a1a;
-  color: var(--color-amber);
-  border: 2px solid #333;
-  border-radius: 6px;
-  padding: 2px 6px;
-  text-shadow: 0 0 8px rgba(255, 149, 0, 0.6);
-  box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.5),
-    0 1px 0 rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 20px;
+  border: 2px solid var(--color-navy);
+  border-radius: 3px;
+  box-shadow: 2px 2px 0px rgba(10, 30, 47, 0.1);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
 }
 
-/* ===== LEGEND SCORE TIERS ===== */
-.legend-legendary {
-  --ls-color: #FFD700;
-  --ls-bg: linear-gradient(135deg, #FFD700, #FFA500);
-  --ls-glow: rgba(255, 215, 0, 0.6);
+.btn-section:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0px 0px 0px rgba(10, 30, 47, 0.1);
 }
-.legend-elite {
-  --ls-color: #FFD700;
-  --ls-bg: linear-gradient(135deg, #FFD700, #DAA520);
-  --ls-glow: rgba(255, 215, 0, 0.4);
+
+.btn-section:hover {
+  background: var(--color-navy);
+  color: var(--color-paper);
 }
-.legend-allstar {
-  --ls-color: #4ade80;
-  --ls-bg: linear-gradient(135deg, #22c55e, #16a34a);
-  --ls-glow: rgba(74, 222, 128, 0.4);
+
+/* Ghost button — text-only */
+.btn-ghost {
+  background: transparent;
+  color: var(--color-navy);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  padding: 8px 16px;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(10, 30, 47, 0.3);
+  transition: text-decoration-color 0.15s ease;
 }
-.legend-solid {
-  --ls-color: #93c5fd;
-  --ls-bg: linear-gradient(135deg, #60a5fa, #3b82f6);
-  --ls-glow: rgba(96, 165, 250, 0.3);
+
+.btn-ghost:hover {
+  text-decoration-color: var(--color-navy);
 }
-.legend-average {
-  --ls-color: #fdba74;
-  --ls-bg: linear-gradient(135deg, #fb923c, #ea580c);
-  --ls-glow: rgba(251, 146, 60, 0.3);
+
+/* ===== YEAR TAB BUTTONS ===== */
+.year-tab {
+  background: var(--color-paper);
+  color: var(--color-navy);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 12px;
+  border: 1px solid rgba(10, 30, 47, 0.15);
+  border-radius: 3px;
+  box-shadow: 1px 1px 0px rgba(10, 30, 47, 0.1);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.15s ease;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.legend-bench {
-  --ls-color: #fca5a5;
-  --ls-bg: linear-gradient(135deg, #f87171, #dc2626);
-  --ls-glow: rgba(248, 113, 113, 0.3);
+
+.year-tab:hover {
+  border-color: var(--color-red);
+}
+
+.year-tab:active {
+  transform: translate(1px, 1px);
+  box-shadow: 0px 0px 0px rgba(10, 30, 47, 0.1);
+}
+
+/* ===== MONO STAT (replaces scoreboard) ===== */
+.mono-stat {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-navy);
+}
+
+/* ===== SCORE TIERS (3 tiers) ===== */
+.tier-legendary {
+  --tier-color: var(--color-gold);
+  --tier-bg: var(--color-gold);
+}
+
+.tier-great {
+  --tier-color: var(--color-navy);
+  --tier-bg: var(--color-navy);
+}
+
+.tier-average {
+  --tier-color: var(--color-muted);
+  --tier-bg: var(--color-muted);
 }
 
 /* ===== ANIMATIONS ===== */
 
-/* Confetti burst */
-@keyframes confetti-fall {
-  0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
-  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+/* Ticker-tape confetti — thin rectangular strips */
+@keyframes ticker-tape-fall {
+  0% {
+    transform: translateY(-100vh) rotate(0deg) rotateX(0deg);
+    opacity: 1;
+  }
+  25% {
+    transform: translateY(25vh) rotate(90deg) rotateX(180deg);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(50vh) rotate(180deg) rotateX(0deg);
+    opacity: 0.9;
+  }
+  75% {
+    transform: translateY(75vh) rotate(270deg) rotateX(180deg);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(100vh) rotate(360deg) rotateX(0deg);
+    opacity: 0;
+  }
 }
 
 .confetti-piece {
   position: fixed;
-  width: 8px;
-  height: 8px;
-  top: -10px;
+  width: 20px;
+  height: 6px;
+  border-radius: 1px;
+  top: -20px;
   z-index: 100;
-  animation: confetti-fall 3s ease-in forwards;
+  animation: ticker-tape-fall 3.5s ease-in forwards;
+}
+
+/* Wax seal stamp entrance */
+@keyframes wax-seal-stamp {
+  0% {
+    transform: scale(2.5) rotate(-20deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(0.9) rotate(3deg);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1.05) rotate(-1deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.wax-seal-stamp {
+  animation: wax-seal-stamp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Card expand / focus */
+@keyframes card-expand {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
 }
 
 /* Scoreboard flip */
@@ -281,47 +310,15 @@ h1, h2, h3, h4, h5, h6 {
   transform-origin: center top;
 }
 
-/* Gold shimmer for legendary scores */
-@keyframes gold-shimmer {
-  0% { background-position: -200% center; }
-  100% { background-position: 200% center; }
+/* Stamp effect */
+@keyframes stamp {
+  0% { transform: scale(3) rotate(-15deg); opacity: 0; }
+  60% { transform: scale(0.9) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
 
-.gold-shimmer {
-  background: linear-gradient(
-    90deg,
-    #FFD700 0%,
-    #FFF8DC 25%,
-    #FFD700 50%,
-    #FFF8DC 75%,
-    #FFD700 100%
-  );
-  background-size: 200% auto;
-  animation: gold-shimmer 3s linear infinite;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Pulsing glow for legendary badge */
-@keyframes trophy-pulse {
-  0%, 100% {
-    box-shadow:
-      0 0 15px var(--ls-glow),
-      0 0 30px var(--ls-glow),
-      inset 0 0 10px rgba(255, 255, 255, 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 25px var(--ls-glow),
-      0 0 50px var(--ls-glow),
-      0 0 80px var(--ls-glow),
-      inset 0 0 15px rgba(255, 255, 255, 0.3);
-  }
-}
-
-.trophy-pulse {
-  animation: trophy-pulse 2s ease-in-out infinite;
+.stamp-in {
+  animation: stamp 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* Timer urgent shake */
@@ -335,48 +332,33 @@ h1, h2, h3, h4, h5, h6 {
   animation: urgent-shake 0.3s ease-in-out infinite;
 }
 
-/* Streak fire flicker */
-@keyframes fire-flicker {
-  0%, 100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
-  25% { transform: scale(1.1) rotate(-3deg); filter: brightness(1.2); }
-  50% { transform: scale(0.95) rotate(2deg); filter: brightness(0.9); }
-  75% { transform: scale(1.05) rotate(-1deg); filter: brightness(1.1); }
-}
-
-.fire-flicker {
-  animation: fire-flicker 0.8s ease-in-out infinite;
-}
-
-/* Stamp effect for position badges */
-@keyframes stamp {
-  0% { transform: scale(3) rotate(-15deg); opacity: 0; }
-  60% { transform: scale(0.9) rotate(2deg); opacity: 1; }
-  100% { transform: scale(1) rotate(0deg); opacity: 1; }
-}
-
-.stamp-in {
-  animation: stamp 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
 /* ===== UTILITIES ===== */
 
-/* Chalk line divider */
-.chalk-line {
-  height: 2px;
-  background: repeating-linear-gradient(
+/* Ink divider — thin navy line */
+.ink-divider {
+  height: 1px;
+  background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.5) 0px,
-    rgba(255, 255, 255, 0.5) 8px,
-    transparent 8px,
-    transparent 12px
+    transparent,
+    rgba(10, 30, 47, 0.2) 15%,
+    rgba(10, 30, 47, 0.2) 85%,
+    transparent
   );
 }
 
-/* Dirt texture overlay */
-.dirt-texture {
-  background:
-    radial-gradient(circle at 20% 80%, rgba(139, 105, 20, 0.3), transparent 60%),
-    radial-gradient(circle at 80% 20%, rgba(139, 105, 20, 0.2), transparent 50%);
+/* Torn paper edge via clip-path */
+.torn-edge {
+  clip-path: polygon(
+    0% 2%, 3% 0%, 7% 2.5%, 11% 0.5%, 15% 2%, 19% 0%, 23% 1.5%,
+    27% 0.5%, 31% 2%, 35% 0%, 39% 2.5%, 43% 0.5%, 47% 2%,
+    51% 0%, 55% 1.5%, 59% 0.5%, 63% 2%, 67% 0%, 71% 2.5%,
+    75% 0.5%, 79% 2%, 83% 0%, 87% 1.5%, 91% 0.5%, 95% 2%, 100% 0%,
+    100% 98%, 97% 100%, 93% 97.5%, 89% 99.5%, 85% 98%, 81% 100%,
+    77% 98.5%, 73% 99.5%, 69% 98%, 65% 100%, 61% 97.5%, 57% 99.5%,
+    53% 98%, 49% 100%, 45% 98.5%, 41% 99.5%, 37% 98%, 33% 100%,
+    29% 97.5%, 25% 99.5%, 21% 98%, 17% 100%, 13% 98.5%, 9% 99.5%,
+    5% 98%, 0% 100%
+  );
 }
 
 /* Safe area for mobile */
@@ -386,7 +368,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Focus styles */
 :focus-visible {
-  outline: 3px solid var(--color-amber);
+  outline: 2px solid var(--color-navy);
   outline-offset: 2px;
 }
 
@@ -394,6 +376,6 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-dirt);
+  background: rgba(10, 30, 47, 0.2);
   border-radius: 3px;
 }

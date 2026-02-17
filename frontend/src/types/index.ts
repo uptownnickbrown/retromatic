@@ -123,46 +123,27 @@ export interface LeaderboardEntry {
   completedAt: string;
 }
 
-// Legend Score helpers
+// Legend Score helpers — 3-tier system
 export function getLegendScoreColor(score: number): string {
-  if (score >= 9.0) return 'text-yellow-400';
-  if (score >= 7.0) return 'text-emerald-400';
-  if (score >= 5.0) return 'text-blue-400';
-  if (score >= 3.0) return 'text-orange-400';
-  return 'text-red-400';
+  if (score >= 9.5) return 'text-gold';
+  if (score >= 6.0) return 'text-navy';
+  return 'text-muted';
 }
 
 export function getLegendScoreBg(score: number): string {
-  if (score >= 9.0) return 'bg-yellow-400/20 border-yellow-400/50';
-  if (score >= 7.0) return 'bg-emerald-400/20 border-emerald-400/50';
-  if (score >= 5.0) return 'bg-blue-400/20 border-blue-400/50';
-  if (score >= 3.0) return 'bg-orange-400/20 border-orange-400/50';
-  return 'bg-red-400/20 border-red-400/50';
+  if (score >= 9.5) return 'bg-gold/20 border-gold/50';
+  if (score >= 6.0) return 'bg-navy/10 border-navy/30';
+  return 'bg-muted/10 border-muted/30';
 }
 
 export function getLegendScoreLabel(score: number): string {
   if (score >= 9.5) return 'LEGENDARY';
-  if (score >= 8.5) return 'ELITE';
-  if (score >= 7.0) return 'ALL-STAR';
-  if (score >= 5.0) return 'SOLID';
-  if (score >= 3.0) return 'AVERAGE';
-  return 'BENCH';
+  if (score >= 6.0) return 'GREAT';
+  return 'AVERAGE';
 }
 
 export function getLegendScoreTier(score: number): string {
-  if (score >= 9.5) return 'legend-legendary';
-  if (score >= 8.5) return 'legend-elite';
-  if (score >= 7.0) return 'legend-allstar';
-  if (score >= 5.0) return 'legend-solid';
-  if (score >= 3.0) return 'legend-average';
-  return 'legend-bench';
-}
-
-export function getPositionEmoji(position: string): string {
-  const map: Record<string, string> = {
-    C: '\u{1F3D1}', '1B': '\u{1F94E}', '2B': '\u{1F94E}', SS: '\u{1F94E}',
-    '3B': '\u{1F94E}', OF: '\u{1F3DF}', UTIL: '\u{26A1}',
-    SP: '\u{1F4A8}', RP: '\u{1F525}', P: '\u{1F3AF}',
-  };
-  return map[position] || '\u{26BE}';
+  if (score >= 9.5) return 'tier-legendary';
+  if (score >= 6.0) return 'tier-great';
+  return 'tier-average';
 }

@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { Share2 } from 'lucide-react';
 import type { ResultsPick } from '../../types';
 import { safeNum } from '../../lib/numeric';
+import { VintageButton } from '../ui/VintageButton';
 
 interface ShareCardProps {
   totalScore: number;
@@ -11,11 +12,9 @@ interface ShareCardProps {
 }
 
 function getScoreEmoji(score: number): string {
-  if (score >= 9.0) return '\u{1F7E1}'; // yellow
-  if (score >= 7.0) return '\u{1F7E2}'; // green
-  if (score >= 5.0) return '\u{26AA}';  // white
-  if (score >= 3.0) return '\u{1F7E0}'; // orange
-  return '\u{1F534}';                    // red
+  if (score >= 9.5) return '\u{1F7E1}'; // gold — legendary
+  if (score >= 6.0) return '\u{26AA}';  // white — great
+  return '\u{26AB}';                     // black — average
 }
 
 export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProps) {
@@ -48,12 +47,13 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
   }, [generateShareText]);
 
   return (
-    <button
+    <VintageButton
+      variant="ticket"
       onClick={handleShare}
-      className="card-banner w-full flex items-center justify-center gap-2 py-3.5 rounded-lg text-base min-h-[48px]"
+      className="w-full flex items-center justify-center gap-2 text-base"
     >
       <Share2 size={18} />
       Share Results
-    </button>
+    </VintageButton>
   );
 }
