@@ -418,6 +418,8 @@ async function getAllRoundData(challengeId: number) {
     id: number;
     zScorePosition: string;
     stats: unknown;
+    categoryZscores: unknown;
+    playerType: string;
     team: string | null;
     nameFirst: string | null;
     nameLast: string | null;
@@ -435,6 +437,8 @@ async function getAllRoundData(challengeId: number) {
       year: players.year,
       zScorePosition: players.zScorePosition,
       stats: players.stats,
+      categoryZscores: players.categoryZscores,
+      playerType: players.playerType,
       team: players.team,
       nameFirst: players.nameFirst,
       nameLast: players.nameLast,
@@ -490,6 +494,8 @@ async function getAllRoundData(challengeId: number) {
               zScorePosition: toNum(record?.zScorePosition),
               team: record?.team ?? '',
               stats: (record?.stats ?? {}) as Record<string, number>,
+              categoryZscores: (record?.categoryZscores ?? {}) as Record<string, number>,
+              playerType: (record?.playerType ?? 'batter') as 'batter' | 'pitcher',
             };
           }),
           blurbs: (opt.blurbs ?? {}) as Record<string, string>,

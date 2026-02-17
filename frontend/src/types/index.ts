@@ -25,6 +25,8 @@ export interface YearOption {
   zScorePosition: number;
   team: string;
   stats: Record<string, number>;
+  categoryZscores: Record<string, number>;
+  playerType: 'batter' | 'pitcher';
 }
 
 export interface PlayerOption {
@@ -81,6 +83,8 @@ export interface RevealData {
   legendScore: number;
   blurb: string;
   stats: Record<string, number>;
+  categoryZscores: Record<string, number>;
+  playerType: 'batter' | 'pitcher';
   playerName: string;
   year: number;
   team: string;
