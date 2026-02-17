@@ -5,6 +5,7 @@ import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pla
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { generateChallenge, generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge } from '../services/challengeBlurbs.js';
+import { generatePortraitsForChallenge } from '../services/portraitGenerator.js';
 import { activateTodaysChallenge } from '../services/dailyScheduler.js';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { toNum } from '../lib/numeric.js';
@@ -390,6 +391,18 @@ router.post('/challenges/:id/blurbs', async (req, res) => {
   } catch (error) {
     console.error('Blurb generation error:', error);
     res.status(500).json({ error: 'Failed to generate blurbs' });
+  }
+});
+
+// Generate AI portraits for a challenge
+router.post('/challenges/:id/portraits', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const result = await generatePortraitsForChallenge(id);
+    res.json(result);
+  } catch (error) {
+    console.error('Portrait generation error:', error);
+    res.status(500).json({ error: 'Failed to generate portraits' });
   }
 });
 
