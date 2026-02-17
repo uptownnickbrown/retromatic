@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Loader2,
   Wand2,
+  Image,
   Play,
   CalendarPlus,
   Trash2,
@@ -19,6 +20,7 @@ import {
   useAdminChallengeDetail,
   useAdminChallengeHealth,
   useGenerateBlurbs,
+  useGeneratePortraits,
   useDeleteChallenge,
   useScheduleChallenges,
 } from '../hooks/useAdmin';
@@ -44,6 +46,7 @@ export function AdminChallengeDetail() {
   const { data: health } = useAdminChallengeHealth(challengeId);
 
   const blurbsMutation = useGenerateBlurbs();
+  const portraitsMutation = useGeneratePortraits();
   const deleteMutation = useDeleteChallenge();
   const scheduleMutation = useScheduleChallenges();
 
@@ -71,6 +74,10 @@ export function AdminChallengeDetail() {
 
   const handleGenerateBlurbs = () => {
     if (challengeId) blurbsMutation.mutate(challengeId);
+  };
+
+  const handleGeneratePortraits = () => {
+    if (challengeId) portraitsMutation.mutate(challengeId);
   };
 
   const handleDelete = () => {
@@ -225,6 +232,24 @@ export function AdminChallengeDetail() {
           )}
         </VintageButton>
 
+        <VintageButton
+          variant="section"
+          onClick={handleGeneratePortraits}
+          disabled={portraitsMutation.isPending}
+        >
+          {portraitsMutation.isPending ? (
+            <>
+              <Loader2 className="inline w-3.5 h-3.5 mr-1.5 animate-spin" />
+              Portraits...
+            </>
+          ) : (
+            <>
+              <Image className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
+              Generate Portraits
+            </>
+          )}
+        </VintageButton>
+
         {/* Schedule */}
         {showScheduleInput ? (
           <div className="flex items-center gap-2">
@@ -302,6 +327,27 @@ export function AdminChallengeDetail() {
           >
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             {blurbsMutation.error.message}
+          </motion.div>
+        )}
+        {portraitsMutation.isSuccess && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-6 px-4 py-3 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 text-xs font-mono"
+          >
+            Portraits: {portraitsMutation.data.generated} generated, {portraitsMutation.data.skipped} skipped, {portraitsMutation.data.failed} failed
+          </motion.div>
+        )}
+        {portraitsMutation.isError && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-6 px-4 py-3 rounded bg-red/10 border border-red/20 text-red text-xs font-mono flex items-center gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {portraitsMutation.error.message}
           </motion.div>
         )}
       </AnimatePresence>

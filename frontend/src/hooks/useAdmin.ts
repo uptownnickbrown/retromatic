@@ -57,6 +57,18 @@ export function useGenerateBlurbs() {
   });
 }
 
+export function useGeneratePortraits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => adminApi.generatePortraits(id),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'health', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'challenge', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}
+
 export function useUpdateChallenge() {
   const qc = useQueryClient();
   return useMutation({
