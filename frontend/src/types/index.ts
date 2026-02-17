@@ -9,15 +9,6 @@ export interface Challenge {
   totalRounds: number;
 }
 
-export interface GameSession {
-  id: string;
-  currentRound: number;
-  status: 'in_progress' | 'completed';
-  totalLegendScore: number | null;
-  percentile: number | null;
-  picks: PickSummary[];
-}
-
 export interface PickSummary {
   roundNumber: number;
   position: string;
