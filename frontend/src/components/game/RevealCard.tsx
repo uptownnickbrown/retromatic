@@ -64,7 +64,7 @@ function StatBenchmark({ label, value, percentile, delay }: {
       <span className="text-[10px] uppercase tracking-wider text-muted font-mono leading-none">
         {label}
       </span>
-      <span className="font-editorial font-bold text-xl text-navy leading-none mt-1">
+      <span className="font-mono font-bold text-xl text-navy leading-none mt-1">
         {value}
       </span>
       {percentile !== null && (
@@ -185,9 +185,9 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 1.0 }}
-              className="bg-bone rounded p-3 mb-4 border border-navy/8 -rotate-[0.5deg]"
+              className="bg-[#ECE9E0] rounded p-3 mb-4 border border-navy/8"
             >
-              <p className="text-base text-navy/70 font-hand leading-relaxed text-left">
+              <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
                 "{reveal.blurb}"
               </p>
             </motion.div>

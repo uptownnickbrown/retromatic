@@ -10,15 +10,14 @@
   --color-red-dark: #9A2020;
   --color-gold: #C9A84C;
   --color-gold-light: #E8D48B;
-  --color-muted: #8A8A7A;
+  --color-muted: #546E7A;
 
   /* === TYPOGRAPHY === */
   --font-editorial: 'Playfair Display', Georgia, serif;
   --font-mono: 'Space Mono', 'Courier New', monospace;
-  --font-hand: 'Caveat', cursive;
 
   /* === HARD SHADOWS === */
-  --shadow-card: 3px 3px 0px rgba(10, 30, 47, 0.2);
+  --shadow-card: 2px 3px 0px rgba(10, 30, 47, 0.2);
   --shadow-card-hover: 4px 4px 0px rgba(10, 30, 47, 0.25);
   --shadow-card-focus: 4px 4px 0px #0A1E2F;
   --shadow-btn: 2px 2px 0px var(--color-navy);
@@ -39,7 +38,7 @@ body {
   color: var(--color-navy);
   min-height: 100dvh;
   overflow-x: hidden;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 #root {
@@ -96,10 +95,10 @@ h1, h2, h3, h4, h5, h6 {
   color: #fff;
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: 12px 24px;
+  padding: 14px 24px;
   border: 2px solid var(--color-red-dark);
   border-radius: 3px;
   box-shadow: var(--shadow-btn);
@@ -140,10 +139,10 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-navy);
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 10px 20px;
+  padding: 12px 20px;
   border: 2px solid var(--color-navy);
   border-radius: 3px;
   box-shadow: 2px 2px 0px rgba(10, 30, 47, 0.1);

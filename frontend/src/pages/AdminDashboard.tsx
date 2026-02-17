@@ -414,7 +414,7 @@ function ChallengeRow({
       </span>
 
       {/* Theme */}
-      <span className="flex-1 font-hand text-sm text-navy/60 truncate min-w-0">
+      <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
         {challenge.theme || '—'}
       </span>
 

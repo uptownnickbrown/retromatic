@@ -235,8 +235,8 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
 
       {/* Perfect player's blurb */}
       {perfect.blurb && (
-        <div className="bg-bone rounded p-2 border border-navy/8 -rotate-[0.3deg]">
-          <p className="text-base text-navy/70 font-hand leading-relaxed text-left">
+        <div className="bg-[#ECE9E0] rounded p-2 border border-navy/8">
+          <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
             "{perfect.blurb}"
           </p>
         </div>
