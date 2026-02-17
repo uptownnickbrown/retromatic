@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pickStats, players } from '../db/schema.js';
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { calculatePerfectLineup, calculateSessionPercentile } from '../services/legendScore.js';
 import { toNum } from '../lib/numeric.js';
@@ -86,7 +86,7 @@ router.get('/today', async (req, res) => {
   }
 });
 
-// POST /api/challenge/:id/start - Start a new game session
+// POST /api/challenge/:id/start - Start game, return ALL round data upfront
 router.post('/:id/start', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
@@ -113,8 +113,8 @@ router.post('/:id/start', async (req, res) => {
       return;
     }
 
-    // Check for existing session
-    const [existing] = await db.select()
+    // Check for existing session (idempotent)
+    let [session] = await db.select()
       .from(gameSessions)
       .where(and(
         eq(gameSessions.challengeId, challengeId),
@@ -122,37 +122,33 @@ router.post('/:id/start', async (req, res) => {
       ))
       .limit(1);
 
-    if (existing) {
-      // Idempotent: return existing session with current round data
-      if (existing.status === 'completed') {
-        res.json({
-          session: { id: existing.id, currentRound: existing.currentRound, status: 'completed' },
-          round: null,
-        });
-        return;
-      }
-      const existingRound = await getRoundData(challengeId, existing.currentRound);
+    if (session?.status === 'completed') {
       res.json({
-        session: { id: existing.id, currentRound: existing.currentRound },
-        round: existingRound,
+        session: { id: session.id, status: 'completed' },
+        challenge: { id: challenge.id, date: challenge.challengeDate, positionOrder: challenge.positionOrder, theme: challenge.theme, totalRounds: 10 },
+        rounds: [],
+        communityStats: [],
       });
       return;
     }
 
-    // Create session
-    const [session] = await db.insert(gameSessions).values({
-      challengeId,
-      guestToken,
-      status: 'in_progress',
-      currentRound: 1,
-    }).returning();
+    if (!session) {
+      [session] = await db.insert(gameSessions).values({
+        challengeId,
+        guestToken,
+        status: 'in_progress',
+        currentRound: 1,
+      }).returning();
+    }
 
-    // Get round 1 data
-    const roundData = await getRoundData(challengeId, 1);
+    // Bulk-fetch all rounds + options + player records (3 queries instead of ~150)
+    const { rounds, communityStats } = await getAllRoundData(challengeId);
 
     res.json({
-      session: { id: session.id, currentRound: 1 },
-      round: roundData,
+      session: { id: session.id, status: 'in_progress' },
+      challenge: { id: challenge.id, date: challenge.challengeDate, positionOrder: challenge.positionOrder, theme: challenge.theme, totalRounds: 10 },
+      rounds,
+      communityStats,
     });
   } catch (error) {
     console.error('Error starting game:', error);
@@ -312,12 +308,6 @@ router.post('/:id/pick', async (req, res) => {
         .where(eq(gameSessions.id, sessionId));
     }
 
-    // Get next round data (if not last round)
-    let nextRound = null;
-    if (!isLastRound) {
-      nextRound = await getRoundData(challengeId, nextRoundNumber);
-    }
-
     res.json({
       reveal: {
         legendScore,
@@ -328,7 +318,7 @@ router.post('/:id/pick', async (req, res) => {
         team: playerRecord.team,
         pickPercentages,
       },
-      nextRound,
+      nextRound: null, // deprecated: frontend uses front-loaded data
     });
   } catch (error) {
     console.error('Error submitting pick:', error);
@@ -408,57 +398,119 @@ router.get('/:id/results', async (req, res) => {
   }
 });
 
-// Helper: get round data for a specific round number
-async function getRoundData(challengeId: number, roundNumber: number) {
-  const [round] = await db.select()
+// Helper: bulk-fetch ALL round data for a challenge (3 queries instead of ~150)
+async function getAllRoundData(challengeId: number) {
+  // 1. All rounds
+  const rounds = await db.select()
     .from(challengeRounds)
-    .where(and(
-      eq(challengeRounds.challengeId, challengeId),
-      eq(challengeRounds.roundNumber, roundNumber)
-    ))
-    .limit(1);
+    .where(eq(challengeRounds.challengeId, challengeId))
+    .orderBy(challengeRounds.roundNumber);
 
-  if (!round) return null;
+  if (rounds.length === 0) return { rounds: [], communityStats: [] };
 
-  const options = await db.select()
+  const roundIds = rounds.map(r => r.id);
+
+  // 2. All options for all rounds
+  const allOptions = await db.select()
     .from(roundOptions)
-    .where(eq(roundOptions.roundId, round.id))
-    .orderBy(roundOptions.playerSlot);
+    .where(inArray(roundOptions.roundId, roundIds))
+    .orderBy(roundOptions.roundId, roundOptions.playerSlot);
 
-  // For each option, resolve the player record IDs for each year
-  const playerOptions = await Promise.all(options.map(async (opt) => {
+  // 3. Collect all (playerId, year) pairs and batch-fetch player records
+  const playerYearPairs: Array<{ playerId: string; year: number }> = [];
+  for (const opt of allOptions) {
     const years = opt.yearOptions as number[];
-    const yearOptionsRaw = await Promise.all(years.map(async (year) => {
-      const [record] = await db.select({ id: players.id })
-        .from(players)
-        .where(and(
-          eq(players.playerId, opt.playerId),
-          eq(players.year, year)
-        ))
-        .limit(1);
-      if (!record) {
-        console.warn(`Missing player record for playerId=${opt.playerId} year=${year}`);
-        return null;
-      }
-      return { year, playerRecordId: record.id };
-    }));
-    const yearOptionsWithIds = yearOptionsRaw.filter((y): y is { year: number; playerRecordId: number } => y !== null);
+    for (const year of years) {
+      playerYearPairs.push({ playerId: opt.playerId, year });
+    }
+  }
 
+  let playerMap = new Map<string, {
+    id: number;
+    zScorePosition: string;
+    stats: unknown;
+    team: string | null;
+    nameFirst: string | null;
+    nameLast: string | null;
+  }>();
+
+  if (playerYearPairs.length > 0) {
+    const whereClauses = playerYearPairs.map(
+      p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
+    );
+    const combined = sql.join(whereClauses, sql` OR `);
+
+    const playerRecords = await db.select({
+      id: players.id,
+      playerId: players.playerId,
+      year: players.year,
+      zScorePosition: players.zScorePosition,
+      stats: players.stats,
+      team: players.team,
+      nameFirst: players.nameFirst,
+      nameLast: players.nameLast,
+    })
+      .from(players)
+      .where(combined);
+
+    playerMap = new Map(
+      playerRecords.map(r => [`${r.playerId}-${r.year}`, r])
+    );
+  }
+
+  // 4. Snapshot community pick stats for all rounds
+  const allStats = await db.select()
+    .from(pickStats)
+    .where(inArray(pickStats.roundId, roundIds));
+
+  const communityStats = roundIds.map(roundId => {
+    const roundStatEntries = allStats.filter(s => s.roundId === roundId);
+    const total = roundStatEntries.reduce((sum, s) => sum + s.pickCount, 0);
     return {
-      slot: opt.playerSlot,
-      name: opt.playerName,
-      portraitUrl: opt.portraitUrl,
-      yearOptions: yearOptionsWithIds,
+      roundId,
+      picks: roundStatEntries.map(s => ({
+        playerId: s.playerId,
+        year: s.selectedYear,
+        percentage: total > 0 ? Math.round((s.pickCount / total) * 100) : 0,
+      })),
     };
-  }));
+  });
 
-  return {
-    roundId: round.id,
-    roundNumber: round.roundNumber,
-    position: round.position,
-    players: playerOptions,
-    timeLimit: 30,
-  };
+  // 5. Assemble enriched rounds
+  const enrichedRounds = rounds.map(round => {
+    const opts = allOptions.filter(o => o.roundId === round.id);
+    return {
+      roundId: round.id,
+      roundNumber: round.roundNumber,
+      position: round.position,
+      players: opts.map(opt => {
+        const years = opt.yearOptions as number[];
+        return {
+          slot: opt.playerSlot,
+          name: opt.playerName,
+          playerId: opt.playerId,
+          portraitUrl: opt.portraitUrl,
+          yearOptions: years.map(year => {
+            const record = playerMap.get(`${opt.playerId}-${year}`);
+            if (!record) {
+              console.warn(`Missing player record for playerId=${opt.playerId} year=${year}`);
+            }
+            return {
+              year,
+              playerRecordId: record?.id ?? 0,
+              zScorePosition: toNum(record?.zScorePosition),
+              team: record?.team ?? '',
+              stats: (record?.stats ?? {}) as Record<string, number>,
+            };
+          }),
+          blurbs: (opt.blurbs ?? {}) as Record<string, string>,
+        };
+      }),
+      timeLimit: 30,
+    };
+  });
+
+  return { rounds: enrichedRounds, communityStats };
 }
 
 export default router;
