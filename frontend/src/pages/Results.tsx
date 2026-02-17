@@ -45,7 +45,7 @@ export function Results() {
   const percentileRank = Math.max(1, 100 - Math.round(percentile));
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-4 py-5 safe-bottom">
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 py-5 safe-bottom">
       {/* Header — Final Score */}
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
@@ -59,7 +59,7 @@ export function Results() {
         <div className="flex justify-center mb-2">
           <LegendScoreBadge score={totalScore} size="lg" animate showLabel />
         </div>
-        <p className="font-editorial font-bold text-3xl text-navy mt-2">
+        <p className="font-editorial font-bold text-4xl text-navy mt-2">
           {totalScore.toFixed(1)}
           <span className="text-base text-muted font-mono">/100</span>
         </p>

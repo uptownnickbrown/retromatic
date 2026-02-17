@@ -133,10 +133,10 @@ export function Game() {
       {game.phase === 'picking' && game.currentRound && (
         <div className="flex items-center justify-between px-4 py-3 gap-3">
           <div className="flex-shrink-0">
-            <h2 className="font-editorial font-bold text-navy text-lg leading-tight">
+            <h2 className="font-editorial font-bold text-navy text-xl leading-tight">
               Round {game.currentRound.roundNumber}
             </h2>
-            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted">
               {game.currentRound.position}
             </span>
           </div>
