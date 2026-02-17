@@ -37,6 +37,14 @@ export function useGenerateChallenge() {
   });
 }
 
+export function useGenerateThemedBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (count: number) => adminApi.generateThemedBatch(count),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] }),
+  });
+}
+
 export function useGenerateBlurbs() {
   const qc = useQueryClient();
   return useMutation({

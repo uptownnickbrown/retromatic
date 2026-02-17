@@ -140,6 +140,13 @@ export async function generateChallenge(count = 1, theme?: string): Promise<{ ch
   });
 }
 
+export async function generateThemedBatch(count = 25): Promise<{ challengeIds: number[]; count: number; themes: string[] }> {
+  return adminFetch('/admin/challenges/generate-themed', {
+    method: 'POST',
+    body: JSON.stringify({ count }),
+  });
+}
+
 export async function generateBlurbs(id: number): Promise<{ generated: number; failed: number }> {
   return adminFetch(`/admin/challenges/${id}/blurbs`, { method: 'POST' });
 }

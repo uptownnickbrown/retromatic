@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
-import { generateChallenge, generateBatch, scheduleChallenges } from '../services/challengeGenerator.js';
+import { generateChallenge, generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge } from '../services/challengeBlurbs.js';
 import { activateTodaysChallenge } from '../services/dailyScheduler.js';
 import { calculateLegendScore } from '../services/legendScore.js';
@@ -33,6 +33,19 @@ router.post('/challenges/generate', async (req, res) => {
   } catch (error) {
     console.error('Challenge generation error:', error);
     res.status(500).json({ error: 'Failed to generate challenge' });
+  }
+});
+
+// Generate themed challenges in batch
+router.post('/challenges/generate-themed', async (req, res) => {
+  try {
+    const { count = 25 } = req.body;
+    const clampedCount = Math.min(Math.max(1, count), 50);
+    const result = await generateThemedBatch(clampedCount);
+    res.json({ challengeIds: result.challengeIds, count: result.challengeIds.length, themes: result.themes });
+  } catch (error) {
+    console.error('Themed generation error:', error);
+    res.status(500).json({ error: 'Failed to generate themed challenges' });
   }
 });
 
