@@ -94,7 +94,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
                 >
                   <div className="ink-divider mx-2" />
                   <div className="flex flex-col gap-1.5 p-2">
-                    {player.yearOptions.map((yo, yi) => (
+                    {[...player.yearOptions].sort((a, b) => a.year - b.year).map((yo, yi) => (
                       <motion.button
                         key={yo.year}
                         initial={{ opacity: 0, x: -10 }}

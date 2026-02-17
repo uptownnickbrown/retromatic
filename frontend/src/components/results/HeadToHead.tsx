@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { POSITIONS } from '../../types';
 import { safeNum } from '../../lib/numeric';
 import { getDisplayStats } from '../../lib/statBenchmark';
 import type { ResultsPick, PerfectLineupPick } from '../../types';
@@ -24,12 +25,14 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: Hea
 
   const pctOfPerfect = perfectTotal > 0 ? Math.round((yourTotal / perfectTotal) * 100) : 0;
 
-  // Match picks to perfect by roundNumber
-  const matchups = picks.map(pick => {
-    const perfect = perfectPicks.find(p => p.roundNumber === pick.roundNumber);
-    const isMatch = perfect && pick.playerName === perfect.playerName && pick.year === perfect.year;
-    return { pick, perfect, isMatch };
-  });
+  // Match picks to perfect by roundNumber, sorted in canonical position order
+  const matchups = [...picks]
+    .sort((a, b) => POSITIONS.indexOf(a.position as any) - POSITIONS.indexOf(b.position as any))
+    .map(pick => {
+      const perfect = perfectPicks.find(p => p.roundNumber === pick.roundNumber);
+      const isMatch = perfect && pick.playerName === perfect.playerName && pick.year === perfect.year;
+      return { pick, perfect, isMatch };
+    });
 
   return (
     <div className="paper-card overflow-hidden">

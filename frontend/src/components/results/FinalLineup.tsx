@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
+import { POSITIONS } from '../../types';
 import type { ResultsPick } from '../../types';
 import { safeNum } from '../../lib/numeric';
 import { WaxSeal } from '../ui/WaxSeal';
@@ -15,7 +16,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
         Lineup Card
       </h3>
       <div className="ink-divider mb-3" />
-      {picks.map((pick, i) => {
+      {[...picks].sort((a, b) => POSITIONS.indexOf(a.position as any) - POSITIONS.indexOf(b.position as any)).map((pick, i) => {
         const score = safeNum(pick.legendScore);
         const isLegendary = score >= 9.5;
 
