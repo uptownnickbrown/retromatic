@@ -1,24 +1,28 @@
 import { useState, useCallback, useRef } from 'react';
-import type { RoundData, RevealData, Challenge, PickSummary } from '../types';
+import type { Challenge, RoundData, RoundCommunityStats, RevealData, PickSummary, PickSubmission, CompleteResponse } from '../types';
+import { calculateLegendScore } from '../lib/legendScore';
+import { saveGame, loadSavedGame, clearSavedGame } from '../lib/gameStorage';
 import * as api from '../lib/api';
 
 export type GamePhase =
   | 'loading'
   | 'idle'
   | 'picking'
-  | 'submitting'
   | 'revealing'
+  | 'submitting_final'
   | 'complete';
 
 interface GameState {
   phase: GamePhase;
   challenge: Challenge | null;
   sessionId: string | null;
-  currentRound: RoundData | null;
+  rounds: RoundData[];
+  communityStats: RoundCommunityStats[];
+  currentRoundIndex: number;
   reveal: RevealData | null;
   picks: PickSummary[];
-  roundNumber: number;
-  totalRounds: number;
+  pickSubmissions: PickSubmission[];
+  completeResponse: CompleteResponse | null;
   error: string | null;
 }
 
@@ -26,11 +30,13 @@ const initialState: GameState = {
   phase: 'loading',
   challenge: null,
   sessionId: null,
-  currentRound: null,
+  rounds: [],
+  communityStats: [],
+  currentRoundIndex: 0,
   reveal: null,
   picks: [],
-  roundNumber: 0,
-  totalRounds: 10,
+  pickSubmissions: [],
+  completeResponse: null,
   error: null,
 };
 
@@ -38,121 +44,230 @@ export function useGame() {
   const [state, setState] = useState<GameState>(initialState);
   const submittingRef = useRef(false);
 
-  const loadChallenge = useCallback(async () => {
+  // Combined load + start: check localStorage first, then fetch from server
+  const loadAndStart = useCallback(async () => {
     setState(s => ({ ...s, phase: 'loading', error: null }));
+
     try {
+      // 1. Check localStorage for a saved game
+      const saved = loadSavedGame();
+
+      // 2. Fetch today's challenge status from server
       const { challenge, session } = await api.getTodaysChallenge();
+
       if (!challenge) {
         setState(s => ({ ...s, phase: 'idle', challenge: null, error: 'No challenge available today. Check back tomorrow!' }));
         return;
       }
+
+      // Already completed — go to results
       if (session?.status === 'completed') {
         setState(s => ({
           ...s,
           phase: 'complete',
           challenge,
           sessionId: session.id,
-          picks: session.picks,
-          totalRounds: challenge.totalRounds,
-          roundNumber: challenge.totalRounds,
         }));
         return;
       }
-      if (session?.status === 'in_progress') {
-        // Resume: need to re-start to get current round data
-        setState(s => ({ ...s, phase: 'idle', challenge, sessionId: session.id, picks: session.picks, roundNumber: session.currentRound }));
+
+      // Check if we have valid saved state for this challenge
+      if (saved && saved.challengeId === challenge.id && saved.rounds.length > 0) {
+        // Resume from localStorage
+        setState(s => ({
+          ...s,
+          phase: saved.currentRoundIndex >= saved.rounds.length ? 'submitting_final' : 'picking',
+          challenge,
+          sessionId: saved.sessionId,
+          rounds: saved.rounds,
+          communityStats: saved.communityStats,
+          currentRoundIndex: saved.currentRoundIndex,
+          picks: saved.picks,
+          pickSubmissions: saved.pickSubmissions,
+        }));
         return;
       }
-      setState(s => ({ ...s, phase: 'idle', challenge, totalRounds: challenge.totalRounds }));
+
+      // Fresh start: fetch all round data from server
+      const data = await api.startGame(challenge.id);
+
+      if (data.session.status === 'completed') {
+        setState(s => ({ ...s, phase: 'complete', challenge, sessionId: data.session.id }));
+        return;
+      }
+
+      // Save initial state to localStorage
+      saveGame({
+        challengeId: challenge.id,
+        challengeDate: challenge.date,
+        sessionId: data.session.id,
+        rounds: data.rounds,
+        communityStats: data.communityStats,
+        currentRoundIndex: 0,
+        picks: [],
+        pickSubmissions: [],
+      });
+
+      setState(s => ({
+        ...s,
+        phase: 'picking',
+        challenge,
+        sessionId: data.session.id,
+        rounds: data.rounds,
+        communityStats: data.communityStats,
+        currentRoundIndex: 0,
+        picks: [],
+        pickSubmissions: [],
+      }));
     } catch (err) {
       setState(s => ({ ...s, phase: 'idle', error: (err as Error).message }));
     }
   }, []);
 
-  const startGame = useCallback(async () => {
-    if (!state.challenge) return;
-    setState(s => ({ ...s, phase: 'loading', error: null }));
-    try {
-      const { session, round } = await api.startGame(state.challenge.id);
-      // Server returned a completed session — go straight to results
-      if (session.status === 'completed' || !round) {
-        setState(s => ({
-          ...s,
-          phase: 'complete',
-          sessionId: session.id,
-        }));
-        return;
-      }
-      setState(s => ({
-        ...s,
-        phase: 'picking',
-        sessionId: session.id,
-        currentRound: round,
-        roundNumber: round.roundNumber,
-      }));
-    } catch (err) {
-      setState(s => ({ ...s, phase: 'idle', error: (err as Error).message }));
-    }
-  }, [state.challenge]);
+  // Synchronous pick: compute Legend Score locally, build reveal data, save to localStorage
+  const submitPick = useCallback((playerRecordId: number, year: number, wasTimeout = false) => {
+    if (submittingRef.current) return;
 
-  const submitPick = useCallback(async (playerId: number, year: number, wasTimeout = false) => {
-    if (!state.challenge || !state.sessionId || !state.currentRound || submittingRef.current) return;
-    submittingRef.current = true;
-    setState(s => ({ ...s, phase: 'submitting' }));
-    try {
-      const { reveal, nextRound } = await api.submitPick(
-        state.challenge.id,
-        state.sessionId,
-        state.currentRound.roundId,
-        playerId,
+    setState(prev => {
+      const round = prev.rounds[prev.currentRoundIndex];
+      if (!round) return prev;
+
+      // Find the selected player + year option from enriched round data
+      let selectedPlayer = null;
+      let selectedYearOption = null;
+      for (const player of round.players) {
+        for (const yo of player.yearOptions) {
+          if (yo.playerRecordId === playerRecordId && yo.year === year) {
+            selectedPlayer = player;
+            selectedYearOption = yo;
+            break;
+          }
+        }
+        if (selectedPlayer) break;
+      }
+
+      if (!selectedPlayer || !selectedYearOption) return prev;
+
+      // Compute Legend Score client-side
+      const legendScore = calculateLegendScore(selectedYearOption.zScorePosition);
+
+      // Build reveal data
+      const blurb = selectedPlayer.blurbs[String(year)] || '';
+
+      // Get community stats for this round (snapshot from game start)
+      const roundStats = prev.communityStats.find(s => s.roundId === round.roundId);
+
+      const reveal: RevealData = {
+        legendScore,
+        blurb,
+        stats: selectedYearOption.stats,
+        playerName: selectedPlayer.name,
+        year,
+        team: selectedYearOption.team,
+        pickPercentages: roundStats?.picks,
+      };
+
+      const newPick: PickSummary = {
+        roundNumber: round.roundNumber,
+        position: round.position,
+        playerName: selectedPlayer.name,
+        year,
+        legendScore,
+      };
+
+      const newSubmission: PickSubmission = {
+        roundId: round.roundId,
+        playerRecordId,
         year,
         wasTimeout,
-      );
-      const newPick: PickSummary = {
-        roundNumber: state.currentRound.roundNumber,
-        position: state.currentRound.position,
-        playerName: reveal.playerName,
-        year: reveal.year,
-        legendScore: reveal.legendScore,
       };
-      setState(s => ({
-        ...s,
-        phase: 'revealing',
-        reveal,
-        picks: [...s.picks, newPick],
-        currentRound: nextRound,
-      }));
-    } catch (err) {
-      setState(s => ({ ...s, phase: 'picking', error: (err as Error).message }));
-    } finally {
-      submittingRef.current = false;
-    }
-  }, [state.challenge, state.sessionId, state.currentRound]);
 
+      const newPicks = [...prev.picks, newPick];
+      const newSubmissions = [...prev.pickSubmissions, newSubmission];
+      const newRoundIndex = prev.currentRoundIndex + 1;
+
+      // Save to localStorage
+      if (prev.challenge) {
+        saveGame({
+          challengeId: prev.challenge.id,
+          challengeDate: prev.challenge.date,
+          sessionId: prev.sessionId!,
+          rounds: prev.rounds,
+          communityStats: prev.communityStats,
+          currentRoundIndex: newRoundIndex,
+          picks: newPicks,
+          pickSubmissions: newSubmissions,
+        });
+      }
+
+      return {
+        ...prev,
+        phase: 'revealing' as const,
+        reveal,
+        picks: newPicks,
+        pickSubmissions: newSubmissions,
+        currentRoundIndex: newRoundIndex,
+      };
+    });
+  }, []);
+
+  // Advance to next round or trigger final submission
   const advanceRound = useCallback(() => {
-    if (state.currentRound) {
-      setState(s => ({
-        ...s,
-        phase: 'picking',
-        reveal: null,
-        roundNumber: state.currentRound!.roundNumber,
-      }));
-    } else {
+    setState(prev => {
+      if (prev.currentRoundIndex >= prev.rounds.length) {
+        // All rounds done — trigger final submission
+        return { ...prev, phase: 'submitting_final' as const, reveal: null };
+      }
+      return { ...prev, phase: 'picking' as const, reveal: null };
+    });
+  }, []);
+
+  // Submit all picks to server at once
+  const submitFinal = useCallback(async () => {
+    if (!state.challenge || !state.sessionId || submittingRef.current) return;
+    submittingRef.current = true;
+
+    try {
+      const response = await api.completeGame(
+        state.challenge.id,
+        state.sessionId,
+        state.pickSubmissions,
+      );
+
+      clearSavedGame();
+
       setState(s => ({
         ...s,
         phase: 'complete',
-        reveal: null,
-        roundNumber: s.totalRounds,
+        completeResponse: response,
       }));
+    } catch (err) {
+      setState(s => ({ ...s, phase: 'submitting_final', error: (err as Error).message }));
+    } finally {
+      submittingRef.current = false;
     }
-  }, [state.currentRound]);
+  }, [state.challenge, state.sessionId, state.pickSubmissions]);
+
+  // Derived values
+  const currentRound = state.rounds[state.currentRoundIndex] ?? null;
+  const roundNumber = currentRound?.roundNumber ?? (state.picks.length > 0 ? state.picks.length : 0);
+  const totalRounds = state.rounds.length || 10;
 
   return {
-    ...state,
+    phase: state.phase,
+    challenge: state.challenge,
+    sessionId: state.sessionId,
+    currentRound,
+    reveal: state.reveal,
+    picks: state.picks,
+    completeResponse: state.completeResponse,
+    roundNumber,
+    totalRounds,
+    error: state.error,
     isSubmitting: submittingRef,
-    loadChallenge,
-    startGame,
+    loadAndStart,
     submitPick,
     advanceRound,
+    submitFinal,
   };
 }
