@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-**Sandlot** is a mobile-first daily fantasy baseball draft challenge. Each day, all users play the same 10-round draft, picking from curated historical MLB player-seasons (1961-2023). Inspired by DraftKings Flash Draft and Immaculate Grid.
+**Sandlot** is a mobile-first daily fantasy baseball draft challenge. Each day, all users play the same 10-round draft, picking from curated historical MLB player-seasons (1961-2025). Inspired by DraftKings Flash Draft and Immaculate Grid.
 
 ### Core Game Loop
 1. All 10 rounds of data loaded upfront at game start (single API call)
@@ -34,7 +34,7 @@ cd frontend && npm run dev   # Vite dev server at http://localhost:3000
 cd backend && npx drizzle-kit push
 
 # Data pipeline (one-time, populates player data)
-cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2023_csv
+cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2025_csv
 ```
 
 ## Architecture
@@ -56,7 +56,7 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - `data-pipeline/` — PostgreSQL data ingestion
 
 ### Database Tables
-- `players` — 34,815 player-season records with pre-computed Z-scores (read-only data)
+- `players` — ~36,500 player-season records with pre-computed Z-scores (read-only data, 1961-2025)
 - `challenges` — daily challenge definitions with position order and theme
 - `challenge_rounds` — 10 rounds per challenge, each with a position
 - `round_options` — 3 players per round, each with 3 year options, portrait URL, AI blurbs

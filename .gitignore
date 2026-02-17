@@ -21,6 +21,7 @@ public/data/
 
 # Raw Lahman data (download separately)
 data-preprocessing/lahman_1871-2023_csv/
+data-preprocessing/lahman_1871-2025_csv/
 
 # Generated exports
 data-preprocessing/*.pdf
@@ -66,6 +67,7 @@ Thumbs.db
 
 # Database
 *.db
+*.sql
 
 # Temporary files
 *.tmp

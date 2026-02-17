@@ -27,8 +27,8 @@ router.use(requireAdmin);
 // Generate a new challenge
 router.post('/challenges/generate', async (req, res) => {
   try {
-    const { count = 1, theme, positionOrder } = req.body;
-    const ids = await generateBatch(count, { theme, positionOrder });
+    const { count = 1, theme, positionOrder, date } = req.body;
+    const ids = await generateBatch(count, { theme, positionOrder, date });
     res.json({ challengeIds: ids, count: ids.length });
   } catch (error) {
     console.error('Challenge generation error:', error);

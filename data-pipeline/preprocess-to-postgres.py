@@ -155,9 +155,13 @@ def load_batting_data(data_dir: str) -> pd.DataFrame:
     except UnicodeDecodeError:
         people = pd.read_csv(os.path.join(data_dir, 'People.csv'), encoding='latin1')
 
-    # Filter data to start from 1961
+    # Filter data to start from 1961, MLB leagues only (AL/NL)
     batting = batting[batting['yearID'] >= 1961]
     fielding = fielding[fielding['yearID'] >= 1961]
+    batting = batting[batting['lgID'].isin(['AL', 'NL'])]
+    fielding = fielding[fielding['lgID'].isin(['AL', 'NL'])]
+    print(f"  Batting: {len(batting)} rows, years {batting['yearID'].min()}-{batting['yearID'].max()}, leagues {sorted(batting['lgID'].unique())}")
+    print(f"  Fielding: {len(fielding)} rows, years {fielding['yearID'].min()}-{fielding['yearID'].max()}")
 
     # Basic join to People for name info
     batting = batting.merge(
@@ -201,6 +205,17 @@ def load_batting_data(data_dir: str) -> pd.DataFrame:
     batting_pos = fielding_summ.merge(
         batting_summ, on=['playerID', 'yearID'], how='inner'
     )
+
+    # Add UTIL position for DH-only batters (no fielding position with 20+ games)
+    has_pos = batting_pos[['playerID', 'yearID']].drop_duplicates()
+    has_pos['_has_pos'] = True
+    util_batters = batting_summ.merge(has_pos, on=['playerID', 'yearID'], how='left')
+    util_batters = util_batters[util_batters['_has_pos'].isna()].drop(columns=['_has_pos']).copy()
+    if len(util_batters) > 0:
+        util_batters['POS'] = 'UTIL'
+        util_batters['G'] = 0  # No fielding games
+        batting_pos = pd.concat([batting_pos, util_batters], ignore_index=True)
+        print(f"  Added {len(util_batters)} UTIL (DH-only) batter-seasons")
 
     # Compute derived stats
     batting_pos['AVG'] = batting_pos['H'] / batting_pos['AB'].replace(0, np.nan)
@@ -301,8 +316,10 @@ def load_pitching_data(data_dir: str) -> pd.DataFrame:
     except UnicodeDecodeError:
         people = pd.read_csv(os.path.join(data_dir, 'People.csv'), encoding='latin1')
 
-    # Filter data to start from 1961
+    # Filter data to start from 1961, MLB leagues only (AL/NL)
     pitching = pitching[pitching['yearID'] >= 1961]
+    pitching = pitching[pitching['lgID'].isin(['AL', 'NL'])]
+    print(f"  Pitching: {len(pitching)} rows, years {pitching['yearID'].min()}-{pitching['yearID'].max()}, leagues {sorted(pitching['lgID'].unique())}")
 
     agg_dict = {}
     for col in ['W', 'L', 'G', 'GS', 'CG', 'SHO', 'SV', 'IPouts', 'IP', 'H', 'ER', 'HR', 'BB', 'IBB', 'SO']:
@@ -861,7 +878,7 @@ def main():
     """
     if len(sys.argv) < 2:
         print("Usage: python preprocess-to-postgres.py <data_directory>")
-        print("Example: python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2023_csv")
+        print("Example: python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2025_csv")
         return False
 
     data_directory = sys.argv[1]
