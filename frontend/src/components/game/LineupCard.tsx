@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
+import { POSITIONS } from '../../types';
 import type { PickSummary } from '../../types';
 import { safeNum } from '../../lib/numeric';
 import { ChevronDown } from 'lucide-react';
@@ -56,23 +57,22 @@ export function LineupCard({ totalRounds, currentRound, picks, positions, totalS
                 Today's Lineup
               </h3>
               <div className="space-y-1">
-                {Array.from({ length: totalRounds }, (_, i) => {
-                  const roundNum = i + 1;
-                  const pick = picks.find(p => p.roundNumber === roundNum);
-                  const position = positions[i] || '';
-                  const isCurrent = roundNum === currentRound;
+                {POSITIONS.map((pos) => {
+                  const pick = picks.find(p => p.position === pos);
+                  const currentPosition = positions[currentRound - 1] || '';
+                  const isCurrent = pos === currentPosition;
                   const score = pick ? safeNum(pick.legendScore) : 0;
 
                   return (
                     <div
-                      key={i}
+                      key={pos}
                       className={cn(
                         'flex items-center gap-2 py-0.5 px-1 rounded-sm text-xs',
                         isCurrent && 'bg-gold/10',
                       )}
                     >
                       <span className="font-mono font-bold w-7 text-navy/50 text-[10px]">
-                        {position}
+                        {pos}
                       </span>
                       {pick ? (
                         <>
