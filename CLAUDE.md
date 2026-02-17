@@ -7,11 +7,13 @@ This file provides guidance to Claude Code when working with this repository.
 **Sandlot** is a mobile-first daily fantasy baseball draft challenge. Each day, all users play the same 10-round draft, picking from curated historical MLB player-seasons (1961-2023). Inspired by DraftKings Flash Draft and Immaculate Grid.
 
 ### Core Game Loop
-1. Each round shows 3 players × 3 year options = 9 choices for one roster position
-2. 30-second timer per pick (auto-random on timeout)
-3. After picking: instant reveal with Legend Score, AI blurb, community pick %
-4. 10 rounds total (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P — order randomized daily)
-5. Final results: total Legend Score, percentile rank, perfect lineup comparison
+1. All 10 rounds of data loaded upfront at game start (single API call)
+2. Each round shows 3 players × 3 year options = 9 choices for one roster position
+3. 30-second timer per pick (auto-random on timeout)
+4. After picking: instant client-side reveal with Legend Score, AI blurb, community pick % (no server round-trip)
+5. 10 rounds total (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P — order randomized daily)
+6. Game state saved to localStorage after each pick (crash recovery)
+7. Final results: all picks submitted in one batch, server re-validates scores
 
 ### Legend Score
 Position-adjusted Z-score mapped to a 1.0-10.0 scale. This is the game's signature metric — measures how good a player-year was relative to others at that position.
@@ -46,7 +48,7 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - `frontend/src/pages/` — Home, Game, Results, Leaderboard
 - `frontend/src/components/game/` — PickGrid, Timer, RosterStrip, RevealCard, LegendScoreBadge, PlayerPortrait
 - `frontend/src/hooks/` — useGame (state machine), useTimer, useChallenge
-- `frontend/src/lib/` — api.ts (API client), utils.ts (helpers)
+- `frontend/src/lib/` — api.ts (API client), legendScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
 - `backend/src/routes/` — challenge.ts, leaderboard.ts, admin.ts
 - `backend/src/services/` — legendScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts
 - `backend/src/db/` — Drizzle schema and connection
@@ -63,17 +65,18 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - `pick_stats` — aggregated pick counts for "X% picked this"
 
 ### API Routes
-- `GET /api/challenge/today` — today's challenge + user's session
-- `POST /api/challenge/:id/start` — begin a game session
-- `POST /api/challenge/:id/pick` — submit pick, get reveal + next round
-- `GET /api/challenge/:id/results` — completed game results
+- `GET /api/challenge/today` — today's challenge + user's session status
+- `POST /api/challenge/:id/start` — begin game, returns ALL round data upfront (enriched players, stats, community picks)
+- `POST /api/challenge/:id/complete` — submit all 10 picks at once, get final results
+- `GET /api/challenge/:id/results` — completed game results with community stats
 - `GET /api/leaderboard` — daily/weekly/all-time rankings
 - `POST /api/admin/challenges/generate` — generate challenges (admin)
 
 ### Frontend Game State Machine
 ```
-LOADING → IDLE → PICKING (30s timer) → SUBMITTING → REVEALING (5s) → next round or COMPLETE
+LOADING → PICKING (30s timer, client-side) → REVEALING (5s) → next round or SUBMITTING_FINAL → COMPLETE
 ```
+Picks are computed client-side (Legend Score from z-scores). Game state saved to localStorage after each pick. Single batch submission at game end.
 
 ### Routing
 - `/` — Home (daily challenge launcher)
