@@ -26,16 +26,23 @@ export interface PickSummary {
   legendScore: number;
 }
 
+// --- Enriched types for front-loaded game data ---
+
 export interface YearOption {
   year: number;
   playerRecordId: number;
+  zScorePosition: number;
+  team: string;
+  stats: Record<string, number>;
 }
 
 export interface PlayerOption {
   slot: number;
   name: string;
+  playerId: string;
   portraitUrl: string | null;
   yearOptions: YearOption[];
+  blurbs: Record<string, string>;
 }
 
 export interface RoundData {
@@ -52,6 +59,33 @@ export interface PickPercentage {
   percentage: number;
 }
 
+export interface RoundCommunityStats {
+  roundId: number;
+  picks: PickPercentage[];
+}
+
+export interface FullGameData {
+  session: { id: string; status: string };
+  challenge: Challenge;
+  rounds: RoundData[];
+  communityStats: RoundCommunityStats[];
+}
+
+export interface PickSubmission {
+  roundId: number;
+  playerRecordId: number;
+  year: number;
+  wasTimeout: boolean;
+}
+
+export interface CompleteResponse {
+  totalLegendScore: number;
+  percentile: number;
+  totalParticipants: number;
+  communityStats: RoundCommunityStats[];
+  perfectLineup: PerfectLineup;
+}
+
 export interface RevealData {
   legendScore: number;
   blurb: string;
@@ -59,7 +93,7 @@ export interface RevealData {
   playerName: string;
   year: number;
   team: string;
-  pickPercentages: PickPercentage[];
+  pickPercentages?: PickPercentage[];
 }
 
 export interface ResultsPick {
@@ -83,6 +117,7 @@ export interface ResultsData {
   picks: ResultsPick[];
   perfectLineup: PerfectLineup;
   totalParticipants: number;
+  communityStats?: RoundCommunityStats[];
 }
 
 export interface LeaderboardEntry {
