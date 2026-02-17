@@ -388,7 +388,7 @@ router.get('/:id/results', async (req, res) => {
 });
 
 // Helper: bulk-fetch ALL round data for a challenge (3 queries instead of ~150)
-async function getAllRoundData(challengeId: number) {
+export async function getAllRoundData(challengeId: number) {
   // 1. All rounds
   const rounds = await db.select()
     .from(challengeRounds)

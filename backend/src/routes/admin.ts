@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db/index.js';
-import { challenges, challengeRounds, roundOptions, gameSessions, userPicks } from '../db/schema.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { generateChallenge, generateBatch, scheduleChallenges } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge } from '../services/challengeBlurbs.js';
 import { activateTodaysChallenge } from '../services/dailyScheduler.js';
+import { calculateLegendScore } from '../services/legendScore.js';
+import { toNum } from '../lib/numeric.js';
+import { getAllRoundData } from './challenge.js';
 
 const router = Router();
 
@@ -33,6 +36,88 @@ router.post('/challenges/generate', async (req, res) => {
   }
 });
 
+// Schedule challenges (assign dates) — must be before :id routes
+router.post('/challenges/schedule', async (req, res) => {
+  try {
+    const { challengeIds, startDate } = req.body;
+    if (!challengeIds?.length || !startDate) {
+      res.status(400).json({ error: 'challengeIds and startDate required' });
+      return;
+    }
+    await scheduleChallenges(challengeIds, startDate);
+    res.json({ scheduled: challengeIds.length, startDate });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to schedule challenges' });
+  }
+});
+
+// Pipeline: all non-completed challenges with health summaries
+router.get('/challenges/pipeline', async (req, res) => {
+  try {
+    const includeCompleted = req.query.includeCompleted === 'true';
+
+    let allChallenges;
+    if (includeCompleted) {
+      allChallenges = await db.select().from(challenges).orderBy(desc(challenges.id));
+    } else {
+      allChallenges = await db.select().from(challenges)
+        .where(sql`${challenges.status} != 'completed'`)
+        .orderBy(desc(challenges.id));
+    }
+
+    const pipeline = await Promise.all(allChallenges.map(async (challenge) => {
+      const rounds = await db.select({ id: challengeRounds.id })
+        .from(challengeRounds)
+        .where(eq(challengeRounds.challengeId, challenge.id));
+
+      const roundIds = rounds.map(r => r.id);
+      let blurbsMissing = 0;
+      let portraitsMissing = 0;
+      let totalPlayerSlots = 0;
+      let totalYearOptions = 0;
+
+      if (roundIds.length > 0) {
+        const options = await db.select({
+          portraitUrl: roundOptions.portraitUrl,
+          blurbs: roundOptions.blurbs,
+          yearOptions: roundOptions.yearOptions,
+        })
+          .from(roundOptions)
+          .where(inArray(roundOptions.roundId, roundIds));
+
+        for (const opt of options) {
+          totalPlayerSlots++;
+          const years = (opt.yearOptions as number[]) || [];
+          totalYearOptions += years.length;
+          if (!opt.portraitUrl) portraitsMissing++;
+          const blurbs = (opt.blurbs ?? {}) as Record<string, string>;
+          for (const year of years) {
+            if (!blurbs[String(year)]?.trim()) blurbsMissing++;
+          }
+        }
+      }
+
+      return {
+        ...challenge,
+        health: {
+          rounds: rounds.length,
+          roundsReady: rounds.length === 10,
+          playerSlots: totalPlayerSlots,
+          blurbsMissing,
+          blurbsReady: blurbsMissing === 0 && totalYearOptions > 0,
+          portraitsMissing,
+          portraitsReady: portraitsMissing === 0 && totalPlayerSlots > 0,
+        },
+      };
+    }));
+
+    res.json({ challenges: pipeline });
+  } catch (error) {
+    console.error('Pipeline error:', error);
+    res.status(500).json({ error: 'Failed to fetch pipeline' });
+  }
+});
+
 // List all challenges
 router.get('/challenges', async (req, res) => {
   try {
@@ -45,7 +130,7 @@ router.get('/challenges', async (req, res) => {
   }
 });
 
-// Get challenge details
+// Get challenge details (enriched with z-scores for Legend Score display)
 router.get('/challenges/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -60,18 +145,179 @@ router.get('/challenges/:id', async (req, res) => {
       .where(eq(challengeRounds.challengeId, id))
       .orderBy(challengeRounds.roundNumber);
 
+    // Collect all player-year pairs for batch z-score lookup
+    const allOptions: Array<typeof roundOptions.$inferSelect> = [];
     const roundsWithOptions = await Promise.all(rounds.map(async (round) => {
       const options = await db.select()
         .from(roundOptions)
         .where(eq(roundOptions.roundId, round.id))
         .orderBy(roundOptions.playerSlot);
-
+      allOptions.push(...options);
       return { ...round, options };
     }));
 
-    res.json({ challenge, rounds: roundsWithOptions });
+    // Batch-fetch player z-scores
+    const playerYearPairs: Array<{ playerId: string; year: number }> = [];
+    for (const opt of allOptions) {
+      for (const year of (opt.yearOptions as number[])) {
+        playerYearPairs.push({ playerId: opt.playerId, year });
+      }
+    }
+
+    let zScoreMap = new Map<string, number>();
+    if (playerYearPairs.length > 0) {
+      const whereClauses = playerYearPairs.map(
+        p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
+      );
+      const combined = sql.join(whereClauses, sql` OR `);
+      const records = await db.select({
+        playerId: players.playerId,
+        year: players.year,
+        zScorePosition: players.zScorePosition,
+      }).from(players).where(combined);
+
+      for (const r of records) {
+        zScoreMap.set(`${r.playerId}-${r.year}`, toNum(r.zScorePosition));
+      }
+    }
+
+    // Enrich options with z-scores
+    const enrichedRounds = roundsWithOptions.map(round => ({
+      ...round,
+      options: round.options.map(opt => ({
+        ...opt,
+        yearScores: (opt.yearOptions as number[]).map(year => ({
+          year,
+          zScorePosition: zScoreMap.get(`${opt.playerId}-${year}`) ?? 0,
+          legendScore: calculateLegendScore(zScoreMap.get(`${opt.playerId}-${year}`) ?? 0),
+        })),
+      })),
+    }));
+
+    res.json({ challenge, rounds: enrichedRounds });
   } catch (error) {
     res.status(500).json({ error: 'Failed to get challenge' });
+  }
+});
+
+// Health check for a single challenge
+router.get('/challenges/:id/health', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [challenge] = await db.select().from(challenges).where(eq(challenges.id, id));
+    if (!challenge) {
+      res.status(404).json({ error: 'Challenge not found' });
+      return;
+    }
+
+    const rounds = await db.select()
+      .from(challengeRounds)
+      .where(eq(challengeRounds.challengeId, id));
+
+    const roundIds = rounds.map(r => r.id);
+    const allOptions = roundIds.length > 0
+      ? await db.select().from(roundOptions).where(inArray(roundOptions.roundId, roundIds))
+      : [];
+
+    let totalPlayerSlots = 0;
+    let blurbsPresent = 0;
+    let blurbsMissing = 0;
+    let portraitsPresent = 0;
+    let portraitsMissing = 0;
+    let totalYearOptions = 0;
+
+    const playerYearPairs: Array<{ playerId: string; year: number }> = [];
+
+    for (const opt of allOptions) {
+      totalPlayerSlots++;
+      const years = (opt.yearOptions as number[]) || [];
+      totalYearOptions += years.length;
+
+      if (opt.portraitUrl) portraitsPresent++;
+      else portraitsMissing++;
+
+      const blurbs = (opt.blurbs ?? {}) as Record<string, string>;
+      for (const year of years) {
+        if (blurbs[String(year)]?.trim()) {
+          blurbsPresent++;
+        } else {
+          blurbsMissing++;
+        }
+        playerYearPairs.push({ playerId: opt.playerId, year });
+      }
+    }
+
+    // Compute Legend Score range
+    let minLegendScore: number | null = null;
+    let maxLegendScore: number | null = null;
+
+    if (playerYearPairs.length > 0) {
+      const whereClauses = playerYearPairs.map(
+        p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
+      );
+      const combined = sql.join(whereClauses, sql` OR `);
+      const records = await db.select({ zScorePosition: players.zScorePosition })
+        .from(players).where(combined);
+
+      for (const r of records) {
+        const ls = calculateLegendScore(toNum(r.zScorePosition));
+        if (minLegendScore === null || ls < minLegendScore) minLegendScore = ls;
+        if (maxLegendScore === null || ls > maxLegendScore) maxLegendScore = ls;
+      }
+    }
+
+    res.json({
+      challengeId: id,
+      status: challenge.status,
+      rounds: rounds.length,
+      roundsExpected: 10,
+      roundsReady: rounds.length === 10,
+      playerSlots: totalPlayerSlots,
+      playerSlotsExpected: 30,
+      blurbs: { present: blurbsPresent, missing: blurbsMissing, total: totalYearOptions },
+      blurbsReady: blurbsMissing === 0 && blurbsPresent > 0,
+      portraits: { present: portraitsPresent, missing: portraitsMissing, total: totalPlayerSlots },
+      portraitsReady: portraitsMissing === 0 && portraitsPresent > 0,
+      legendScoreRange: minLegendScore !== null ? { min: minLegendScore, max: maxLegendScore } : null,
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({ error: 'Failed to compute health' });
+  }
+});
+
+// Playtest: start a challenge regardless of status (no real session)
+router.post('/challenges/:id/playtest', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    const [challenge] = await db.select()
+      .from(challenges)
+      .where(eq(challenges.id, challengeId))
+      .limit(1);
+
+    if (!challenge) {
+      res.status(404).json({ error: 'Challenge not found' });
+      return;
+    }
+
+    const { rounds, communityStats } = await getAllRoundData(challengeId);
+
+    res.json({
+      session: { id: `playtest-${challengeId}-${Date.now()}`, status: 'playtest' },
+      challenge: {
+        id: challenge.id,
+        date: challenge.challengeDate,
+        positionOrder: challenge.positionOrder,
+        theme: challenge.theme,
+        totalRounds: 10,
+      },
+      rounds,
+      communityStats,
+    });
+  } catch (error) {
+    console.error('Playtest error:', error);
+    res.status(500).json({ error: 'Failed to start playtest' });
   }
 });
 
@@ -131,21 +377,6 @@ router.post('/challenges/:id/blurbs', async (req, res) => {
   } catch (error) {
     console.error('Blurb generation error:', error);
     res.status(500).json({ error: 'Failed to generate blurbs' });
-  }
-});
-
-// Schedule challenges (assign dates)
-router.post('/challenges/schedule', async (req, res) => {
-  try {
-    const { challengeIds, startDate } = req.body;
-    if (!challengeIds?.length || !startDate) {
-      res.status(400).json({ error: 'challengeIds and startDate required' });
-      return;
-    }
-    await scheduleChallenges(challengeIds, startDate);
-    res.json({ scheduled: challengeIds.length, startDate });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to schedule challenges' });
   }
 });
 
