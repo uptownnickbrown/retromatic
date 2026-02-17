@@ -26,98 +26,136 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
     onPick(yearOption.playerRecordId, year);
   };
 
-  return (
-    <div className="flex gap-1.5 w-full px-1 items-start">
-      {players.map((player, i) => {
-        const isFocused = focusedSlot === player.slot;
-        const hasAnyFocused = focusedSlot !== null;
-        const isDimmed = hasAnyFocused && !isFocused;
+  const hasAnyFocused = focusedSlot !== null;
 
-        return (
-          <motion.div
-            key={player.slot}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{
-              opacity: isDimmed ? 0.4 : 1,
-              y: 0,
-              flex: isFocused ? 3 : hasAnyFocused ? 1 : 1,
-            }}
-            transition={{
-              type: 'spring',
-              stiffness: 300,
-              damping: 25,
-              delay: hasAnyFocused ? 0 : i * 0.1,
-            }}
-            className={cn(
-              'paper-card cursor-pointer overflow-hidden min-w-0',
-              'transition-shadow duration-200',
-              isFocused && 'shadow-[4px_4px_0px_#0A1E2F]',
-              disabled && 'opacity-50 pointer-events-none',
-            )}
-            onClick={() => handleCardTap(player.slot)}
-          >
-            <div className="p-2 flex flex-col items-center">
-              {/* Portrait */}
-              <PlayerPortrait
-                name={player.name}
-                portraitUrl={player.portraitUrl}
-                position={position}
-                size={isFocused ? 'lg' : 'md'}
-                className="mb-2"
-              />
+  // Pyramid layout: player 0 on top centered, players 1+2 on bottom row
+  const topPlayer = players[0];
+  const bottomPlayers = players.slice(1);
 
-              {/* Player name */}
-              <h3 className={cn(
-                'font-editorial font-bold text-navy text-center leading-tight truncate w-full',
-                isFocused ? 'text-base' : 'text-sm',
-              )}>
-                {player.name}
-              </h3>
+  const renderCard = (player: PlayerOption, i: number) => {
+    const isFocused = focusedSlot === player.slot;
+    const isDimmed = hasAnyFocused && !isFocused;
 
-              {/* Position tag — only when focused */}
-              {isFocused && (
-                <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted mt-0.5">
-                  {position}
-                </span>
-              )}
+    return (
+      <motion.div
+        key={player.slot}
+        layout
+        initial={{ opacity: 0, y: 20 }}
+        animate={{
+          opacity: isDimmed ? 0.35 : 1,
+          y: 0,
+        }}
+        transition={{
+          type: 'spring',
+          stiffness: 300,
+          damping: 25,
+          delay: hasAnyFocused ? 0 : i * 0.1,
+        }}
+        className={cn(
+          'paper-card cursor-pointer overflow-hidden',
+          'transition-shadow duration-200',
+          isFocused && 'shadow-[4px_4px_0px_#0A1E2F]',
+          disabled && 'opacity-50 pointer-events-none',
+          // Sizing: focused = full width, unfocused in pyramid
+          isFocused ? 'w-full' : '',
+        )}
+        onClick={() => handleCardTap(player.slot)}
+      >
+        <div className="p-2.5 flex flex-col items-center">
+          {/* Portrait */}
+          <PlayerPortrait
+            name={player.name}
+            portraitUrl={player.portraitUrl}
+            position={position}
+            size={isFocused ? 'lg' : 'md'}
+            className="mb-2"
+          />
+
+          {/* Player name */}
+          <h3 className={cn(
+            'font-editorial font-black text-navy text-center leading-tight truncate w-full',
+            isFocused ? 'text-lg' : 'text-base',
+          )}>
+            {player.name}
+          </h3>
+
+          {/* Position tag — only when focused */}
+          {isFocused && (
+            <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-muted mt-0.5">
+              {position}
+            </span>
+          )}
+        </div>
+
+        {/* Year tabs — only when focused */}
+        <AnimatePresence>
+          {isFocused && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="ink-divider mx-2" />
+              <div className="flex flex-col gap-1.5 p-2.5">
+                {[...player.yearOptions].sort((a, b) => a.year - b.year).map((yo, yi) => (
+                  <motion.button
+                    key={yo.year}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 + yi * 0.06 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleYearPick(player, yo.year);
+                    }}
+                    disabled={disabled}
+                    className="year-tab text-sm w-full"
+                  >
+                    <span className="font-mono font-bold">{yo.year}</span>
+                    <span className="text-muted ml-1.5 text-xs">{yo.team}</span>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    );
+  };
+
+  // When a card is focused, show it full-width
+  if (hasAnyFocused) {
+    const focusedPlayer = players.find(p => p.slot === focusedSlot)!;
+    const otherPlayers = players.filter(p => p.slot !== focusedSlot);
+
+    return (
+      <div className="flex flex-col gap-2 w-full px-2">
+        {renderCard(focusedPlayer, 0)}
+        <div className="flex gap-1.5">
+          {otherPlayers.map((p, i) => (
+            <div key={p.slot} className="flex-1 min-w-0">
+              {renderCard(p, i + 1)}
             </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-            {/* Year tabs — only when focused */}
-            <AnimatePresence>
-              {isFocused && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <div className="ink-divider mx-2" />
-                  <div className="flex flex-col gap-1.5 p-2">
-                    {[...player.yearOptions].sort((a, b) => a.year - b.year).map((yo, yi) => (
-                      <motion.button
-                        key={yo.year}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.1 + yi * 0.06 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleYearPick(player, yo.year);
-                        }}
-                        disabled={disabled}
-                        className="year-tab text-xs w-full"
-                      >
-                        <span className="font-mono font-bold">{yo.year}</span>
-                        <span className="text-muted ml-1.5 text-xs">{yo.team}</span>
-                      </motion.button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        );
-      })}
+  // Default pyramid: 1 on top, 2 on bottom
+  return (
+    <div className="flex flex-col items-center gap-2 w-full px-2">
+      <div className="w-[55%]">
+        {renderCard(topPlayer, 0)}
+      </div>
+      <div className="flex gap-1.5 w-full">
+        {bottomPlayers.map((p, i) => (
+          <div key={p.slot} className="flex-1 min-w-0">
+            {renderCard(p, i + 1)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
