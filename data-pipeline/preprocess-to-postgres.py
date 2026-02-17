@@ -263,6 +263,12 @@ def compute_batting_zscores(df: pd.DataFrame) -> pd.DataFrame:
         except:
             df[zname] = 0
 
+    # AVG z-score (for percentile display only, not part of Total formula)
+    try:
+        df['AVG_Z'] = zscore(df['AVG'].fillna(0))
+    except:
+        df['AVG_Z'] = 0
+
     # "Outs" approach: Outs = AB - H
     df['Outs'] = df['AB'] - df['H']
     try:
@@ -270,24 +276,36 @@ def compute_batting_zscores(df: pd.DataFrame) -> pd.DataFrame:
     except:
         df['Outs_Z'] = 0
 
-    # Summation of Z-scores
+    # Summation of Z-scores (AVG intentionally NOT included)
     df['Total_Z'] = (
         df['R_Z'] + df['HR_Z'] + df['RBI_Z'] + df['SB_Z'] + df['H_Z'] - df['Outs_Z']
     )
 
     # Position-relative Z-scores
-    for col in stats_for_z + ['Outs']:
+    for col in stats_for_z + ['Outs', 'AVG']:
         try:
             pos_z = df.groupby('POS')[col].transform(lambda s: zscore(s.fillna(0)))
             df[f'{col}_POS_Z'] = pos_z
         except:
             df[f'{col}_POS_Z'] = df[f'{col}_Z']
 
-    # Combined position-based total
+    # Combined position-based total (AVG intentionally NOT included)
     df['Total_POS_Z'] = (
         df['R_POS_Z'] + df['HR_POS_Z'] + df['RBI_POS_Z']
         + df['SB_POS_Z'] + df['H_POS_Z'] - df['Outs_POS_Z']
     )
+
+    # Fix UTIL z-scores: compare against ALL batters (overall z), not tiny UTIL pool
+    util_mask = df['POS'] == 'UTIL'
+    if util_mask.any():
+        for col in stats_for_z + ['Outs', 'AVG']:
+            df.loc[util_mask, f'{col}_POS_Z'] = df.loc[util_mask, f'{col}_Z']
+        df.loc[util_mask, 'Total_POS_Z'] = (
+            df.loc[util_mask, 'R_Z'] + df.loc[util_mask, 'HR_Z']
+            + df.loc[util_mask, 'RBI_Z'] + df.loc[util_mask, 'SB_Z']
+            + df.loc[util_mask, 'H_Z'] - df.loc[util_mask, 'Outs_Z']
+        )
+        print(f"  Fixed {util_mask.sum()} UTIL rows to use overall z-scores")
 
     return df
 
@@ -463,6 +481,21 @@ def compute_pitching_zscores(df: pd.DataFrame) -> pd.DataFrame:
         + 2.0 * df['ERA_POS_Z'] + 2.0 * df['WHIP_POS_Z']
     )
 
+    # Fix P z-scores: compare against ALL pitchers (overall z), not tiny P pool
+    p_mask = df['POS'] == 'P'
+    if p_mask.any():
+        for col in stats_for_z:
+            df.loc[p_mask, f'{col}_POS_Z'] = df.loc[p_mask, f'{col}_Z']
+        # Re-invert ERA/WHIP for P rows (the _Z versions are already inverted above)
+        df.loc[p_mask, 'ERA_POS_Z'] = df.loc[p_mask, 'ERA_Z']
+        df.loc[p_mask, 'WHIP_POS_Z'] = df.loc[p_mask, 'WHIP_Z']
+        df.loc[p_mask, 'Total_POS_Z'] = (
+            0.7 * (df.loc[p_mask, 'W_LOG_Z'] + df.loc[p_mask, 'SV_Z'])
+            + df.loc[p_mask, 'SO_Z'] + df.loc[p_mask, 'IP_Z']
+            + 2.0 * df.loc[p_mask, 'ERA_Z'] + 2.0 * df.loc[p_mask, 'WHIP_Z']
+        )
+        print(f"  Fixed {p_mask.sum()} P rows to use overall z-scores")
+
     return df
 
 
@@ -541,13 +574,14 @@ def prepare_player_data(batting_df, pitching_df):
             'BB': int(record.get('BB', 0) or 0),
         }
 
-        # Category z-scores for detailed breakdown
+        # Category z-scores — position-relative for accurate percentile bars
         category_zscores = {
-            'R': float(record.get('R_Z', 0) or 0),
-            'HR': float(record.get('HR_Z', 0) or 0),
-            'RBI': float(record.get('RBI_Z', 0) or 0),
-            'SB': float(record.get('SB_Z', 0) or 0),
-            'H': float(record.get('H_Z', 0) or 0),
+            'R': float(record.get('R_POS_Z', 0) or 0),
+            'HR': float(record.get('HR_POS_Z', 0) or 0),
+            'RBI': float(record.get('RBI_POS_Z', 0) or 0),
+            'SB': float(record.get('SB_POS_Z', 0) or 0),
+            'H': float(record.get('H_POS_Z', 0) or 0),
+            'AVG': float(record.get('AVG_POS_Z', 0) or 0),
         }
 
         player = {
@@ -589,12 +623,13 @@ def prepare_player_data(batting_df, pitching_df):
             'ER': int(record.get('ER', 0) or 0),
         }
 
+        # Category z-scores — position-relative for accurate percentile bars
         category_zscores = {
-            'W': float(record.get('W_LOG_Z', 0) or 0),
-            'SV': float(record.get('SV_Z', 0) or 0),
-            'K': float(record.get('SO_Z', 0) or 0),
-            'ERA': float(record.get('ERA_Z', 0) or 0),
-            'WHIP': float(record.get('WHIP_Z', 0) or 0),
+            'W': float(record.get('W_LOG_POS_Z', 0) or 0),
+            'SV': float(record.get('SV_POS_Z', 0) or 0),
+            'K': float(record.get('SO_POS_Z', 0) or 0),
+            'ERA': float(record.get('ERA_POS_Z', 0) or 0),
+            'WHIP': float(record.get('WHIP_POS_Z', 0) or 0),
         }
 
         player = {
@@ -620,14 +655,20 @@ def prepare_player_data(batting_df, pitching_df):
 
 def insert_players_to_postgres(players, conn):
     """
-    Insert player data into PostgreSQL database using batch insert.
+    Upsert player data into PostgreSQL database.
+    Uses ON CONFLICT to preserve existing player IDs (and thus FK references
+    in user_picks, pick_stats, etc.) while updating z-scores and stats.
     """
     cursor = conn.cursor()
 
-    # Clear existing data
-    cursor.execute("TRUNCATE players RESTART IDENTITY CASCADE")
+    # Ensure unique constraint exists for upsert
+    cursor.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_players_player_id_year_unique
+        ON players(player_id, year)
+    ''')
+    conn.commit()
 
-    # Prepare data for batch insert
+    # Prepare data for batch upsert
     values = []
     for player in players:
         values.append((
@@ -645,20 +686,31 @@ def insert_players_to_postgres(players, conn):
             json.dumps(player['category_zscores']),
         ))
 
-    # Batch insert
+    # Batch upsert — preserves existing player IDs so FKs remain valid
     execute_values(
         cursor,
         '''INSERT INTO players
            (player_id, name_first, name_last, year, team, player_type,
             primary_position, positions_eligible, stats, z_score_overall,
             z_score_position, category_zscores)
-           VALUES %s''',
+           VALUES %s
+           ON CONFLICT (player_id, year) DO UPDATE SET
+            name_first = EXCLUDED.name_first,
+            name_last = EXCLUDED.name_last,
+            team = EXCLUDED.team,
+            player_type = EXCLUDED.player_type,
+            primary_position = EXCLUDED.primary_position,
+            positions_eligible = EXCLUDED.positions_eligible,
+            stats = EXCLUDED.stats,
+            z_score_overall = EXCLUDED.z_score_overall,
+            z_score_position = EXCLUDED.z_score_position,
+            category_zscores = EXCLUDED.category_zscores''',
         values,
         page_size=1000
     )
 
     conn.commit()
-    print(f"Successfully inserted {len(players)} player records into PostgreSQL")
+    print(f"Successfully upserted {len(players)} player records into PostgreSQL")
     return len(players)
 
 
