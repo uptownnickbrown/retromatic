@@ -1,6 +1,6 @@
 # Sandlot
 
-A mobile-first daily fantasy baseball draft challenge. Pick from curated historical MLB player-seasons (1961-2023) and see how your lineup stacks up.
+A mobile-first daily fantasy baseball draft challenge. Pick from curated historical MLB player-seasons (1961-2025) and see how your lineup stacks up.
 
 ## How It Works
 
@@ -37,12 +37,12 @@ npm run dev             # Starts on http://localhost:3000
 # 4. Load player data (one-time)
 cd data-pipeline
 pip install -r requirements.txt
-python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2023_csv
+python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2025_csv
 ```
 
 ### Data Source
 
-Player statistics come from the [Lahman Baseball Database](http://www.seanlahman.com/baseball-archive/statistics/) (1871-2023, CC BY-SA 3.0). See `data-preprocessing/README.md` for download instructions.
+Player statistics come from the [Lahman Baseball Database](https://sabr.org/lahman-database/) (1871-2025, CC BY-SA 3.0). Download the CSV archive and extract it to `data-preprocessing/lahman_1871-2025_csv/`.
 
 ## Tech Stack
 
@@ -53,5 +53,5 @@ Player statistics come from the [Lahman Baseball Database](http://www.seanlahman
 
 ## Acknowledgments
 
-- [Lahman Baseball Database](http://www.seanlahman.com/baseball-archive/statistics/) for historical baseball statistics
+- [Lahman Baseball Database](https://sabr.org/lahman-database/) for historical baseball statistics
 - [OpenAI](https://openai.com/) for AI-generated player blurbs

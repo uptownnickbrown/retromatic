@@ -20,8 +20,7 @@ dist/
 public/data/
 
 # Raw Lahman data (download separately)
-data-preprocessing/lahman_1871-2023_csv/
-data-preprocessing/lahman_1871-2025_csv/
+data-preprocessing/lahman_*/
 
 # Generated exports
 data-preprocessing/*.pdf
