@@ -567,7 +567,7 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
             <img
               src={option.portraitUrl}
               alt={option.playerName}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover mix-blend-multiply"
             />
           ) : (
             <img
