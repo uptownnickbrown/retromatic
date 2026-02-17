@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Plus,
+  Wand2,
   Zap,
   ChevronRight,
   Calendar,
@@ -10,7 +11,7 @@ import {
   AlertTriangle,
   LogOut,
 } from 'lucide-react';
-import { useAdminPipeline, useGenerateChallenge, useActivateToday } from '../hooks/useAdmin';
+import { useAdminPipeline, useGenerateChallenge, useGenerateThemedBatch, useActivateToday } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { StatusBadge } from '../components/admin/StatusBadge';
@@ -52,6 +53,7 @@ export function AdminDashboard() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useAdminPipeline();
   const generateMutation = useGenerateChallenge();
+  const themedMutation = useGenerateThemedBatch();
   const activateMutation = useActivateToday();
 
   const today = getTodayET();
@@ -90,6 +92,10 @@ export function AdminDashboard() {
 
   const handleGenerate = () => {
     generateMutation.mutate({ count: 1 });
+  };
+
+  const handleGenerateThemed = () => {
+    themedMutation.mutate(25);
   };
 
   const handleActivate = () => {
@@ -153,6 +159,15 @@ export function AdminDashboard() {
 
           <VintageButton
             variant="section"
+            onClick={handleGenerateThemed}
+            disabled={themedMutation.isPending}
+          >
+            <Wand2 className="inline w-3.5 h-3.5 mr-1 -mt-px" />
+            {themedMutation.isPending ? 'Generating 25...' : '25 Themed'}
+          </VintageButton>
+
+          <VintageButton
+            variant="section"
             onClick={handleActivate}
             disabled={activateMutation.isPending}
           >
@@ -187,6 +202,23 @@ export function AdminDashboard() {
         >
           Generated {generateMutation.data.count} challenge(s): #{generateMutation.data.challengeIds.join(', #')}
         </motion.div>
+      )}
+
+      {themedMutation.isSuccess && (
+        <motion.div
+          initial={{ opacity: 0, y: -5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 px-4 py-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 text-xs font-mono"
+        >
+          Generated {themedMutation.data.count} themed challenges, scheduled starting tomorrow
+        </motion.div>
+      )}
+
+      {themedMutation.isError && (
+        <div className="mb-4 px-4 py-2 rounded bg-red/10 border border-red/20 text-red text-xs font-mono flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          {themedMutation.error.message}
+        </div>
       )}
 
       {/* ═══ CALENDAR STRIP ═══ */}
