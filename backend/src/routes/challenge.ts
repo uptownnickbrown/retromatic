@@ -127,12 +127,27 @@ router.post('/:id/start', async (req, res) => {
     }
 
     if (!session) {
-      [session] = await db.insert(gameSessions).values({
-        challengeId,
-        guestToken,
-        status: 'in_progress',
-        currentRound: 1,
-      }).returning();
+      try {
+        [session] = await db.insert(gameSessions).values({
+          challengeId,
+          guestToken,
+          status: 'in_progress',
+          currentRound: 1,
+        }).returning();
+      } catch (insertErr: any) {
+        // Race condition: concurrent request already created the session (unique constraint)
+        if (insertErr?.code === '23505') {
+          [session] = await db.select()
+            .from(gameSessions)
+            .where(and(
+              eq(gameSessions.challengeId, challengeId),
+              eq(gameSessions.guestToken, guestToken)
+            ))
+            .limit(1);
+        } else {
+          throw insertErr;
+        }
+      }
     }
 
     // Bulk-fetch all rounds + options + player records (3 queries instead of ~150)

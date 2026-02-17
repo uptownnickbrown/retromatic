@@ -3,10 +3,23 @@ import type { Challenge, FullGameData, CompleteResponse, PickSubmission, Results
 const API_BASE = '/api';
 
 // Guest token management
+function generateUUID(): string {
+  // crypto.randomUUID() requires a secure context (HTTPS or localhost).
+  // Fall back to getRandomValues for plain HTTP (e.g., mobile testing over LAN).
+  if (typeof crypto.randomUUID === 'function') {
+    try { return crypto.randomUUID(); } catch { /* not secure context */ }
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
 function getGuestToken(): string {
   let token = localStorage.getItem('sandlot_guest_token');
   if (!token) {
-    token = crypto.randomUUID();
+    token = generateUUID();
     localStorage.setItem('sandlot_guest_token', token);
   }
   return token;
