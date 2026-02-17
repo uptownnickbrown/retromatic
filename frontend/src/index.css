@@ -239,31 +239,35 @@ h1, h2, h3, h4, h5, h6 {
 /* Ticker-tape confetti — thin rectangular strips */
 @keyframes ticker-tape-fall {
   0% {
-    transform: translateY(-100vh) rotate(0deg) rotateX(0deg);
+    transform: translateY(-100vh) translateX(var(--drift, 0px)) rotate(0deg) rotateX(0deg) rotateY(0deg);
     opacity: 1;
   }
   25% {
-    transform: translateY(25vh) rotate(90deg) rotateX(180deg);
+    transform: translateY(25vh) translateX(calc(var(--drift, 0px) * -0.5)) rotate(90deg) rotateX(180deg) rotateY(90deg);
     opacity: 1;
   }
   50% {
-    transform: translateY(50vh) rotate(180deg) rotateX(0deg);
+    transform: translateY(50vh) translateX(var(--drift, 0px)) rotate(180deg) rotateX(0deg) rotateY(180deg);
     opacity: 0.9;
   }
   75% {
-    transform: translateY(75vh) rotate(270deg) rotateX(180deg);
+    transform: translateY(75vh) translateX(calc(var(--drift, 0px) * -0.3)) rotate(270deg) rotateX(180deg) rotateY(270deg);
     opacity: 0.6;
   }
   100% {
-    transform: translateY(100vh) rotate(360deg) rotateX(0deg);
+    transform: translateY(100vh) translateX(var(--drift, 0px)) rotate(360deg) rotateX(0deg) rotateY(360deg);
     opacity: 0;
   }
 }
 
+.confetti-container {
+  perspective: 500px;
+}
+
 .confetti-piece {
   position: fixed;
-  width: 20px;
-  height: 6px;
+  width: 24px;
+  height: 8px;
   border-radius: 1px;
   top: -20px;
   z-index: 100;

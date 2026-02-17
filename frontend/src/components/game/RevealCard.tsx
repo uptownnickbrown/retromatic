@@ -17,18 +17,19 @@ const CONFETTI_COLORS = ['#0A1E2F', '#D32F2F', '#C9A84C'];
 
 function TickerTapeConfetti() {
   const pieces = useMemo(() =>
-    Array.from({ length: 16 }, (_, i) => ({
+    Array.from({ length: 20 }, (_, i) => ({
       id: i,
       left: `${5 + Math.random() * 90}%`,
       delay: Math.random() * 0.6,
       duration: 2.5 + Math.random() * 1.5,
-      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
-      width: 16 + Math.random() * 12,
+      color: CONFETTI_COLORS[i % 3],
+      drift: Math.round((Math.random() - 0.5) * 40),
+      initialRotation: Math.round(Math.random() * 360),
     })),
   []);
 
   return (
-    <>
+    <div className="confetti-container">
       {pieces.map(p => (
         <div
           key={p.id}
@@ -36,14 +37,14 @@ function TickerTapeConfetti() {
           style={{
             left: p.left,
             backgroundColor: p.color,
-            width: p.width,
-            height: 5,
             animationDelay: `${p.delay}s`,
             animationDuration: `${p.duration}s`,
-          }}
+            '--drift': `${p.drift}px`,
+            transform: `rotate(${p.initialRotation}deg)`,
+          } as React.CSSProperties}
         />
       ))}
-    </>
+    </div>
   );
 }
 
@@ -58,17 +59,17 @@ function StatBenchmark({ label, value, percentile, delay }: {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.3 }}
-      className="flex flex-col items-center gap-1 p-2"
+      className="flex flex-col items-center gap-0.5 py-2 px-1"
     >
-      <span className="font-editorial font-bold text-lg text-navy leading-none">
-        {value}
-      </span>
-      <span className="text-[9px] uppercase tracking-widest text-muted font-mono">
+      <span className="text-[10px] uppercase tracking-wider text-muted font-mono leading-none">
         {label}
       </span>
+      <span className="font-editorial font-bold text-xl text-navy leading-none mt-1">
+        {value}
+      </span>
       {percentile !== null && (
-        <div className="w-full flex items-center gap-1.5 mt-0.5">
-          <div className="flex-1 h-1 bg-navy/10 rounded-full overflow-hidden">
+        <div className="w-full mt-1.5">
+          <div className="h-1 bg-navy/10 rounded-full overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: `${percentile}%` }}
@@ -80,7 +81,7 @@ function StatBenchmark({ label, value, percentile, delay }: {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: delay + 0.6 }}
-            className="text-[9px] font-mono text-muted w-8 text-right tabular-nums"
+            className="text-[9px] font-mono text-muted block text-center mt-0.5 tabular-nums"
           >
             {percentile}%
           </motion.span>
@@ -158,23 +159,24 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
             </h3>
           </motion.div>
 
-          {/* Stat benchmark grid — 2x2 */}
+          {/* Stat box score — 5-column newspaper line */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.6 }}
-            className="grid grid-cols-2 gap-px bg-navy/8 rounded overflow-hidden mb-4 border border-navy/8"
+            className="border border-navy/12 rounded overflow-hidden mb-4"
           >
-            {displayStats.map((stat, i) => (
-              <div key={stat.key} className="bg-paper">
+            <div className="grid grid-cols-5 divide-x divide-navy/10 bg-paper">
+              {displayStats.map((stat, i) => (
                 <StatBenchmark
+                  key={stat.key}
                   label={stat.label}
                   value={stat.displayValue}
                   percentile={stat.percentile}
                   delay={0.6 + i * 0.08}
                 />
-              </div>
-            ))}
+              ))}
+            </div>
           </motion.div>
 
           {/* Blurb — handwritten note style */}
