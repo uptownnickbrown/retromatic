@@ -35,7 +35,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
             </span>
             <span className={cn(
               'flex-1 text-sm truncate',
-              pick.wasTimeout ? 'font-mono text-muted line-through' : 'font-hand text-navy text-base',
+              pick.wasTimeout ? 'font-mono text-muted line-through' : 'font-editorial italic text-navy text-base',
             )}>
               {pick.playerName}
               {pick.wasTimeout && ' (auto)'}

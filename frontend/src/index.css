@@ -3,7 +3,7 @@
 @theme {
   /* === THE CLUBHOUSE PALETTE === */
   --color-paper: #F9F7F1;
-  --color-bone: #F2EFE9;
+  --color-bone: #EBE7DF;
   --color-navy: #0A1E2F;
   --color-navy-light: #1A3A5C;
   --color-red: #D32F2F;
@@ -18,8 +18,9 @@
   --font-hand: 'Caveat', cursive;
 
   /* === HARD SHADOWS === */
-  --shadow-card: 2px 2px 0px rgba(10, 30, 47, 0.15);
-  --shadow-card-hover: 3px 3px 0px rgba(10, 30, 47, 0.2);
+  --shadow-card: 3px 3px 0px rgba(10, 30, 47, 0.2);
+  --shadow-card-hover: 4px 4px 0px rgba(10, 30, 47, 0.25);
+  --shadow-card-focus: 4px 4px 0px #0A1E2F;
   --shadow-btn: 2px 2px 0px var(--color-navy);
   --shadow-btn-active: 0px 0px 0px var(--color-navy);
 }

@@ -97,7 +97,7 @@ export function Home() {
                   {isInProgress ? 'Game In Progress' : "Today's Challenge"}
                 </p>
                 {challenge.theme && (
-                  <p className="text-base text-navy font-hand mt-2">"{challenge.theme}"</p>
+                  <p className="text-base text-navy font-editorial italic mt-2">"{challenge.theme}"</p>
                 )}
               </div>
 
@@ -126,7 +126,7 @@ export function Home() {
           className="flex items-center gap-2 text-navy/50"
         >
           <Flame size={16} className="text-navy/40" />
-          <span className="text-sm font-hand">
+          <span className="text-sm font-editorial italic">
             {streakData.current} day streak
           </span>
           {streakData.longest > streakData.current && (
