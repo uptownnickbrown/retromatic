@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { getLegendScoreLabel, getLegendScoreTier } from '../../types';
 import { safeNum } from '../../lib/numeric';
+import { WaxSeal } from '../ui/WaxSeal';
 
 interface LegendScoreBadgeProps {
   score: number;
@@ -14,46 +15,79 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
   const score = safeNum(rawScore);
   const label = getLegendScoreLabel(score);
   const tier = getLegendScoreTier(score);
-  const isLegendary = score >= 9.0;
+  const isLegendary = score >= 9.5;
+  const isGreat = score >= 6.0 && !isLegendary;
 
-  const sizeClasses = {
-    sm: 'w-12 h-12 text-sm border-2',
-    md: 'w-16 h-16 text-xl border-3',
-    lg: 'w-24 h-24 text-3xl border-4',
-  };
-
-  const badge = (
-    <div className="flex flex-col items-center gap-1.5">
-      <div
-        className={cn(
-          'rounded-xl flex items-center justify-center font-score font-bold relative',
-          sizeClasses[size],
-          tier,
-          isLegendary && 'trophy-pulse',
-        )}
-        style={{
-          background: 'var(--ls-bg)',
-          color: '#fff',
-          borderColor: 'var(--ls-color)',
-          textShadow: '0 1px 3px rgba(0,0,0,0.4)',
-          boxShadow: isLegendary ? undefined : `0 0 12px var(--ls-glow), inset 0 0 8px rgba(255,255,255,0.15)`,
-        }}
-      >
-        {score.toFixed(1)}
-        {isLegendary && (
-          <div className="absolute -top-1 -right-1 text-xs">
-            {'\u2B50'}
-          </div>
+  // Legendary: wax seal
+  if (isLegendary) {
+    return (
+      <div className={cn('flex flex-col items-center gap-1.5', tier)}>
+        <WaxSeal score={score} size={size} animate={animate} />
+        {showLabel && (
+          <span className="font-editorial text-xs uppercase tracking-widest text-gold font-bold">
+            {label}
+          </span>
         )}
       </div>
-      {showLabel && (
-        <span
+    );
+  }
+
+  // Great: navy circle badge
+  if (isGreat) {
+    const sizeClasses = {
+      sm: 'w-10 h-10 text-xs',
+      md: 'w-14 h-14 text-lg',
+      lg: 'w-20 h-20 text-2xl',
+    };
+
+    const content = (
+      <div className={cn('flex flex-col items-center gap-1.5', tier)}>
+        <div
           className={cn(
-            'font-display text-xs uppercase tracking-widest',
-            size === 'lg' && 'text-sm',
+            'rounded-full flex items-center justify-center font-editorial font-bold text-paper bg-navy',
+            'border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.15)]',
+            sizeClasses[size],
           )}
-          style={{ color: 'var(--ls-color)' }}
         >
+          {score.toFixed(1)}
+        </div>
+        {showLabel && (
+          <span className="font-mono text-[10px] uppercase tracking-widest text-navy">
+            {label}
+          </span>
+        )}
+      </div>
+    );
+
+    if (animate) {
+      return (
+        <motion.div
+          initial={{ scale: 0, rotate: -90 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 14 }}
+        >
+          {content}
+        </motion.div>
+      );
+    }
+
+    return content;
+  }
+
+  // Average: plain number
+  const textSizes = {
+    sm: 'text-sm',
+    md: 'text-xl',
+    lg: 'text-3xl',
+  };
+
+  const content = (
+    <div className="flex flex-col items-center gap-1">
+      <span className={cn('font-mono font-bold text-muted', textSizes[size])}>
+        {score.toFixed(1)}
+      </span>
+      {showLabel && (
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {label}
         </span>
       )}
@@ -62,54 +96,15 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
 
   if (animate) {
     return (
-      <div className={cn('flex flex-col items-center gap-1.5', tier)}>
-        <motion.div
-          initial={{ scale: 0, rotate: -180 }}
-          animate={{ scale: 1, rotate: 0 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 12 }}
-          className={cn(
-            'rounded-xl flex items-center justify-center font-score font-bold relative',
-            sizeClasses[size],
-            isLegendary && 'trophy-pulse',
-          )}
-          style={{
-            background: 'var(--ls-bg)',
-            color: '#fff',
-            borderColor: 'var(--ls-color)',
-            textShadow: '0 1px 3px rgba(0,0,0,0.4)',
-            boxShadow: isLegendary ? undefined : `0 0 12px var(--ls-glow), inset 0 0 8px rgba(255,255,255,0.15)`,
-          }}
-        >
-          {score.toFixed(1)}
-          {isLegendary && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.5, type: 'spring', stiffness: 300 }}
-              className="absolute -top-1.5 -right-1.5 text-sm"
-            >
-              {'\u2B50'}
-            </motion.div>
-          )}
-        </motion.div>
-        {showLabel && (
-          <motion.span
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className={cn(
-              'font-display text-xs uppercase tracking-widest',
-              size === 'lg' && 'text-sm',
-              isLegendary && 'gold-shimmer',
-            )}
-            style={{ color: isLegendary ? undefined : 'var(--ls-color)' }}
-          >
-            {label}
-          </motion.span>
-        )}
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        {content}
+      </motion.div>
     );
   }
 
-  return badge;
+  return content;
 }
