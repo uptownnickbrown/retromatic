@@ -25,7 +25,7 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
           className,
         )}
       >
-        <img src={portraitUrl} alt={name} className="w-full h-full object-cover" />
+        <img src={portraitUrl} alt={name} className="w-full h-full object-cover mix-blend-multiply" />
       </div>
     );
   }
