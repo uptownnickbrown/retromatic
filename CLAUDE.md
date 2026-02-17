@@ -45,12 +45,14 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - **Data Pipeline**: Python (pandas, numpy, scipy) processes Lahman Baseball Database
 
 ### Key Directories
-- `frontend/src/pages/` — Home, Game, Results, Leaderboard
-- `frontend/src/components/game/` — PickGrid, Timer, RosterStrip, RevealCard, LegendScoreBadge, PlayerPortrait
-- `frontend/src/hooks/` — useGame (state machine), useTimer, useChallenge
-- `frontend/src/lib/` — api.ts (API client), legendScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
+- `frontend/src/pages/` — Home, Game, Results, Leaderboard, AdminLogin, AdminDashboard, AdminChallengeDetail
+- `frontend/src/components/game/` — PickGrid, Timer, LineupCard, RevealCard, LegendScoreBadge, PlayerPortrait
+- `frontend/src/components/admin/` — AdminGuard, StatusBadge, HealthIndicators
+- `frontend/src/components/ui/` — PaperCard, VintageButton (shared design system)
+- `frontend/src/hooks/` — useGame (state machine), useTimer, useChallenge, useAdmin (admin mutations)
+- `frontend/src/lib/` — api.ts (game API client), adminApi.ts (admin API client), legendScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
 - `backend/src/routes/` — challenge.ts, leaderboard.ts, admin.ts
-- `backend/src/services/` — legendScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts
+- `backend/src/services/` — legendScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts, portraitGenerator.ts, statsPreseeder.ts
 - `backend/src/db/` — Drizzle schema and connection
 - `data-preprocessing/` — Jupyter notebook, Python preprocessing scripts
 - `data-pipeline/` — PostgreSQL data ingestion
@@ -65,12 +67,30 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - `pick_stats` — aggregated pick counts for "X% picked this"
 
 ### API Routes
+
+**Game (public)**:
 - `GET /api/challenge/today` — today's challenge + user's session status
 - `POST /api/challenge/:id/start` — begin game, returns ALL round data upfront (enriched players, stats, community picks)
 - `POST /api/challenge/:id/complete` — submit all 10 picks at once, get final results
 - `GET /api/challenge/:id/results` — completed game results with community stats
 - `GET /api/leaderboard` — daily/weekly/all-time rankings
-- `POST /api/admin/challenges/generate` — generate challenges (admin)
+
+**Admin (requires `x-admin-secret` header)**:
+- `POST /api/admin/challenges/generate` — generate challenge(s), optional `{count, theme, date}`
+- `POST /api/admin/challenges/generate-themed` — generate batch of themed challenges with auto-scheduling
+- `POST /api/admin/challenges/schedule` — assign dates to challenges `{challengeIds, startDate}`
+- `GET /api/admin/challenges/pipeline` — all challenges with health summaries (blurbs/portraits/rounds status)
+- `GET /api/admin/challenges` — list all challenges
+- `GET /api/admin/challenges/:id` — challenge detail with rounds, players, z-scores, Legend Scores
+- `GET /api/admin/challenges/:id/health` — detailed health check (blurb/portrait/score counts)
+- `PATCH /api/admin/challenges/:id` — update status, theme, date, position order
+- `DELETE /api/admin/challenges/:id` — delete a challenge
+- `POST /api/admin/challenges/:id/blurbs` — generate AI blurbs via OpenAI (parallelized, ~45s)
+- `POST /api/admin/challenges/:id/portraits` — generate AI portraits via Gemini
+- `POST /api/admin/challenges/:id/preseed` — pre-seed community pick stats (200 synthetic picks)
+- `POST /api/admin/challenges/:id/playtest` — start playtest session (no real session, any challenge status)
+- `DELETE /api/admin/challenges/:id/reset` — reset a user's session (requires `x-guest-token` header)
+- `POST /api/admin/activate-today` — activate today's scheduled challenge, complete yesterday's
 
 ### Frontend Game State Machine
 ```
@@ -80,17 +100,43 @@ Picks are computed client-side (Legend Score from z-scores). Game state saved to
 
 ### Routing
 - `/` — Home (daily challenge launcher)
-- `/play` — Game (10-round draft)
+- `/play` — Game (10-round draft); supports `?playtest=<challengeId>` for admin playtest mode
 - `/results/:challengeId` — Results page
 - `/leaderboard` — Leaderboard
+- `/admin/login` — Admin login (enter `ADMIN_SECRET`)
+- `/admin` — Admin "Front Office" dashboard (pipeline overview, calendar strip, generation controls)
+- `/admin/challenge/:id` — Challenge detail (health, rounds, players, blurbs, playtest button)
+
+### Admin UI ("Front Office")
+The admin dashboard at `/admin` provides:
+- **Calendar strip**: 14-day view with green/amber/empty dots showing challenge coverage
+- **Pipeline view**: challenges grouped by Active / Upcoming / Draft with health indicators
+- **Generation**: single challenge, 25-themed batch, or activate today's challenge
+- **Challenge detail page**: per-round breakdown of players, Legend Scores, blurb previews, portrait thumbnails
+- **Action buttons**: Generate Blurbs, Generate Portraits, Preseed Stats, Schedule, Playtest, Delete
+- **Playtest mode**: plays any challenge in-browser with a yellow "Playtest Mode" banner, no real session created, returns to admin detail on completion
+
+### Challenge Data Pipeline
+A fully baked challenge requires these steps (can be done from admin UI or API):
+1. **Generate** — creates challenge with 10 rounds, 3 players each, 3 year options per player
+2. **Generate Blurbs** — AI-written player-season blurbs via OpenAI (~45s for 90 blurbs, parallelized 8-way)
+3. **Generate Portraits** — AI stipple-engraving portraits via Gemini
+4. **Preseed Stats** — 200 synthetic community picks for realistic "X% picked this" on day one
+5. **Schedule** — assign a date and set status to "scheduled"
+6. **Activate** — daily scheduler sets today's challenge to "active" (automatic or manual via admin)
 
 ## Environment Configuration
 
 Copy `backend/.env.example` to `backend/.env`:
 - `DATABASE_URL` — PostgreSQL connection string
 - `OPENAI_API_KEY` — for AI-generated player blurbs (optional, falls back to templates)
-- `ADMIN_SECRET` — protects admin API routes
+- `ADMIN_SECRET` — protects admin API routes (used in admin UI login and `x-admin-secret` header)
 - `PORT` — backend port (default 3001)
+
+### Network / Mobile Testing
+- Vite dev server listens on all interfaces (`host: true` in vite.config.ts)
+- Access from other devices on the same Wi-Fi via `http://<laptop-ip>:3000`
+- The Vite proxy forwards `/api` requests to the backend at `localhost:3001`
 
 ## Design Principles
 
