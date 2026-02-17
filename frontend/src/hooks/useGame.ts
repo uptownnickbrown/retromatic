@@ -188,6 +188,13 @@ export function useGame() {
       // Get community stats for this round (snapshot from game start)
       const roundStats = prev.communityStats.find(s => s.roundId === round.roundId);
 
+      // Build round players info for community picks display
+      const roundPlayers = round.players.map(p => ({
+        name: p.name,
+        portraitUrl: p.portraitUrl,
+        yearOptions: p.yearOptions.map(yo => ({ year: yo.year, team: yo.team })),
+      }));
+
       const reveal: RevealData = {
         legendScore,
         blurb,
@@ -198,6 +205,7 @@ export function useGame() {
         year,
         team: selectedYearOption.team,
         pickPercentages: roundStats?.picks,
+        roundPlayers,
       };
 
       const newPick: PickSummary = {

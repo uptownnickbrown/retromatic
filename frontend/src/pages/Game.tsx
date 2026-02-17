@@ -9,6 +9,7 @@ import { PickGrid } from '../components/game/PickGrid';
 import { RevealCard } from '../components/game/RevealCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { Loader2, FlaskConical } from 'lucide-react';
+import { cn } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
 
 export function Game() {
@@ -202,12 +203,21 @@ export function Game() {
         </AnimatePresence>
       </div>
 
-      {/* Running score */}
-      {game.picks.length > 0 && game.phase !== 'complete' && (
-        <div className="text-center pb-3">
-          <span className="mono-stat text-sm">
-            {totalScore.toFixed(1)}
-          </span>
+      {/* Sticky "Next Round" button — visible without scrolling */}
+      {game.phase === 'revealing' && game.reveal && (
+        <div className="sticky bottom-0 px-3 pb-3 pt-2 bg-gradient-to-t from-bone via-bone/95 to-transparent">
+          <button
+            onClick={handleContinue}
+            className={cn(
+              'w-full font-mono font-bold text-base uppercase tracking-wider py-3.5 rounded',
+              'transition-transform duration-100 active:translate-y-0.5',
+              !game.currentRound
+                ? 'bg-red text-white border-2 border-red-dark shadow-[2px_2px_0px_#0A1E2F]'
+                : 'bg-navy text-paper border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.3)]',
+            )}
+          >
+            {!game.currentRound ? 'See Results' : 'Next Round'}
+          </button>
         </div>
       )}
     </div>

@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
-import type { RevealData } from '../../types';
+import type { RevealData, RevealRoundPlayer } from '../../types';
 import { LegendScoreBadge } from './LegendScoreBadge';
-import { VintageButton } from '../ui/VintageButton';
 import { PaperCard } from '../ui/PaperCard';
+import { PlayerPortrait } from './PlayerPortrait';
 import { zToPercentile, getDisplayStats } from '../../lib/statBenchmark';
 import { renderBlurb } from '../../lib/renderBlurb';
 
@@ -92,9 +92,98 @@ function StatBenchmark({ label, value, percentile, delay }: {
   );
 }
 
+/** Community picks grouped by player, with year breakdown */
+function CommunityPicks({
+  roundPlayers,
+  pickPercentages,
+  chosenPlayerName,
+  chosenYear,
+}: {
+  roundPlayers: RevealRoundPlayer[];
+  pickPercentages: { playerId: number; year: number; percentage: number }[];
+  chosenPlayerName: string;
+  chosenYear: number;
+}) {
+  // Build a lookup: playerId -> { year -> percentage }
+  const pctMap = useMemo(() => {
+    const m = new Map<number, Map<number, number>>();
+    for (const pp of pickPercentages) {
+      if (!m.has(pp.playerId)) m.set(pp.playerId, new Map());
+      m.get(pp.playerId)!.set(pp.year, pp.percentage);
+    }
+    return m;
+  }, [pickPercentages]);
+
+  const maxPct = Math.max(...pickPercentages.map(p => p.percentage), 1);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[9px] uppercase tracking-widest text-muted font-mono text-center">
+        Community Picks
+      </p>
+      {roundPlayers.map((player, pi) => {
+        const isChosenPlayer = player.name === chosenPlayerName;
+        // Find the playerId from pickPercentages that matches this player's years
+        const playerYears = player.yearOptions.map(yo => yo.year);
+        const matchingEntry = pickPercentages.find(pp =>
+          playerYears.includes(pp.year) && pctMap.get(pp.playerId)?.has(pp.year)
+        );
+        const pid = matchingEntry?.playerId;
+
+        return (
+          <div key={pi} className="flex gap-2 items-start">
+            <PlayerPortrait
+              name={player.name}
+              portraitUrl={player.portraitUrl}
+              position=""
+              size="sm"
+              className="flex-shrink-0 mt-0.5"
+            />
+            <div className="flex-1 min-w-0">
+              <p className={cn(
+                'text-xs font-editorial font-bold truncate leading-tight mb-1',
+                isChosenPlayer ? 'text-navy' : 'text-navy/60',
+              )}>
+                {player.name}
+              </p>
+              {player.yearOptions.map(yo => {
+                const pct = pid != null ? pctMap.get(pid)?.get(yo.year) ?? 0 : 0;
+                const isChosenYearRow = isChosenPlayer && yo.year === chosenYear;
+                return (
+                  <div key={yo.year} className="flex items-center gap-1.5 mb-0.5">
+                    <span className="font-mono text-[10px] text-muted w-8 flex-shrink-0">
+                      {yo.year}
+                    </span>
+                    <div className="flex-1 h-2.5 bg-navy/8 rounded overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(pct / maxPct) * 100}%` }}
+                        transition={{ delay: 1.4 + pi * 0.1, duration: 0.5, ease: 'easeOut' }}
+                        className={cn(
+                          'h-full rounded',
+                          isChosenYearRow ? 'bg-red' : 'bg-navy/20',
+                        )}
+                      />
+                    </div>
+                    <span className={cn(
+                      'text-[10px] font-mono font-bold w-8 text-right tabular-nums',
+                      isChosenYearRow ? 'text-red' : 'text-muted',
+                    )}>
+                      {pct}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps) {
   const pickPcts = reveal.pickPercentages ?? [];
-  const maxPct = Math.max(...pickPcts.map(p => p.percentage), 1);
   const isLegendary = reveal.legendScore >= 9.5;
 
   const displayStats = useMemo(() => {
@@ -135,25 +224,15 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
         </div>
 
         <div className="p-4">
-          {/* Score reveal */}
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.2 }}
-            className="flex justify-center mb-2"
-          >
-            <LegendScoreBadge score={reveal.legendScore} size="lg" animate showLabel />
-          </motion.div>
-
-          {/* Player name */}
+          {/* Player name — moved up, heavier weight */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="text-center mb-4"
+            transition={{ delay: 0.2 }}
+            className="text-center mb-3"
           >
             <h3 className={cn(
-              'font-editorial font-bold text-2xl leading-tight text-navy',
+              'font-editorial font-black text-2xl leading-tight text-navy',
               isLegendary && 'text-gold',
             )}>
               {reveal.playerName}
@@ -164,7 +243,7 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.6 }}
+            transition={{ delay: 0.4 }}
             className="border border-navy/12 rounded overflow-hidden mb-4"
           >
             <div className="grid grid-cols-5 divide-x divide-navy/10 bg-paper">
@@ -174,28 +253,70 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
                   label={stat.label}
                   value={stat.displayValue}
                   percentile={stat.percentile}
-                  delay={0.6 + i * 0.08}
+                  delay={0.4 + i * 0.08}
                 />
               ))}
             </div>
           </motion.div>
 
-          {/* Blurb — handwritten note style */}
+          {/* Blurb box with badge in bottom-right corner */}
           {reveal.blurb && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 1.0 }}
-              className="bg-[#ECE9E0] rounded p-3 mb-4 border border-navy/8"
+              transition={{ delay: 0.8 }}
+              className="bg-[#ECE9E0] rounded p-3 mb-4 border border-navy/8 relative"
             >
-              <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
+              <p className={cn(
+                'text-base text-navy/70 font-editorial italic leading-snug text-left',
+                // Leave room for badge on the right side of the last line
+                'pr-16',
+              )}>
                 "{renderBlurb(reveal.blurb)}"
               </p>
+              {/* Badge in bottom-right */}
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
+                className="absolute bottom-2 right-2"
+              >
+                <LegendScoreBadge score={reveal.legendScore} size="md" animate />
+              </motion.div>
             </motion.div>
           )}
 
-          {/* Community picks */}
-          {pickPcts.length > 0 && (
+          {/* If no blurb, show badge standalone */}
+          {!reveal.blurb && (
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
+              className="flex justify-center mb-4"
+            >
+              <LegendScoreBadge score={reveal.legendScore} size="lg" animate showLabel />
+            </motion.div>
+          )}
+
+          {/* Community picks — redesigned with player grouping */}
+          {pickPcts.length > 0 && reveal.roundPlayers && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.2 }}
+              className="mb-4"
+            >
+              <CommunityPicks
+                roundPlayers={reveal.roundPlayers}
+                pickPercentages={pickPcts}
+                chosenPlayerName={reveal.playerName}
+                chosenYear={reveal.year}
+              />
+            </motion.div>
+          )}
+
+          {/* Fallback: old-style bars if no roundPlayers data */}
+          {pickPcts.length > 0 && !reveal.roundPlayers && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -205,41 +326,29 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
               <p className="text-[9px] uppercase tracking-widest text-muted font-mono text-center mb-2">
                 Community Picks
               </p>
-              {pickPcts.map(pp => (
-                <div key={`${pp.playerId}-${pp.year}`} className="flex items-center gap-2">
-                  <div className="flex-1 h-3 bg-navy/8 rounded overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(pp.percentage / maxPct) * 100}%` }}
-                      transition={{ delay: 1.4, duration: 0.6, ease: 'easeOut' }}
-                      className={cn(
-                        'h-full rounded',
-                        pp.year === reveal.year ? 'bg-red' : 'bg-navy/20',
-                      )}
-                    />
+              {pickPcts.map(pp => {
+                const maxPct = Math.max(...pickPcts.map(p => p.percentage), 1);
+                return (
+                  <div key={`${pp.playerId}-${pp.year}`} className="flex items-center gap-2">
+                    <div className="flex-1 h-3 bg-navy/8 rounded overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(pp.percentage / maxPct) * 100}%` }}
+                        transition={{ delay: 1.4, duration: 0.6, ease: 'easeOut' }}
+                        className={cn(
+                          'h-full rounded',
+                          pp.year === reveal.year ? 'bg-red' : 'bg-navy/20',
+                        )}
+                      />
+                    </div>
+                    <span className="text-xs font-mono font-bold text-muted w-10 text-right">
+                      {pp.percentage}%
+                    </span>
                   </div>
-                  <span className="text-xs font-mono font-bold text-muted w-10 text-right">
-                    {pp.percentage}%
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </motion.div>
           )}
-
-          {/* Continue button */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.4 }}
-          >
-            <VintageButton
-              variant={isLastRound ? 'ticket' : 'section'}
-              onClick={onContinue}
-              className="w-full"
-            >
-              {isLastRound ? 'See Results' : 'Next Round'}
-            </VintageButton>
-          </motion.div>
         </div>
       </PaperCard>
     </motion.div>
