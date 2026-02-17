@@ -101,17 +101,21 @@ export function Home() {
                 )}
               </div>
 
-              <p className="text-center text-sm text-navy/60 font-mono mb-5 leading-relaxed">
-                10 rounds. 3 players. Pick the legend.
-              </p>
-
               <VintageButton
                 variant="ticket"
                 onClick={() => navigate('/play')}
-                className="w-full text-lg py-5"
+                className="w-full text-xl py-5 tracking-wider"
               >
                 {isInProgress ? 'Resume Draft' : 'Play Today'}
               </VintageButton>
+
+              <p className="text-center text-xs text-muted font-mono mt-4 leading-relaxed">
+                10 rounds. 3 legends. Pick the best season.
+                <br />
+                A daily fantasy draft through baseball history —
+                <br />
+                same slate for everyone. Build the ultimate lineup.
+              </p>
             </>
           )}
         </PaperCard>
