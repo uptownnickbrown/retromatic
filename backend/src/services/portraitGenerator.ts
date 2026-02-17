@@ -35,8 +35,8 @@ function portraitExists(playerId: string): boolean {
 function buildPrompt(playerName: string, teamName: string, year: number): string {
   return `Generate a stylized head-and-shoulders portrait of Major League Baseball player ${playerName} playing for the ${teamName} in ${year}.
 1. Art Style: Strictly a "hedcut" stipple portrait (like the Wall Street Journal). Use fine dots and pointillism for shading. Do NOT use heavy cross-hatching or thick black lines.
-2. Composition: A clean silhouette against a plain, unadorned cream paper background. No background scenery, no stadium arches, no abstract lines. Just the player.
-3. Color: Deep Midnight Navy ink on Warm Cream paper. High contrast, but with plenty of negative space on the face to keep it legible.
+2. Composition: A clean head-and-shoulders silhouette against a plain, unadorned background. No background scenery, no stadium arches, no abstract lines. Just the player. Portrait aspect ratio exactly 3:4 (width:height).
+3. Color: Deep Midnight Navy ink (#0A1E2F) on a flat Warm Cream (#F5F0E8) background. The background must be a uniform solid color with no gradients, textures, or paper grain. High contrast, but with plenty of negative space on the face to keep it legible.
 4. Vibe: Stoic, legendary, and vintage. A collected artifact.`;
 }
 
@@ -55,7 +55,11 @@ async function generatePortrait(
     input: prompt,
     tools: [
       { type: 'web_search' as const },
-      { type: 'image_generation' as const },
+      {
+        type: 'image_generation' as const,
+        output_width: 480,
+        output_height: 640,
+      } as any,
     ],
   });
 
