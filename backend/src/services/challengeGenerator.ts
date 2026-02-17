@@ -1,6 +1,20 @@
+import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
 import { sql, eq, and, inArray, desc, asc, gte, lte, like, or } from 'drizzle-orm';
+import { calculateLegendScore } from './legendScore.js';
+import { getTeamName, THEME_TEAMS } from '../lib/teams.js';
+
+// Lazy-load OpenAI client
+let openai: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI | null {
+  if (!process.env.OPENAI_API_KEY) return null;
+  if (!openai) {
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openai;
+}
 
 const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] as const;
 
@@ -231,4 +245,376 @@ export async function scheduleChallenges(
       })
       .where(eq(challenges.id, challengeIds[i]));
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// THEMED CHALLENGE GENERATION
+// ═══════════════════════════════════════════════════════════════
+
+type ThemeType = 'era' | 'team' | 'stat' | 'tier' | 'pattern' | 'random';
+
+type PlayerSeason = { id: number; year: number; zScorePosition: number; team: string | null };
+
+type EligiblePlayer = {
+  playerId: string;
+  nameFirst: string | null;
+  nameLast: string | null;
+  seasons: PlayerSeason[];
+};
+
+interface ThemeStrategy {
+  type: ThemeType;
+  label: string;
+  filter: (player: EligiblePlayer) => PlayerSeason[];
+}
+
+// ─── Theme Strategy Builders ──────────────────────────────────
+
+function eraTheme(startYear: number, endYear: number): ThemeStrategy {
+  const decade = `${startYear}s`;
+  return {
+    type: 'era',
+    label: `${decade} baseball`,
+    filter: (player) => player.seasons.filter(s => s.year >= startYear && s.year <= endYear),
+  };
+}
+
+function teamTheme(teamId: string): ThemeStrategy {
+  const teamName = getTeamName(teamId);
+  return {
+    type: 'team',
+    label: `${teamName} legends`,
+    filter: (player) => {
+      const teamSeasons = player.seasons.filter(s => s.team === teamId);
+      return teamSeasons.length > 0 ? teamSeasons : [];
+    },
+  };
+}
+
+function statTheme(config: { stat: string; min: number; playerType: 'batter' | 'pitcher'; label: string }): ThemeStrategy {
+  return {
+    type: 'stat',
+    label: config.label,
+    // stat filtering happens at the DB level (see selectThemedPlayers), so here
+    // we just pass through all seasons. The actual filtering is done in the
+    // selectThemedPlayers function by checking stats JSON.
+    filter: (player) => player.seasons,
+    // Store config for use in selectThemedPlayers
+    ...({ _statConfig: config } as any),
+  };
+}
+
+function tierTheme(config: { minScore?: number; maxScore?: number; label: string }): ThemeStrategy {
+  const minZ = config.minScore !== undefined ? (config.minScore - 1.0) / (10.0 - 1.0) * 12 - 2 : -2;
+  const maxZ = config.maxScore !== undefined ? (config.maxScore - 1.0) / (10.0 - 1.0) * 12 - 2 : 10;
+  return {
+    type: 'tier',
+    label: config.label,
+    filter: (player) => player.seasons.filter(s => s.zScorePosition >= minZ && s.zScorePosition <= maxZ),
+  };
+}
+
+function patternTheme(pattern: 'one-season-wonder' | 'iron-man' | 'late-bloomer'): ThemeStrategy {
+  const labels: Record<string, string> = {
+    'one-season-wonder': 'One-season wonders',
+    'iron-man': 'Iron men of baseball',
+    'late-bloomer': 'Late bloomers',
+  };
+  return {
+    type: 'pattern',
+    label: labels[pattern],
+    filter: (player) => {
+      const seasons = player.seasons;
+      if (seasons.length < 3) return [];
+
+      switch (pattern) {
+        case 'one-season-wonder': {
+          const zScores = seasons.map(s => s.zScorePosition);
+          const best = Math.max(...zScores);
+          const median = [...zScores].sort((a, b) => a - b)[Math.floor(zScores.length / 2)];
+          return best > 2 * Math.max(median, 0.5) ? seasons : [];
+        }
+        case 'iron-man': {
+          return seasons.length >= 10 ? seasons : [];
+        }
+        case 'late-bloomer': {
+          const bestIdx = seasons.reduce((bi, s, i) =>
+            s.zScorePosition > seasons[bi].zScorePosition ? i : bi, 0);
+          const sortedByYear = [...seasons].sort((a, b) => a.year - b.year);
+          const bestYearIdx = sortedByYear.findIndex(s => s === seasons[bestIdx]);
+          return bestYearIdx >= sortedByYear.length * 0.65 ? seasons : [];
+        }
+        default:
+          return seasons;
+      }
+    },
+  };
+}
+
+function randomTheme(): ThemeStrategy {
+  return {
+    type: 'random',
+    label: 'Mixed bag',
+    filter: (player) => player.seasons,
+  };
+}
+
+// ─── Select themed players for a position ─────────────────────
+
+async function selectThemedPlayers(
+  position: string,
+  strategy: ThemeStrategy,
+): Promise<Array<{ playerId: string; playerName: string; yearOptions: number[] }>> {
+  const eligible = await getEligiblePlayers(position, -2);
+
+  // Apply theme filter
+  let themedPlayers = eligible
+    .map(p => {
+      const filteredSeasons = strategy.filter(p);
+      return { ...p, filteredSeasons };
+    })
+    .filter(p => p.filteredSeasons.length >= 2); // Need at least 2 seasons for year variety
+
+  // For stat themes, do additional filtering on stats
+  const statConfig = (strategy as any)._statConfig;
+  if (statConfig) {
+    // Re-query with stats to filter
+    const statFiltered: typeof themedPlayers = [];
+    for (const p of themedPlayers) {
+      // Check if any season meets the stat threshold
+      const qualifying = [];
+      for (const s of p.filteredSeasons) {
+        const [record] = await db.select({ stats: players.stats, playerType: players.playerType })
+          .from(players)
+          .where(and(eq(players.playerId, p.playerId), eq(players.year, s.year)))
+          .limit(1);
+        if (record && record.playerType === statConfig.playerType) {
+          const val = (record.stats as Record<string, number>)?.[statConfig.stat] ?? 0;
+          if (val >= statConfig.min) qualifying.push(s);
+        }
+      }
+      if (qualifying.length >= 2) {
+        statFiltered.push({ ...p, filteredSeasons: qualifying });
+      }
+    }
+    themedPlayers = statFiltered;
+  }
+
+  // Sort by best z-score in filtered seasons
+  const sorted = themedPlayers
+    .map(p => ({
+      ...p,
+      bestZ: Math.max(...p.filteredSeasons.map(s => s.zScorePosition)),
+    }))
+    .sort((a, b) => b.bestZ - a.bestZ);
+
+  // Pick top tier, shuffle, select 3
+  const pool = sorted.slice(0, Math.min(80, sorted.length));
+
+  if (pool.length < 3) {
+    // Fall back to general pool
+    console.log(`  Theme fallback for ${position}: only ${pool.length} themed players, using general pool`);
+    return selectBalancedPlayers(position);
+  }
+
+  const shuffled = shuffle(pool);
+  const selected = shuffled.slice(0, 3);
+
+  return selected.map(p => {
+    // Use filtered seasons for year picking when we have enough, else use all
+    const seasonsForYears = p.filteredSeasons.length >= 3 ? p.filteredSeasons : p.seasons;
+    return {
+      playerId: p.playerId,
+      playerName: `${p.nameFirst} ${p.nameLast}`,
+      yearOptions: pickYears(seasonsForYears),
+    };
+  });
+}
+
+// ─── AI Theme Name Generation ─────────────────────────────────
+
+async function generateThemeName(
+  strategyLabel: string,
+  playerSummaries: string[],
+): Promise<string> {
+  const client = getOpenAIClient();
+  if (!client) return strategyLabel;
+
+  try {
+    const response = await client.responses.create({
+      model: 'gpt-4.1-mini',
+      instructions: `You name daily baseball trivia challenges. Generate a creative, catchy 2-6 word theme name.
+
+Examples:
+- "The Steroid Era"
+- "Oops! All Cardinals"
+- "One Season Wonders"
+- "Slugfest"
+- "Speed Demons"
+- "Late-Inning Magic"
+- "Dynasty Watch"
+- "The GOAT Debate"
+- "Underdogs & Cult Heroes"
+- "Bronx Bombers"
+- "Generation Gap"
+
+Write ONLY the theme name, nothing else. No quotes.`,
+      input: `Theme hint: ${strategyLabel}\n\nPlayers in this challenge:\n${playerSummaries.join('\n')}`,
+      temperature: 0.9,
+      max_output_tokens: 30,
+    });
+
+    const name = response.output_text?.trim().replace(/^["']|["']$/g, '');
+    return name || strategyLabel;
+  } catch (error) {
+    console.error('Theme name generation failed:', error);
+    return strategyLabel;
+  }
+}
+
+// ─── Generate a themed challenge ──────────────────────────────
+
+export async function generateThemedChallenge(strategy: ThemeStrategy): Promise<number> {
+  const positionOrder = shuffle([...POSITIONS]);
+
+  // Create challenge (theme will be updated after player selection)
+  const [challenge] = await db.insert(challenges).values({
+    challengeDate: 'unassigned',
+    positionOrder: positionOrder,
+    status: 'draft',
+    theme: strategy.label, // Placeholder, updated after AI naming
+  }).returning();
+
+  const playerSummaries: string[] = [];
+
+  // Generate rounds
+  for (let i = 0; i < positionOrder.length; i++) {
+    const position = positionOrder[i];
+    const roundNumber = i + 1;
+
+    const [round] = await db.insert(challengeRounds).values({
+      challengeId: challenge.id,
+      roundNumber,
+      position,
+    }).returning();
+
+    const selectedPlayers = await selectThemedPlayers(position, strategy);
+
+    for (let j = 0; j < selectedPlayers.length; j++) {
+      const player = selectedPlayers[j];
+      await db.insert(roundOptions).values({
+        roundId: round.id,
+        playerSlot: j + 1,
+        playerId: player.playerId,
+        playerName: player.playerName,
+        yearOptions: player.yearOptions,
+      });
+
+      playerSummaries.push(`${player.playerName} (${player.yearOptions.join(', ')})`);
+    }
+  }
+
+  // Generate AI theme name
+  const themeName = await generateThemeName(strategy.label, playerSummaries);
+  await db.update(challenges)
+    .set({ theme: themeName })
+    .where(eq(challenges.id, challenge.id));
+
+  console.log(`  Challenge #${challenge.id}: "${themeName}" (${strategy.type}: ${strategy.label})`);
+
+  return challenge.id;
+}
+
+// ─── Curated batch of 25 themed strategies ────────────────────
+
+function buildThemedBatch(count: number): ThemeStrategy[] {
+  const strategies: ThemeStrategy[] = [];
+
+  // 6 era themes
+  const eras: ThemeStrategy[] = [
+    eraTheme(1961, 1969),
+    eraTheme(1970, 1979),
+    eraTheme(1980, 1989),
+    eraTheme(1990, 1999),
+    eraTheme(2000, 2009),
+    eraTheme(2010, 2025),
+  ];
+
+  // 4 team themes (randomized from top franchises)
+  const teamPool = shuffle([...THEME_TEAMS]);
+  const teams: ThemeStrategy[] = teamPool.slice(0, 4).map(t => teamTheme(t));
+
+  // 3 stat themes
+  const stats: ThemeStrategy[] = [
+    statTheme({ stat: 'HR', min: 30, playerType: 'batter', label: 'Power hitters (30+ HR)' }),
+    statTheme({ stat: 'SB', min: 30, playerType: 'batter', label: 'Speed demons (30+ SB)' }),
+    statTheme({ stat: 'SO', min: 200, playerType: 'pitcher', label: 'Strikeout artists (200+ K)' }),
+  ];
+
+  // 3 pattern themes
+  const patterns: ThemeStrategy[] = [
+    patternTheme('one-season-wonder'),
+    patternTheme('iron-man'),
+    patternTheme('late-bloomer'),
+  ];
+
+  // 3 tier themes
+  const tiers: ThemeStrategy[] = [
+    tierTheme({ minScore: 8.5, label: 'All-time greats' }),
+    tierTheme({ maxScore: 5.0, minScore: 2.0, label: 'Underdogs and journeymen' }),
+    tierTheme({ minScore: 4.0, maxScore: 7.0, label: 'The middle class' }),
+  ];
+
+  // Assemble with variety — interleave types
+  const pools = [eras, teams, stats, patterns, tiers];
+  let poolIdx = 0;
+
+  // Pull from each pool round-robin until we have enough
+  while (strategies.length < count) {
+    const pool = pools[poolIdx % pools.length];
+    if (pool.length > 0) {
+      strategies.push(pool.shift()!);
+    } else {
+      // Fill remaining with random
+      strategies.push(randomTheme());
+    }
+    poolIdx++;
+  }
+
+  return shuffle(strategies); // Randomize final order
+}
+
+export async function generateThemedBatch(count: number): Promise<{
+  challengeIds: number[];
+  themes: string[];
+}> {
+  const strategies = buildThemedBatch(count);
+  const challengeIds: number[] = [];
+  const themes: string[] = [];
+
+  console.log(`Generating ${count} themed challenges...`);
+
+  for (let i = 0; i < strategies.length; i++) {
+    const strategy = strategies[i];
+    console.log(`\n[${i + 1}/${count}] ${strategy.type}: ${strategy.label}`);
+
+    const id = await generateThemedChallenge(strategy);
+    challengeIds.push(id);
+
+    // Fetch the final theme name
+    const [ch] = await db.select({ theme: challenges.theme })
+      .from(challenges)
+      .where(eq(challenges.id, id));
+    themes.push(ch?.theme ?? strategy.label);
+  }
+
+  // Schedule all for consecutive days starting tomorrow
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const startDate = tomorrow.toISOString().split('T')[0];
+  await scheduleChallenges(challengeIds, startDate);
+
+  console.log(`\nDone! ${count} themed challenges scheduled starting ${startDate}`);
+
+  return { challengeIds, themes };
 }
