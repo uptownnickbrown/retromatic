@@ -57,6 +57,17 @@ export function useGenerateBlurbs() {
   });
 }
 
+export function usePreseedStats() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => adminApi.preseedStats(id),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'health', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}
+
 export function useGeneratePortraits() {
   const qc = useQueryClient();
   return useMutation({
