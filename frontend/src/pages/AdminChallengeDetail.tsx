@@ -7,6 +7,7 @@ import {
   Loader2,
   Wand2,
   Image,
+  Users,
   Play,
   CalendarPlus,
   Trash2,
@@ -20,6 +21,7 @@ import {
   useAdminChallengeDetail,
   useAdminChallengeHealth,
   useGenerateBlurbs,
+  usePreseedStats,
   useGeneratePortraits,
   useDeleteChallenge,
   useScheduleChallenges,
@@ -46,6 +48,7 @@ export function AdminChallengeDetail() {
   const { data: health } = useAdminChallengeHealth(challengeId);
 
   const blurbsMutation = useGenerateBlurbs();
+  const preseedMutation = usePreseedStats();
   const portraitsMutation = useGeneratePortraits();
   const deleteMutation = useDeleteChallenge();
   const scheduleMutation = useScheduleChallenges();
@@ -78,6 +81,10 @@ export function AdminChallengeDetail() {
 
   const handleGeneratePortraits = () => {
     if (challengeId) portraitsMutation.mutate(challengeId);
+  };
+
+  const handlePreseedStats = () => {
+    if (challengeId) preseedMutation.mutate(challengeId);
   };
 
   const handleDelete = () => {
@@ -250,6 +257,24 @@ export function AdminChallengeDetail() {
           )}
         </VintageButton>
 
+        <VintageButton
+          variant="section"
+          onClick={handlePreseedStats}
+          disabled={preseedMutation.isPending}
+        >
+          {preseedMutation.isPending ? (
+            <>
+              <Loader2 className="inline w-3.5 h-3.5 mr-1.5 animate-spin" />
+              Seeding...
+            </>
+          ) : (
+            <>
+              <Users className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
+              Preseed Stats
+            </>
+          )}
+        </VintageButton>
+
         {/* Schedule */}
         {showScheduleInput ? (
           <div className="flex items-center gap-2">
@@ -348,6 +373,16 @@ export function AdminChallengeDetail() {
           >
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             {portraitsMutation.error.message}
+          </motion.div>
+        )}
+        {preseedMutation.isSuccess && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-6 px-4 py-3 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 text-xs font-mono"
+          >
+            Pre-seeded {preseedMutation.data.totalPicks} picks across {preseedMutation.data.roundsSeeded} rounds
           </motion.div>
         )}
       </AnimatePresence>

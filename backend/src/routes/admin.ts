@@ -6,6 +6,7 @@ import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { generateChallenge, generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge } from '../services/challengeBlurbs.js';
 import { generatePortraitsForChallenge } from '../services/portraitGenerator.js';
+import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { activateTodaysChallenge } from '../services/dailyScheduler.js';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { toNum } from '../lib/numeric.js';
@@ -403,6 +404,18 @@ router.post('/challenges/:id/portraits', async (req, res) => {
   } catch (error) {
     console.error('Portrait generation error:', error);
     res.status(500).json({ error: 'Failed to generate portraits' });
+  }
+});
+
+// Pre-seed community pick stats for a challenge
+router.post('/challenges/:id/preseed', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const result = await preseedStatsForChallenge(id);
+    res.json(result);
+  } catch (error) {
+    console.error('Preseed error:', error);
+    res.status(500).json({ error: 'Failed to preseed stats' });
   }
 });
 

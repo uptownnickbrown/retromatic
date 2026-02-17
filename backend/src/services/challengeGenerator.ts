@@ -174,7 +174,7 @@ export interface GenerateChallengeOptions {
 
 export async function generateChallenge(options: GenerateChallengeOptions = {}): Promise<number> {
   const positionOrder = options.positionOrder || shuffle([...POSITIONS]);
-  const date = options.date || 'unassigned';
+  const date = options.date || `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
   // Create challenge
   const [challenge] = await db.insert(challenges).values({
@@ -474,12 +474,12 @@ Write ONLY the theme name, nothing else. No quotes.`,
 
 // ─── Generate a themed challenge ──────────────────────────────
 
-export async function generateThemedChallenge(strategy: ThemeStrategy): Promise<number> {
+export async function generateThemedChallenge(strategy: ThemeStrategy, date?: string): Promise<number> {
   const positionOrder = shuffle([...POSITIONS]);
 
   // Create challenge (theme will be updated after player selection)
   const [challenge] = await db.insert(challenges).values({
-    challengeDate: 'unassigned',
+    challengeDate: date || `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     positionOrder: positionOrder,
     status: 'draft',
     theme: strategy.label, // Placeholder, updated after AI naming
@@ -592,13 +592,23 @@ export async function generateThemedBatch(count: number): Promise<{
   const challengeIds: number[] = [];
   const themes: string[] = [];
 
-  console.log(`Generating ${count} themed challenges...`);
+  // Pre-compute dates starting tomorrow
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dates: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(tomorrow);
+    d.setDate(d.getDate() + i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+
+  console.log(`Generating ${count} themed challenges (${dates[0]} → ${dates[dates.length - 1]})...`);
 
   for (let i = 0; i < strategies.length; i++) {
     const strategy = strategies[i];
     console.log(`\n[${i + 1}/${count}] ${strategy.type}: ${strategy.label}`);
 
-    const id = await generateThemedChallenge(strategy);
+    const id = await generateThemedChallenge(strategy, dates[i]);
     challengeIds.push(id);
 
     // Fetch the final theme name
@@ -608,13 +618,10 @@ export async function generateThemedBatch(count: number): Promise<{
     themes.push(ch?.theme ?? strategy.label);
   }
 
-  // Schedule all for consecutive days starting tomorrow
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const startDate = tomorrow.toISOString().split('T')[0];
-  await scheduleChallenges(challengeIds, startDate);
+  // Schedule all (update status from draft → scheduled)
+  await scheduleChallenges(challengeIds, dates[0]);
 
-  console.log(`\nDone! ${count} themed challenges scheduled starting ${startDate}`);
+  console.log(`\nDone! ${count} themed challenges scheduled starting ${dates[0]}`);
 
   return { challengeIds, themes };
 }
