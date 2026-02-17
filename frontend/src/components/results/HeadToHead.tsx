@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -22,7 +22,12 @@ const POSITION_LABELS: Record<string, string> = {
 };
 
 export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: HeadToHeadProps) {
-  const [expandedRound, setExpandedRound] = useState<number | null>(null);
+  // Auto-expand one random row on mount
+  const randomInitialRow = useMemo(
+    () => picks.length > 0 ? picks[Math.floor(Math.random() * picks.length)].roundNumber : null,
+    [] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const [expandedRound, setExpandedRound] = useState<number | null>(randomInitialRow);
 
   const pctOfPerfect = perfectTotal > 0 ? Math.round((yourTotal / perfectTotal) * 100) : 0;
 
@@ -37,20 +42,16 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: Hea
 
   return (
     <div className="paper-card overflow-hidden">
-      {/* Summary header */}
+      {/* HUGE comparison header */}
       <div className="px-4 py-4 border-b border-navy/10">
+        <div className="flex items-baseline justify-center gap-3 mb-1">
+          <span className="font-editorial font-black text-4xl text-navy">{yourTotal.toFixed(1)}</span>
+          <span className="font-mono text-sm text-muted">vs</span>
+          <span className="font-editorial font-black text-4xl text-navy">{perfectTotal.toFixed(1)}</span>
+        </div>
         <div className="flex items-center justify-between mb-1">
-          <div className="text-center flex-1">
-            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">Your Lineup</p>
-            <p className="font-editorial font-bold text-2xl text-navy">{yourTotal.toFixed(1)}</p>
-          </div>
-          <div className="text-center px-3">
-            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">vs</p>
-          </div>
-          <div className="text-center flex-1">
-            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">Perfect</p>
-            <p className="font-editorial font-bold text-2xl text-navy">{perfectTotal.toFixed(1)}</p>
-          </div>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">Your Lineup</p>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">Perfect</p>
         </div>
         <p className="text-center font-mono text-xs text-muted">
           <span className="font-bold text-navy">{pctOfPerfect}%</span> of perfect
@@ -63,37 +64,35 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: Hea
           const isExpanded = expandedRound === pick.roundNumber;
           const yourScore = safeNum(pick.legendScore);
           const perfectScore = safeNum(perfect?.legendScore);
-          const gap = perfectScore - yourScore;
 
           return (
             <div key={pick.roundNumber}>
-              {/* Compact row */}
+              {/* Compact row — CSS Grid for alignment */}
               <button
                 onClick={() => setExpandedRound(isExpanded ? null : pick.roundNumber)}
-                className="w-full flex items-center gap-1 px-3 py-2 text-left hover:bg-navy/3 transition-colors min-h-[44px]"
+                className="w-full grid grid-cols-[32px_1fr_auto_1fr_20px] items-center px-3 py-2 text-left hover:bg-navy/3 transition-colors min-h-[44px]"
               >
-                <span className="font-mono text-[10px] font-bold text-muted w-8 flex-shrink-0">
+                <span className="font-mono text-[10px] font-bold text-muted">
                   {pick.position}
                 </span>
-                <div className="flex-1 min-w-0 flex items-center gap-1">
+                <div className="flex items-center gap-1 justify-start min-w-0">
                   <span className={cn(
                     'text-xs truncate',
-                    gap > 3 ? 'text-muted' : 'text-navy',
                     pick.wasTimeout && 'line-through text-muted',
                   )}>
                     {pick.playerName.split(' ').pop()} '{String(pick.year).slice(2)}
                   </span>
                   <span className={cn(
-                    'font-mono text-[11px] font-bold flex-shrink-0',
+                    'font-mono text-[11px] font-bold flex-shrink-0 bg-paper px-1.5 py-0.5 rounded',
                     yourScore >= 9.5 ? 'text-gold' : yourScore >= 6.0 ? 'text-navy' : 'text-muted',
                   )}>
                     {yourScore.toFixed(1)}
                   </span>
                 </div>
-                <span className="text-muted/30 mx-0.5 flex-shrink-0">│</span>
-                <div className="flex-1 min-w-0 flex items-center justify-end gap-1">
+                <span className="text-muted/30 mx-1.5 flex-shrink-0">│</span>
+                <div className="flex items-center gap-1 justify-end min-w-0">
                   <span className={cn(
-                    'font-mono text-[11px] font-bold flex-shrink-0',
+                    'font-mono text-[11px] font-bold flex-shrink-0 bg-paper px-1.5 py-0.5 rounded',
                     perfectScore >= 9.5 ? 'text-gold' : 'text-navy',
                   )}>
                     {perfectScore.toFixed(1)}
@@ -101,10 +100,12 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: Hea
                   <span className="text-xs text-navy truncate text-right">
                     {perfect?.playerName.split(' ').pop()} '{String(perfect?.year ?? 0).slice(2)}
                   </span>
-                  {isMatch && (
-                    <Check size={12} className="text-gold flex-shrink-0" />
-                  )}
                 </div>
+                {isMatch ? (
+                  <Check size={12} className="text-[#2E7D32] flex-shrink-0 justify-self-end" />
+                ) : (
+                  <span className="w-3" />
+                )}
               </button>
 
               {/* Expanded detail */}
@@ -161,7 +162,7 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
         <div className="text-center">
           <p className="font-editorial font-bold text-sm text-navy leading-tight">
             {perfect.playerName}
-            {isMatch && <Check size={12} className="inline ml-1 text-gold" />}
+            {isMatch && <Check size={12} className="inline ml-1 text-[#2E7D32]" />}
           </p>
           <p className="font-mono text-[10px] text-muted">{perfect.year} · {perfect.team ?? ''}</p>
           <p className={cn(

@@ -107,6 +107,10 @@ export interface ResultsPick {
   legendScore: number;
   stats: Record<string, number>;
   wasTimeout: boolean;
+  portraitUrl?: string | null;
+  blurb?: string;
+  categoryZscores?: Record<string, number>;
+  playerType?: 'batter' | 'pitcher';
 }
 
 export interface PerfectLineupPick {
