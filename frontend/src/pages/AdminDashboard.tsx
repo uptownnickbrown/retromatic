@@ -202,7 +202,7 @@ export function AdminDashboard() {
             </span>
           </div>
           <div className="flex overflow-x-auto">
-            {next14.map((dateStr, i) => {
+            {next14.map((dateStr) => {
               const challenge = dateMap.get(dateStr);
               const isToday = dateStr === today;
               const hasChallenge = !!challenge;

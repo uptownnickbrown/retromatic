@@ -185,7 +185,7 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
               transition={{ delay: 1.0 }}
               className="bg-bone rounded p-3 mb-4 border border-navy/8 -rotate-[0.5deg]"
             >
-              <p className="text-sm text-navy/70 font-hand leading-relaxed text-left">
+              <p className="text-base text-navy/70 font-hand leading-relaxed text-left">
                 "{reveal.blurb}"
               </p>
             </motion.div>
