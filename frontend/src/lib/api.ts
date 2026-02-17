@@ -1,4 +1,4 @@
-import type { Challenge, GameSession, RoundData, RevealData, ResultsData, LeaderboardEntry } from '../types';
+import type { Challenge, FullGameData, CompleteResponse, PickSubmission, ResultsData, LeaderboardEntry } from '../types';
 
 const API_BASE = '/api';
 
@@ -33,32 +33,23 @@ async function fetchAPI<T>(path: string, options: RequestInit = {}): Promise<T> 
 // Challenge API
 export async function getTodaysChallenge(): Promise<{
   challenge: Challenge | null;
-  session: GameSession | null;
+  session: { id: string; status: string; totalLegendScore?: number; percentile?: number } | null;
 }> {
   return fetchAPI('/challenge/today');
 }
 
-export async function startGame(challengeId: number): Promise<{
-  session: { id: string; currentRound: number; status?: string };
-  round: RoundData | null;
-}> {
+export async function startGame(challengeId: number): Promise<FullGameData> {
   return fetchAPI(`/challenge/${challengeId}/start`, { method: 'POST' });
 }
 
-export async function submitPick(
+export async function completeGame(
   challengeId: number,
   sessionId: string,
-  roundId: number,
-  playerId: number,
-  year: number,
-  wasTimeout: boolean = false
-): Promise<{
-  reveal: RevealData;
-  nextRound: RoundData | null;
-}> {
-  return fetchAPI(`/challenge/${challengeId}/pick`, {
+  picks: PickSubmission[],
+): Promise<CompleteResponse> {
+  return fetchAPI(`/challenge/${challengeId}/complete`, {
     method: 'POST',
-    body: JSON.stringify({ sessionId, roundId, playerId, year, wasTimeout }),
+    body: JSON.stringify({ sessionId, picks }),
   });
 }
 
