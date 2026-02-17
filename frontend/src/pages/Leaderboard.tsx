@@ -20,7 +20,7 @@ export function Leaderboard() {
   const { data, isLoading, error, refetch } = useLeaderboard(period);
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-4 py-5">
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 py-5">
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <button
@@ -92,7 +92,7 @@ export function Leaderboard() {
                       </p>
                     </div>
                     <span className={cn(
-                      'font-mono font-bold text-sm',
+                      'font-mono font-bold text-base',
                       safeNum(entry.score) / 10 >= 9.5 ? 'text-gold' : 'text-navy',
                     )}>
                       {safeNum(entry.score).toFixed(1)}
@@ -108,7 +108,7 @@ export function Leaderboard() {
                         {entry.displayName}
                       </p>
                     </div>
-                    <span className="font-mono text-xs font-bold text-muted">
+                    <span className="font-mono text-sm font-bold text-muted">
                       {safeNum(entry.score).toFixed(1)}
                     </span>
                   </div>
