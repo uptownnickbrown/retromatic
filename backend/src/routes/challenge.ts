@@ -346,7 +346,7 @@ router.get('/:id/results', async (req, res) => {
       return;
     }
 
-    // Get picks with full details
+    // Get picks with full details including portrait, blurb, category z-scores
     const picks = await db.select({
       roundId: userPicks.roundId,
       roundNumber: challengeRounds.roundNumber,
@@ -356,11 +356,19 @@ router.get('/:id/results', async (req, res) => {
       team: players.team,
       legendScore: userPicks.legendScore,
       stats: players.stats,
+      categoryZscores: players.categoryZscores,
+      playerType: players.playerType,
       wasTimeout: userPicks.wasTimeout,
+      portraitUrl: roundOptions.portraitUrl,
+      blurb: sql<string>`(${roundOptions.blurbs} ->> ${userPicks.selectedYear}::text)`,
     })
       .from(userPicks)
       .innerJoin(challengeRounds, eq(userPicks.roundId, challengeRounds.id))
       .innerJoin(players, eq(userPicks.selectedPlayerId, players.id))
+      .leftJoin(roundOptions, and(
+        eq(roundOptions.roundId, userPicks.roundId),
+        eq(roundOptions.playerId, players.playerId),
+      ))
       .where(eq(userPicks.sessionId, session.id))
       .orderBy(challengeRounds.roundNumber);
 
