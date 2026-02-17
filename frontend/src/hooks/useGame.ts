@@ -161,6 +161,8 @@ export function useGame() {
         legendScore,
         blurb,
         stats: selectedYearOption.stats,
+        categoryZscores: selectedYearOption.categoryZscores,
+        playerType: selectedYearOption.playerType,
         playerName: selectedPlayer.name,
         year,
         team: selectedYearOption.team,
