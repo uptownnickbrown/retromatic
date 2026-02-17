@@ -30,7 +30,15 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
     );
   }
 
-  // Fallback: silhouette SVG
+  // Fallback: large Playfair initials
+  const initials = name
+    .split(' ')
+    .map(w => w[0])
+    .filter(Boolean)
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+
   return (
     <div
       className={cn(
@@ -41,7 +49,9 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
         className,
       )}
     >
-      <img src="/player.svg" alt="" className="w-3/4 h-3/4 opacity-20" />
+      <span className="font-editorial font-black text-3xl text-navy/15 select-none leading-none">
+        {initials}
+      </span>
     </div>
   );
 }

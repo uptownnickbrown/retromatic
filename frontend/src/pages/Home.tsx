@@ -19,7 +19,7 @@ export function Home() {
   const isInProgress = session?.status === 'in_progress';
 
   return (
-    <div className="flex-1 flex flex-col items-center max-w-lg mx-auto w-full px-5 py-8">
+    <div className="flex-1 flex flex-col items-center max-w-lg mx-auto w-full px-3 py-5">
       {/* Masthead */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -108,7 +108,7 @@ export function Home() {
               <VintageButton
                 variant="ticket"
                 onClick={() => navigate('/play')}
-                className="w-full text-base py-4"
+                className="w-full text-lg py-5"
               >
                 {isInProgress ? 'Resume Draft' : 'Play Today'}
               </VintageButton>

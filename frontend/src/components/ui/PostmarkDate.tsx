@@ -17,7 +17,8 @@ export function PostmarkDate({ date, className }: PostmarkDateProps) {
       <img
         src="/postmark.png"
         alt=""
-        className="w-36 h-auto opacity-70"
+        className="w-36 h-auto opacity-80"
+        style={{ mixBlendMode: 'multiply' }}
       />
       <span className="absolute font-mono text-[10px] font-bold tracking-wider text-navy-light">
         {formatted}

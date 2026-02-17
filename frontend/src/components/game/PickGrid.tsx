@@ -27,7 +27,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
   };
 
   return (
-    <div className="flex gap-2 w-full px-2 items-start">
+    <div className="flex gap-1.5 w-full px-1 items-start">
       {players.map((player, i) => {
         const isFocused = focusedSlot === player.slot;
         const hasAnyFocused = focusedSlot !== null;
@@ -51,7 +51,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
             className={cn(
               'paper-card cursor-pointer overflow-hidden min-w-0',
               'transition-shadow duration-200',
-              isFocused && 'shadow-[3px_3px_0px_rgba(10,30,47,0.2)]',
+              isFocused && 'shadow-[4px_4px_0px_#0A1E2F]',
               disabled && 'opacity-50 pointer-events-none',
             )}
             onClick={() => handleCardTap(player.slot)}
@@ -69,7 +69,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
               {/* Player name */}
               <h3 className={cn(
                 'font-editorial font-bold text-navy text-center leading-tight truncate w-full',
-                isFocused ? 'text-sm' : 'text-[11px]',
+                isFocused ? 'text-base' : 'text-sm',
               )}>
                 {player.name}
               </h3>
@@ -108,7 +108,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
                         className="year-tab text-xs w-full"
                       >
                         <span className="font-mono font-bold">{yo.year}</span>
-                        <span className="text-muted ml-1.5 text-[10px]">{yo.team}</span>
+                        <span className="text-muted ml-1.5 text-xs">{yo.team}</span>
                       </motion.button>
                     ))}
                   </div>
