@@ -22,7 +22,7 @@ export function Timer({ timeLeft, progress, isUrgent }: TimerProps) {
       </span>
 
       {/* Ink-draining progress bar */}
-      <div className="flex-1 h-1.5 bg-navy/10 rounded-full overflow-hidden min-w-[60px]">
+      <div className="flex-1 h-2.5 bg-navy/15 rounded-full overflow-hidden min-w-[60px] border border-navy/10">
         <div
           className={cn(
             'h-full rounded-full transition-all duration-100 ease-linear',

@@ -11,12 +11,13 @@ export function useTimer({ duration, onExpire, autoStart = false }: UseTimerOpti
   const [isRunning, setIsRunning] = useState(autoStart);
   const startTimeRef = useRef<number>(0);
   const rafRef = useRef<number>(0);
+  const durationRef = useRef(duration);
   const onExpireRef = useRef(onExpire);
   onExpireRef.current = onExpire;
 
   const tick = useCallback(() => {
     const elapsed = (performance.now() - startTimeRef.current) / 1000;
-    const remaining = Math.max(0, duration - elapsed);
+    const remaining = Math.max(0, durationRef.current - elapsed);
     setTimeLeft(remaining);
 
     if (remaining <= 0) {
@@ -25,7 +26,7 @@ export function useTimer({ duration, onExpire, autoStart = false }: UseTimerOpti
     } else {
       rafRef.current = requestAnimationFrame(tick);
     }
-  }, [duration]);
+  }, []);
 
   useEffect(() => {
     if (isRunning) {
@@ -36,9 +37,9 @@ export function useTimer({ duration, onExpire, autoStart = false }: UseTimerOpti
   }, [isRunning, tick]);
 
   const start = useCallback(() => {
-    setTimeLeft(duration);
+    setTimeLeft(durationRef.current);
     setIsRunning(true);
-  }, [duration]);
+  }, []);
 
   const stop = useCallback(() => {
     setIsRunning(false);
@@ -47,11 +48,13 @@ export function useTimer({ duration, onExpire, autoStart = false }: UseTimerOpti
 
   const reset = useCallback((newDuration?: number) => {
     cancelAnimationFrame(rafRef.current);
-    setTimeLeft(newDuration ?? duration);
+    const d = newDuration ?? duration;
+    durationRef.current = d;
+    setTimeLeft(d);
     setIsRunning(false);
   }, [duration]);
 
-  const progress = timeLeft / duration;
+  const progress = durationRef.current > 0 ? timeLeft / durationRef.current : 0;
   const isUrgent = timeLeft <= 5 && timeLeft > 0;
 
   return { timeLeft, progress, isRunning, isUrgent, start, stop, reset };
