@@ -156,20 +156,23 @@ router.post('/:id/start', async (req, res) => {
   }
 });
 
-// POST /api/challenge/:id/pick - Submit a pick
-router.post('/:id/pick', async (req, res) => {
+// POST /api/challenge/:id/complete - Submit all picks at once, complete the game
+router.post('/:id/complete', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
     const guestToken = getGuestToken(req);
-    const { sessionId, roundId, playerId, year, wasTimeout } = req.body;
+    const { sessionId, picks } = req.body as {
+      sessionId: string;
+      picks: Array<{ roundId: number; playerRecordId: number; year: number; wasTimeout: boolean }>;
+    };
 
     if (isNaN(challengeId)) {
       res.status(400).json({ error: 'Invalid challenge ID' });
       return;
     }
 
-    if (!sessionId || !roundId || !playerId || !year) {
-      res.status(400).json({ error: 'Missing required fields' });
+    if (!sessionId || !Array.isArray(picks) || picks.length === 0) {
+      res.status(400).json({ error: 'Missing sessionId or picks' });
       return;
     }
 
@@ -179,150 +182,132 @@ router.post('/:id/pick', async (req, res) => {
       .where(and(
         eq(gameSessions.id, sessionId),
         eq(gameSessions.guestToken, guestToken),
-        eq(gameSessions.status, 'in_progress')
+        eq(gameSessions.challengeId, challengeId)
       ))
       .limit(1);
 
     if (!session) {
-      res.status(404).json({ error: 'Session not found or completed' });
+      res.status(404).json({ error: 'Session not found' });
       return;
     }
 
-    if (session.currentRound > 10) {
-      res.status(400).json({ error: 'Game already completed' });
-      return;
-    }
+    // Idempotent: if already completed, return existing results
+    if (session.status === 'completed') {
+      const existingPicks = await db.select({ legendScore: userPicks.legendScore })
+        .from(userPicks)
+        .where(eq(userPicks.sessionId, sessionId));
 
-    // Validate round belongs to this challenge and matches current round
-    const [round] = await db.select()
-      .from(challengeRounds)
-      .where(eq(challengeRounds.id, roundId))
-      .limit(1);
+      const totalScore = existingPicks.reduce((sum, p) => sum + toNum(p.legendScore), 0);
+      const roundedTotal = Math.round(totalScore * 10) / 10;
+      const perfectLineup = await calculatePerfectLineup(challengeId);
 
-    if (!round || round.challengeId !== challengeId || round.roundNumber !== session.currentRound) {
-      res.status(400).json({ error: 'Invalid round for this session' });
-      return;
-    }
+      // Fresh community stats
+      const roundIds = picks.map(p => p.roundId);
+      const freshStats = await db.select().from(pickStats).where(inArray(pickStats.roundId, roundIds));
+      const communityStats = buildCommunityStats(roundIds, freshStats);
 
-    // Fetch round options once for validation + blurb lookup
-    const roundOptionsList = await db.select()
-      .from(roundOptions)
-      .where(eq(roundOptions.roundId, roundId));
+      const [countResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(gameSessions)
+        .where(and(eq(gameSessions.challengeId, challengeId), eq(gameSessions.status, 'completed')));
 
-    // Look up the player record for this player+year
-    const [playerRecord] = await db.select()
-      .from(players)
-      .where(eq(players.id, playerId))
-      .limit(1);
-
-    if (!playerRecord) {
-      res.status(404).json({ error: 'Player not found' });
-      return;
-    }
-
-    // Calculate Legend Score
-    const legendScore = calculateLegendScore(toNum(playerRecord.zScorePosition));
-
-    // Check if pick already exists for this round (idempotent)
-    const [existingPick] = await db.select()
-      .from(userPicks)
-      .where(and(
-        eq(userPicks.sessionId, sessionId),
-        eq(userPicks.roundId, roundId)
-      ))
-      .limit(1);
-
-    if (!existingPick) {
-      // Insert pick
-      await db.insert(userPicks).values({
-        sessionId,
-        roundId,
-        selectedPlayerId: playerId,
-        selectedYear: year,
-        legendScore: String(legendScore),
-        wasTimeout: wasTimeout || false,
+      res.json({
+        totalLegendScore: toNum(session.totalLegendScore),
+        percentile: toNum(session.percentile, 50),
+        totalParticipants: toNum(countResult?.count),
+        communityStats,
+        perfectLineup,
       });
+      return;
+    }
 
-      // Update pick stats (only on first submission, not retries)
+    // Validate all roundIds belong to this challenge
+    const challengeRoundsList = await db.select()
+      .from(challengeRounds)
+      .where(eq(challengeRounds.challengeId, challengeId));
+
+    const validRoundIds = new Set(challengeRoundsList.map(r => r.id));
+    for (const pick of picks) {
+      if (!validRoundIds.has(pick.roundId)) {
+        res.status(400).json({ error: `Round ${pick.roundId} does not belong to challenge ${challengeId}` });
+        return;
+      }
+    }
+
+    // Fetch all player records to re-compute Legend Scores server-side
+    const playerRecordIds = picks.map(p => p.playerRecordId);
+    const playerRecords = await db.select({
+      id: players.id,
+      zScorePosition: players.zScorePosition,
+    })
+      .from(players)
+      .where(inArray(players.id, playerRecordIds));
+
+    const playerScoreMap = new Map(
+      playerRecords.map(r => [r.id, calculateLegendScore(toNum(r.zScorePosition))])
+    );
+
+    // Batch insert picks (onConflictDoNothing for idempotency)
+    let totalScore = 0;
+    for (const pick of picks) {
+      const legendScore = playerScoreMap.get(pick.playerRecordId) ?? 0;
+      totalScore += legendScore;
+
+      await db.execute(sql`
+        INSERT INTO user_picks (session_id, round_id, selected_player_id, selected_year, legend_score, was_timeout)
+        VALUES (${sessionId}, ${pick.roundId}, ${pick.playerRecordId}, ${pick.year}, ${String(legendScore)}, ${pick.wasTimeout})
+        ON CONFLICT (session_id, round_id) DO NOTHING
+      `);
+    }
+
+    const roundedTotal = Math.round(totalScore * 10) / 10;
+
+    // Batch update pick_stats
+    for (const pick of picks) {
       await db.execute(sql`
         INSERT INTO pick_stats (round_id, player_id, selected_year, pick_count)
-        VALUES (${roundId}, ${playerId}, ${year}, 1)
+        VALUES (${pick.roundId}, ${pick.playerRecordId}, ${pick.year}, 1)
         ON CONFLICT (round_id, player_id, selected_year)
         DO UPDATE SET pick_count = pick_stats.pick_count + 1, updated_at = NOW()
       `);
     }
 
-    // Get pick percentages for this round
-    const allStats = await db.select()
-      .from(pickStats)
-      .where(eq(pickStats.roundId, roundId));
+    // Calculate percentile
+    const percentile = await calculateSessionPercentile(challengeId, roundedTotal);
 
-    const totalPicks = allStats.reduce((sum, s) => sum + s.pickCount, 0);
-    const pickPercentages = allStats.map(s => ({
-      playerId: s.playerId,
-      year: s.selectedYear,
-      percentage: totalPicks > 0 ? Math.round((s.pickCount / totalPicks) * 100) : 0,
-    }));
+    // Complete session
+    await db.update(gameSessions)
+      .set({
+        currentRound: 11,
+        status: 'completed',
+        totalLegendScore: String(roundedTotal),
+        percentile,
+        completedAt: new Date(),
+      })
+      .where(eq(gameSessions.id, sessionId));
 
-    // Find the blurb for the selected player+year (roundOptionsList already fetched above)
-    let blurb = '';
-    for (const opt of roundOptionsList) {
-      const yearOptions = opt.yearOptions as number[];
-      if (opt.playerId === playerRecord.playerId && yearOptions.includes(year)) {
-        const blurbs = (opt.blurbs || {}) as Record<string, string>;
-        blurb = blurbs[String(year)] || '';
-        break;
-      }
-    }
+    // Perfect lineup
+    const perfectLineup = await calculatePerfectLineup(challengeId);
 
-    // Determine if this is the last round
-    const isLastRound = session.currentRound === 10;
-    const nextRoundNumber = session.currentRound + 1;
+    // Fresh community stats
+    const roundIds = picks.map(p => p.roundId);
+    const freshStats = await db.select().from(pickStats).where(inArray(pickStats.roundId, roundIds));
+    const communityStats = buildCommunityStats(roundIds, freshStats);
 
-    if (isLastRound) {
-      // Calculate total score
-      const allPicks = await db.select({ legendScore: userPicks.legendScore })
-        .from(userPicks)
-        .where(eq(userPicks.sessionId, sessionId));
-
-      const totalScore = allPicks.reduce((sum, p) => sum + toNum(p.legendScore), 0);
-      const roundedTotal = Math.round(totalScore * 10) / 10;
-
-      // Calculate percentile
-      const percentile = await calculateSessionPercentile(challengeId, roundedTotal);
-
-      // Complete session
-      await db.update(gameSessions)
-        .set({
-          currentRound: 11, // past the last round
-          status: 'completed',
-          totalLegendScore: String(roundedTotal),
-          percentile,
-          completedAt: new Date(),
-        })
-        .where(eq(gameSessions.id, sessionId));
-    } else {
-      // Advance to next round
-      await db.update(gameSessions)
-        .set({ currentRound: nextRoundNumber })
-        .where(eq(gameSessions.id, sessionId));
-    }
+    // Total participants
+    const [countResult] = await db.select({ count: sql<number>`count(*)` })
+      .from(gameSessions)
+      .where(and(eq(gameSessions.challengeId, challengeId), eq(gameSessions.status, 'completed')));
 
     res.json({
-      reveal: {
-        legendScore,
-        blurb,
-        stats: playerRecord.stats,
-        playerName: `${playerRecord.nameFirst} ${playerRecord.nameLast}`,
-        year: playerRecord.year,
-        team: playerRecord.team,
-        pickPercentages,
-      },
-      nextRound: null, // deprecated: frontend uses front-loaded data
+      totalLegendScore: roundedTotal,
+      percentile,
+      totalParticipants: toNum(countResult?.count),
+      communityStats,
+      perfectLineup,
     });
   } catch (error) {
-    console.error('Error submitting pick:', error);
-    res.status(500).json({ error: 'Failed to submit pick' });
+    console.error('Error completing game:', error);
+    res.status(500).json({ error: 'Failed to complete game' });
   }
 });
 
@@ -511,6 +496,22 @@ async function getAllRoundData(challengeId: number) {
   });
 
   return { rounds: enrichedRounds, communityStats };
+}
+
+// Helper: build community stats from raw pick_stats rows
+function buildCommunityStats(roundIds: number[], allStats: Array<{ roundId: number; playerId: number; selectedYear: number; pickCount: number }>) {
+  return roundIds.map(roundId => {
+    const entries = allStats.filter(s => s.roundId === roundId);
+    const total = entries.reduce((sum, s) => sum + s.pickCount, 0);
+    return {
+      roundId,
+      picks: entries.map(s => ({
+        playerId: s.playerId,
+        year: s.selectedYear,
+        percentage: total > 0 ? Math.round((s.pickCount / total) * 100) : 0,
+      })),
+    };
+  });
 }
 
 export default router;
