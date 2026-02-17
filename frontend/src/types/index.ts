@@ -102,8 +102,21 @@ export interface ResultsPick {
   wasTimeout: boolean;
 }
 
+export interface PerfectLineupPick {
+  roundNumber: number;
+  position: string;
+  playerName: string;
+  year: number;
+  legendScore: number;
+  stats?: Record<string, number>;
+  categoryZscores?: Record<string, number>;
+  playerType?: 'batter' | 'pitcher';
+  team?: string;
+  blurb?: string;
+}
+
 export interface PerfectLineup {
-  picks: Array<{ roundNumber: number; position: string; playerName: string; year: number; legendScore: number }>;
+  picks: PerfectLineupPick[];
   totalScore: number;
 }
 
