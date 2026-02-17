@@ -23,10 +23,155 @@ interface PlayerYearInfo {
   playerType: string;
   stats: Record<string, number>;
   legendScore: number;
+  legendLabel: string;
+  careerContext: string;
 }
 
-// Generate a blurb for a single player-year
-export async function generateBlurb(info: PlayerYearInfo): Promise<string> {
+interface CareerSeason {
+  year: number;
+  team: string;
+  legendScore: number;
+  stats: Record<string, number>;
+}
+
+// Cache career data per playerId to avoid redundant queries
+const careerCache = new Map<string, CareerSeason[]>();
+
+function getLegendLabel(score: number): string {
+  if (score >= 9.5) return 'LEGENDARY';
+  if (score >= 8.5) return 'ELITE';
+  if (score >= 7.0) return 'ALL-STAR';
+  if (score >= 5.0) return 'SOLID';
+  if (score >= 3.0) return 'AVERAGE';
+  return 'BENCH';
+}
+
+// Query all seasons for a player from the DB
+async function getCareerContext(playerId: string): Promise<CareerSeason[]> {
+  if (careerCache.has(playerId)) return careerCache.get(playerId)!;
+
+  const seasons = await db.select({
+    year: players.year,
+    team: players.team,
+    zScorePosition: players.zScorePosition,
+    stats: players.stats,
+  })
+    .from(players)
+    .where(eq(players.playerId, playerId))
+    .orderBy(players.year);
+
+  const career = seasons.map(s => ({
+    year: s.year,
+    team: s.team ?? 'unknown',
+    legendScore: calculateLegendScore(Number(s.zScorePosition)),
+    stats: s.stats as Record<string, number>,
+  }));
+
+  careerCache.set(playerId, career);
+  return career;
+}
+
+// Build structured career context text for the prompt
+function buildCareerContext(targetYear: number, career: CareerSeason[]): string {
+  if (career.length === 0) return 'No career data available.';
+
+  const lines: string[] = [];
+  const targetIdx = career.findIndex(s => s.year === targetYear);
+
+  // Career span
+  const firstYear = career[0].year;
+  const lastYear = career[career.length - 1].year;
+  lines.push(`Career span: ${firstYear}-${lastYear} (${career.length} seasons in our dataset)`);
+
+  // Teams
+  const teams = [...new Set(career.map(s => s.team))];
+  if (teams.length > 1) {
+    lines.push(`Teams: ${teams.join(', ')}`);
+  }
+
+  // Best and worst seasons
+  const best = career.reduce((a, b) => a.legendScore > b.legendScore ? a : b);
+  const worst = career.reduce((a, b) => a.legendScore < b.legendScore ? a : b);
+  lines.push(`Best season: ${best.year} (${best.team}) — Legend Score ${best.legendScore.toFixed(1)} ${getLegendLabel(best.legendScore)}`);
+  if (worst.year !== best.year) {
+    lines.push(`Worst season: ${worst.year} (${worst.team}) — Legend Score ${worst.legendScore.toFixed(1)} ${getLegendLabel(worst.legendScore)}`);
+  }
+
+  // Is this their peak?
+  const isPeak = targetIdx >= 0 && career[targetIdx].legendScore === best.legendScore;
+  if (isPeak) {
+    lines.push(`>>> This is their PEAK season in our dataset <<<`);
+  }
+
+  // Career position
+  if (targetIdx >= 0) {
+    const pct = targetIdx / (career.length - 1 || 1);
+    const phase = pct <= 0.25 ? 'early career' : pct <= 0.6 ? 'mid-career' : 'late career';
+    lines.push(`Season position: ${phase} (season ${targetIdx + 1} of ${career.length})`);
+  }
+
+  // Previous and next year context
+  if (targetIdx > 0) {
+    const prev = career[targetIdx - 1];
+    lines.push(`Previous year: ${prev.year} (${prev.team}) — Legend Score ${prev.legendScore.toFixed(1)}`);
+  }
+  if (targetIdx >= 0 && targetIdx < career.length - 1) {
+    const next = career[targetIdx + 1];
+    lines.push(`Following year: ${next.year} (${next.team}) — Legend Score ${next.legendScore.toFixed(1)}`);
+  }
+
+  // Team change detection
+  if (targetIdx > 0) {
+    const prev = career[targetIdx - 1];
+    const curr = career[targetIdx];
+    if (prev.team !== curr.team) {
+      lines.push(`>>> Changed teams from ${prev.team} to ${curr.team} before this season <<<`);
+    }
+  }
+
+  // Streak of elite seasons
+  if (targetIdx >= 0) {
+    let streakStart = targetIdx;
+    let streakEnd = targetIdx;
+    while (streakStart > 0 && career[streakStart - 1].legendScore >= 7.0) streakStart--;
+    while (streakEnd < career.length - 1 && career[streakEnd + 1].legendScore >= 7.0) streakEnd++;
+    const streakLen = streakEnd - streakStart + 1;
+    if (streakLen >= 3) {
+      lines.push(`Elite streak: ${streakLen} consecutive seasons with Legend Score 7.0+ (${career[streakStart].year}-${career[streakEnd].year})`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+const SYSTEM_PROMPT = `You are a witty baseball writer texting a friend about a player-season. You have deep knowledge of baseball history — awards, MVP voting, All-Star selections, injuries, trades, team context, and memorable moments.
+
+RULES:
+- Write 3-4 sentences, 60-100 words
+- Lead with the most interesting angle (context > raw stats)
+- Include 2+ specific stats woven naturally into the narrative
+- Put this season in career context — is this a peak, a down year, a bounce-back, a swan song?
+- Draw on your knowledge of baseball history — awards, MVP races, injuries, trades, team storylines. Our stats tell the numbers; you bring the story.
+- Match tone to tier: Legendary = awe, Elite = respect, Solid = appreciation, Average/Bench = honest but not cruel
+- No hedging ("arguably", "perhaps"). Be definitive.
+- Write ONLY the blurb text, no quotes or attribution.
+
+EXAMPLES:
+
+[LEGENDARY batter — Mike Trout, 2017 LAA, Legend Score 9.2]
+Look, a "down year" for Trout still means .306/.442/.629 with 33 homers in just 114 games. A calf injury robbed us of what could have been another MVP campaign — he was on pace for 47 dingers. Even hobbled, he posted a 185 OPS+ that would be the best season of most careers. The man is simply unfair.
+
+[LEGENDARY pitcher — Greg Maddux, 1993 ATL, Legend Score 9.5]
+Maddux's first year in Atlanta after leaving the Cubs was an absolute masterclass — 20 wins, a 2.36 ERA, and just 52 walks in 267 innings. This was the beginning of the most dominant four-year pitching stretch of the modern era, winning his second consecutive Cy Young. He painted corners like Rembrandt and made hitters look foolish doing it.
+
+[AVERAGE batter — Derek Jeter, 2010 NYA, Legend Score 4.8]
+Father Time started whispering to The Captain in 2010. A .270 average and 10 homers from your 36-year-old shortstop isn't embarrassing, but this was a far cry from the Jeter who once hit .349. The Yankees still made the ALCS, but Jeter's declining range at short was becoming impossible to ignore. A quiet bridge year before his famous contract drama.
+
+[SOLID pitcher — Mark Buehrle, 2007 CHA, Legend Score 6.3]
+Somehow Buehrle threw a no-hitter against the Rangers in April and still only managed a 3.63 ERA for the year — that's the most Mark Buehrle stat line imaginable. He ate 201 innings with his trademark pace, working so fast that fielders barely had time to spit between pitches. A reliable workhorse who happened to have one magic night tucked into an otherwise solid season.`;
+
+// Generate a blurb using GPT-5.2 with web search for real-time context
+async function generateBlurb(info: PlayerYearInfo): Promise<string> {
   const client = getOpenAIClient();
   if (!client) return getTemplateBlurb(info);
 
@@ -34,63 +179,81 @@ export async function generateBlurb(info: PlayerYearInfo): Promise<string> {
     .map(([k, v]) => `${k}: ${typeof v === 'number' && v % 1 !== 0 ? v.toFixed(3) : v}`)
     .join(', ');
 
-  const prompt = `Write a single punchy sentence (max 30 words) about ${info.playerName}'s ${info.year} season with the ${info.team}. Position: ${info.position}. Stats: ${statsStr}. Legend Score: ${info.legendScore}/10.
+  const userPrompt = `Player: ${info.playerName}
+Year: ${info.year}
+Team: ${info.team}
+Position: ${info.position}
+Player type: ${info.playerType}
+Legend Score: ${info.legendScore.toFixed(1)}/10.0 (${info.legendLabel})
 
-Be specific about what made this season notable (or unremarkable). Use vivid baseball language. Examples of tone:
-- "Bonds was a one-man wrecking crew in '01 — 73 bombs and an OBP that made pitchers weep."
-- "A forgettable year for Griffey as injuries limited him to just 70 games."
-- "The Big Unit was absolutely dealing, fanning 329 batters en route to his 4th straight Cy Young."
+Season stats: ${statsStr}
 
-Write ONLY the sentence, no quotes or attribution.`;
+Career context:
+${info.careerContext}
+
+Write a 3-4 sentence blurb (60-100 words) about this player-season.`;
 
   try {
-    const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 80,
-      temperature: 0.9,
+    const response = await client.responses.create({
+      model: 'gpt-5.2',
+      instructions: SYSTEM_PROMPT,
+      input: userPrompt,
+      tools: [{ type: 'web_search' as const }],
+      temperature: 0.85,
+      max_output_tokens: 250,
     });
-    return response.choices[0]?.message?.content?.trim() || getTemplateBlurb(info);
+
+    const text = response.output_text?.trim();
+    return text || getTemplateBlurb(info);
   } catch (error) {
     console.error('OpenAI blurb error:', error);
     return getTemplateBlurb(info);
   }
 }
 
-// Template-based fallback blurb
+// Template-based fallback blurbs (3-4 sentences, tier-aware)
 function getTemplateBlurb(info: PlayerYearInfo): string {
   const { playerName, year, team, stats, legendScore, playerType } = info;
   const lastName = playerName.split(' ').pop();
+  const shortYear = String(year).slice(2);
 
   if (playerType === 'batter') {
     const hr = stats.HR || stats.hr || 0;
     const avg = stats.AVG || stats.avg || 0;
     const rbi = stats.RBI || stats.rbi || 0;
+    const sb = stats.SB || stats.sb || 0;
+    const fmtAvg = typeof avg === 'number' ? avg.toFixed(3) : avg;
 
     if (legendScore >= 8) {
-      return `${lastName} was dominant in '${String(year).slice(2)} for ${team}, hitting ${typeof avg === 'number' ? avg.toFixed(3) : avg} with ${hr} homers and ${rbi} RBI.`;
+      return `${lastName} was an absolute force in '${shortYear}, hitting ${fmtAvg} with ${hr} homers and ${rbi} RBI for ${team}. This was the kind of season that makes you stop and stare at the stat line. ${sb > 15 ? `Adding ${sb} stolen bases to that power output is just showing off.` : `The kind of production that anchors a lineup and terrifies opposing pitchers.`} A truly elite campaign.`;
     } else if (legendScore >= 5) {
-      return `A solid ${year} for ${lastName} with ${team} — ${hr} HR and ${rbi} RBI in a productive campaign.`;
+      return `A solid '${shortYear} for ${lastName} with ${team} — ${hr} HR, ${rbi} RBI, and a ${fmtAvg} average. Not the kind of season that makes highlight reels, but the kind contenders need from their everyday guys. ${sb > 10 ? `Chipped in ${sb} steals for good measure.` : `Steady and reliable across the full 162.`} Professional baseball at its finest.`;
     } else {
-      return `${lastName} had a quiet ${year} season with ${team}, putting up modest numbers across the board.`;
+      return `${lastName} had a forgettable ${year} with ${team}, hitting just ${fmtAvg} with ${hr} homers. The kind of season you hope is an outlier rather than a trend. ${rbi > 40 ? `Still managed to drive in ${rbi} runs through sheer persistence.` : `The RBI total of ${rbi} tells the story of a lineup spot that needed an upgrade.`} Sometimes baseball humbles even the best.`;
     }
   } else {
     const era = stats.ERA || stats.era || 0;
     const w = stats.W || stats.w || 0;
     const so = stats.SO || stats.so || stats.K || stats.k || 0;
+    const whip = stats.WHIP || stats.whip || 0;
+    const fmtEra = typeof era === 'number' ? era.toFixed(2) : era;
+    const fmtWhip = typeof whip === 'number' ? whip.toFixed(2) : whip;
 
     if (legendScore >= 8) {
-      return `${lastName} was electric in '${String(year).slice(2)} — ${w} wins with a ${typeof era === 'number' ? era.toFixed(2) : era} ERA and ${so} strikeouts for ${team}.`;
+      return `${lastName} was electric in '${shortYear} — ${w} wins with a ${fmtEra} ERA and ${so} strikeouts for ${team}. A WHIP of ${fmtWhip} means baserunners were a rare sight when this arm was on the mound. ${so > 200 ? `Fanning ${so} batters is the kind of dominance that changes games.` : `Every start felt like an event.`} This was pitching at its absolute peak.`;
     } else if (legendScore >= 5) {
-      return `A workmanlike ${year} for ${lastName} with ${team}, posting a ${typeof era === 'number' ? era.toFixed(2) : era} ERA with ${so} K's.`;
+      return `A workmanlike ${year} for ${lastName} with ${team}, posting a ${fmtEra} ERA across ${w} wins. The ${so} strikeouts and ${fmtWhip} WHIP paint the picture of a reliable arm you could count on every fifth day. Not flashy, but exactly the kind of starter contending teams covet. Ate innings and kept his team in ballgames.`;
     } else {
-      return `${lastName} struggled at times in ${year} with ${team}, posting an ERA north of ${typeof era === 'number' ? era.toFixed(2) : era}.`;
+      return `${lastName} had a rough go of it in ${year} with ${team}, posting a ${fmtEra} ERA that had the coaching staff reaching for the bullpen phone. The ${so} strikeouts showed flashes, but a ${fmtWhip} WHIP means there were too many free passes. ${w > 8 ? `Still scraped together ${w} wins, mostly on run support.` : `Just ${w} wins in a season to forget.`} Every pitcher has years like this.`;
     }
   }
 }
 
 // Generate blurbs for all player-year options in a challenge
 export async function generateBlurbsForChallenge(challengeId: number): Promise<{ generated: number; failed: number }> {
+  // Clear career cache at start of each generation run
+  careerCache.clear();
+
   const rounds = await db.select()
     .from(challengeRounds)
     .where(eq(challengeRounds.challengeId, challengeId));
@@ -107,6 +270,9 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
       const years = option.yearOptions as number[];
       const blurbs: Record<string, string> = {};
 
+      // Pre-fetch career context (cached per playerId)
+      const career = await getCareerContext(option.playerId);
+
       for (const year of years) {
         const [playerRecord] = await db.select()
           .from(players)
@@ -117,6 +283,9 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
           .limit(1);
 
         if (playerRecord) {
+          const legendScore = calculateLegendScore(Number(playerRecord.zScorePosition));
+          const careerContext = buildCareerContext(year, career);
+
           try {
             const blurb = await generateBlurb({
               playerName: option.playerName,
@@ -125,15 +294,21 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
               position: round.position,
               playerType: playerRecord.playerType,
               stats: playerRecord.stats as Record<string, number>,
-              legendScore: calculateLegendScore(Number(playerRecord.zScorePosition)),
+              legendScore,
+              legendLabel: getLegendLabel(legendScore),
+              careerContext,
             });
             blurbs[String(year)] = blurb;
             generated++;
+            console.log(`  ✓ ${option.playerName} ${year} (${legendScore.toFixed(1)} ${getLegendLabel(legendScore)})`);
           } catch (err) {
-            console.error(`Failed to generate blurb for ${option.playerName} ${year}:`, err);
+            console.error(`  ✗ Failed: ${option.playerName} ${year}:`, err);
             failed++;
           }
         }
+
+        // Rate limit: 100ms between API calls
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       // Update the round option with blurbs
@@ -142,6 +317,9 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
         .where(eq(roundOptions.id, option.id));
     }
   }
+
+  // Clear cache after generation
+  careerCache.clear();
 
   return { generated, failed };
 }
