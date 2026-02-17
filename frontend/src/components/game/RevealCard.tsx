@@ -6,6 +6,7 @@ import { LegendScoreBadge } from './LegendScoreBadge';
 import { VintageButton } from '../ui/VintageButton';
 import { PaperCard } from '../ui/PaperCard';
 import { zToPercentile, getDisplayStats } from '../../lib/statBenchmark';
+import { renderBlurb } from '../../lib/renderBlurb';
 
 interface RevealCardProps {
   reveal: RevealData;
@@ -188,7 +189,7 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
               className="bg-[#ECE9E0] rounded p-3 mb-4 border border-navy/8"
             >
               <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
-                "{reveal.blurb}"
+                "{renderBlurb(reveal.blurb)}"
               </p>
             </motion.div>
           )}

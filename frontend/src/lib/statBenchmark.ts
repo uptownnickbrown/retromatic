@@ -32,18 +32,18 @@ const fmtEra = (v: number) => v.toFixed(2);
 export function getDisplayStats(playerType: 'batter' | 'pitcher'): StatConfig[] {
   if (playerType === 'batter') {
     return [
-      { key: 'AVG', label: 'AVG', statKey: 'AVG', format: fmtAvg, hasPercentile: false },
+      { key: 'AVG', label: 'AVG', statKey: 'AVG', format: fmtAvg, hasPercentile: true },
       { key: 'HR', label: 'HR', statKey: 'HR', format: fmtInt, hasPercentile: true },
       { key: 'RBI', label: 'RBI', statKey: 'RBI', format: fmtInt, hasPercentile: true },
-      { key: 'R', label: 'R', statKey: 'R', format: fmtInt, hasPercentile: true },
+      { key: 'R', label: 'Runs', statKey: 'R', format: fmtInt, hasPercentile: true },
       { key: 'SB', label: 'SB', statKey: 'SB', format: fmtInt, hasPercentile: true },
     ];
   }
   return [
-    { key: 'ERA', label: 'ERA', statKey: 'ERA', format: fmtEra, hasPercentile: true, inverted: true },
+    { key: 'W', label: 'Wins', statKey: 'W', format: fmtInt, hasPercentile: true },
+    { key: 'SV', label: 'Saves', statKey: 'SV', format: fmtInt, hasPercentile: true },
     { key: 'K', label: 'K', statKey: 'SO', format: fmtInt, hasPercentile: true },
-    { key: 'W', label: 'W', statKey: 'W', format: fmtInt, hasPercentile: true },
-    { key: 'SV', label: 'SV', statKey: 'SV', format: fmtInt, hasPercentile: true },
+    { key: 'ERA', label: 'ERA', statKey: 'ERA', format: fmtEra, hasPercentile: true, inverted: true },
     { key: 'WHIP', label: 'WHIP', statKey: 'WHIP', format: fmtEra, hasPercentile: true, inverted: true },
   ];
 }

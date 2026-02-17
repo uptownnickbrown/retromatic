@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { POSITIONS } from '../../types';
 import { safeNum } from '../../lib/numeric';
 import { getDisplayStats } from '../../lib/statBenchmark';
+import { renderBlurb } from '../../lib/renderBlurb';
 import type { ResultsPick, PerfectLineupPick } from '../../types';
 
 interface HeadToHeadProps {
@@ -237,7 +238,7 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
       {perfect.blurb && (
         <div className="bg-[#ECE9E0] rounded p-2 border border-navy/8">
           <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
-            "{perfect.blurb}"
+            "{renderBlurb(perfect.blurb)}"
           </p>
         </div>
       )}
