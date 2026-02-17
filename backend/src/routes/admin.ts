@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db/index.js';
-import { challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { challenges, challengeRounds, roundOptions, gameSessions, userPicks } from '../db/schema.js';
+import { eq, and, desc } from 'drizzle-orm';
 import { generateChallenge, generateBatch, scheduleChallenges } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge } from '../services/challengeBlurbs.js';
 import { activateTodaysChallenge } from '../services/dailyScheduler.js';
@@ -156,6 +156,42 @@ router.post('/activate-today', async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Failed to activate challenge' });
+  }
+});
+
+// Debug: reset a user's session for a challenge (allows replaying)
+router.delete('/challenges/:id/reset', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const guestToken = req.headers['x-guest-token'] as string;
+
+    if (!guestToken) {
+      res.status(400).json({ error: 'x-guest-token header required' });
+      return;
+    }
+
+    // Find and delete the session + its picks (cascade)
+    const [session] = await db.select()
+      .from(gameSessions)
+      .where(and(
+        eq(gameSessions.challengeId, challengeId),
+        eq(gameSessions.guestToken, guestToken),
+      ))
+      .limit(1);
+
+    if (!session) {
+      res.json({ message: 'No session found', deleted: false });
+      return;
+    }
+
+    // Delete picks first (FK constraint), then session
+    await db.delete(userPicks).where(eq(userPicks.sessionId, session.id));
+    await db.delete(gameSessions).where(eq(gameSessions.id, session.id));
+
+    res.json({ message: 'Session reset', deleted: true, sessionId: session.id });
+  } catch (error) {
+    console.error('Reset error:', error);
+    res.status(500).json({ error: 'Failed to reset session' });
   }
 });
 

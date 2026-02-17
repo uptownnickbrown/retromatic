@@ -27,8 +27,8 @@ export function loadSavedGame(): SavedGame | null {
     if (!raw) return null;
     const game = JSON.parse(raw) as SavedGame;
 
-    // Staleness check: discard if not today's challenge
-    const today = new Date().toISOString().split('T')[0];
+    // Staleness check: discard if not today's challenge (ET-based day)
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
     if (game.challengeDate !== today) {
       clearSavedGame();
       return null;

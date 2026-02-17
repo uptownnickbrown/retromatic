@@ -5,6 +5,7 @@ import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { calculatePerfectLineup, calculateSessionPercentile } from '../services/legendScore.js';
 import { toNum } from '../lib/numeric.js';
+import { getTodayET } from '../lib/date.js';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ function getGuestToken(req: any): string {
 // GET /api/challenge/today - Get today's active challenge + user's session
 router.get('/today', async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayET();
     const guestToken = getGuestToken(req);
 
     // Find today's active challenge

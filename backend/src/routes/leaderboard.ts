@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { gameSessions, challenges } from '../db/schema.js';
 import { eq, desc, gte, and, sql } from 'drizzle-orm';
 import { toNum } from '../lib/numeric.js';
+import { getTodayET } from '../lib/date.js';
 
 const router = Router();
 
@@ -12,8 +13,7 @@ router.get('/', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
     const period = req.query.period as string || 'today';
 
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
+    const today = getTodayET();
 
     let dateFilter;
     switch (period) {
@@ -21,8 +21,8 @@ router.get('/', async (req, res) => {
         dateFilter = today;
         break;
       case 'week': {
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        dateFilter = weekAgo.toISOString().split('T')[0];
+        const weekAgo = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000);
+        dateFilter = weekAgo.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
         break;
       }
       default:
@@ -112,7 +112,7 @@ router.get('/streak', async (req, res) => {
 
     // Calculate streaks
     const dates = sessions.map(s => s.date);
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayET();
 
     let currentStreak = 0;
     let longestStreak = 0;

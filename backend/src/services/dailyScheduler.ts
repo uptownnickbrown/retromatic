@@ -1,10 +1,10 @@
 import { db } from '../db/index.js';
 import { challenges } from '../db/schema.js';
 import { eq, and, lt } from 'drizzle-orm';
+import { getTodayET } from '../lib/date.js';
 
-// Get today's date as YYYY-MM-DD
 function today(): string {
-  return new Date().toISOString().split('T')[0];
+  return getTodayET();
 }
 
 // Activate today's scheduled challenge, complete yesterday's
