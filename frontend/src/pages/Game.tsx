@@ -27,17 +27,10 @@ export function Game() {
     onExpire: handleTimeout,
   });
 
-  // Load challenge on mount
+  // Load + start on mount (checks localStorage first, then server)
   useEffect(() => {
-    game.loadChallenge();
+    game.loadAndStart();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-start or resume when challenge loads
-  useEffect(() => {
-    if (game.phase === 'idle' && game.challenge) {
-      game.startGame();
-    }
-  }, [game.phase, game.challenge]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Start timer when picking
   useEffect(() => {
@@ -48,6 +41,13 @@ export function Game() {
       timer.stop();
     }
   }, [game.phase, game.currentRound?.roundId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-submit when all rounds complete
+  useEffect(() => {
+    if (game.phase === 'submitting_final') {
+      game.submitFinal();
+    }
+  }, [game.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigate to results when complete
   useEffect(() => {
@@ -149,17 +149,18 @@ export function Game() {
             </motion.div>
           )}
 
-          {game.phase === 'submitting' && (
+          {game.phase === 'submitting_final' && (
             <motion.div
-              key="submitting"
+              key="submitting-final"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex items-center justify-center py-12"
+              className="flex flex-col items-center justify-center py-12 gap-3"
             >
               <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
                 <Loader2 className="w-8 h-8 text-amber" />
               </motion.div>
+              <p className="text-cardboard/60 text-sm font-body">Submitting your lineup...</p>
             </motion.div>
           )}
 
