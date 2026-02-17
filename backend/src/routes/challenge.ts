@@ -45,28 +45,21 @@ router.get('/today', async (req, res) => {
         .limit(1);
 
       if (existingSession) {
-        // Get their picks
-        const picks = await db.select({
-          roundNumber: challengeRounds.roundNumber,
-          position: challengeRounds.position,
-          playerName: sql<string>`${players.nameFirst} || ' ' || ${players.nameLast}`,
-          year: userPicks.selectedYear,
-          legendScore: userPicks.legendScore,
-        })
-          .from(userPicks)
-          .innerJoin(challengeRounds, eq(userPicks.roundId, challengeRounds.id))
-          .innerJoin(players, eq(userPicks.selectedPlayerId, players.id))
-          .where(eq(userPicks.sessionId, existingSession.id))
-          .orderBy(challengeRounds.roundNumber);
-
-        session = {
-          id: existingSession.id,
-          currentRound: existingSession.currentRound,
-          status: existingSession.status,
-          totalLegendScore: toNum(existingSession.totalLegendScore),
-          percentile: toNum(existingSession.percentile, 50),
-          picks: picks.map(p => ({ ...p, legendScore: toNum(p.legendScore) })),
-        };
+        if (existingSession.status === 'completed') {
+          // Completed: return summary data for results redirect
+          session = {
+            id: existingSession.id,
+            status: 'completed' as const,
+            totalLegendScore: toNum(existingSession.totalLegendScore),
+            percentile: toNum(existingSession.percentile, 50),
+          };
+        } else {
+          // In-progress: client resumes from localStorage, just need session ID
+          session = {
+            id: existingSession.id,
+            status: 'in_progress' as const,
+          };
+        }
       }
     }
 
@@ -339,6 +332,7 @@ router.get('/:id/results', async (req, res) => {
 
     // Get picks with full details
     const picks = await db.select({
+      roundId: userPicks.roundId,
       roundNumber: challengeRounds.roundNumber,
       position: challengeRounds.position,
       playerName: sql<string>`${players.nameFirst} || ' ' || ${players.nameLast}`,
@@ -367,6 +361,14 @@ router.get('/:id/results', async (req, res) => {
         eq(gameSessions.status, 'completed')
       ));
 
+    // Community stats for all rounds
+    const roundIds = picks.map(p => p.roundId);
+    let communityStats: ReturnType<typeof buildCommunityStats> = [];
+    if (roundIds.length > 0) {
+      const allStats = await db.select().from(pickStats).where(inArray(pickStats.roundId, roundIds));
+      communityStats = buildCommunityStats(roundIds, allStats);
+    }
+
     res.json({
       session: {
         totalLegendScore: toNum(session.totalLegendScore),
@@ -376,6 +378,7 @@ router.get('/:id/results', async (req, res) => {
       picks: picks.map(p => ({ ...p, legendScore: toNum(p.legendScore) })),
       perfectLineup,
       totalParticipants: toNum(countResult?.count),
+      communityStats,
     });
   } catch (error) {
     console.error('Error fetching results:', error);
