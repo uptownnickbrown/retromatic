@@ -79,6 +79,12 @@ export interface CompleteResponse {
   perfectLineup: PerfectLineup;
 }
 
+export interface RevealRoundPlayer {
+  name: string;
+  portraitUrl: string | null;
+  yearOptions: { year: number; team: string }[];
+}
+
 export interface RevealData {
   legendScore: number;
   blurb: string;
@@ -89,6 +95,7 @@ export interface RevealData {
   year: number;
   team: string;
   pickPercentages?: PickPercentage[];
+  roundPlayers?: RevealRoundPlayer[];
 }
 
 export interface ResultsPick {

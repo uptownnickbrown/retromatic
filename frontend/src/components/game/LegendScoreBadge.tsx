@@ -48,6 +48,7 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
             'border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.15)]',
             sizeClasses[size],
           )}
+          style={{ boxShadow: 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)' }}
         >
           {score.toFixed(1)}
         </div>
