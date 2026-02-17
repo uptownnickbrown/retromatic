@@ -170,7 +170,7 @@ export function AdminChallengeDetail() {
           {challenge.theme && (
             <>
               <span className="text-muted/30">|</span>
-              <span className="font-hand text-sm text-navy/60 italic">
+              <span className="font-editorial text-sm text-navy/60 italic">
                 "{challenge.theme}"
               </span>
             </>
@@ -647,7 +647,7 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
                     transition={{ duration: 0.15 }}
                     className="overflow-hidden"
                   >
-                    <p className="font-hand text-sm text-navy/60 italic leading-relaxed mt-1 pl-2 border-l-2 border-navy/10">
+                    <p className="font-editorial text-sm text-navy/60 italic leading-snug mt-1 pl-2 border-l-2 border-navy/10">
                       {blurbs[String(ys.year)]}
                     </p>
                   </motion.div>
