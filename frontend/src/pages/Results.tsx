@@ -1,12 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Trophy, ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { Home, Trophy } from 'lucide-react';
 import { useChallengeResults } from '../hooks/useChallenge';
-import { cn, getOrdinalSuffix } from '../lib/utils';
+import { getOrdinalSuffix } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
 import { LegendScoreBadge } from '../components/game/LegendScoreBadge';
 import { FinalLineup } from '../components/results/FinalLineup';
+import { HeadToHead } from '../components/results/HeadToHead';
 import { ShareCard } from '../components/results/ShareCard';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
@@ -14,7 +14,6 @@ import { VintageButton } from '../components/ui/VintageButton';
 export function Results() {
   const { challengeId } = useParams<{ challengeId: string }>();
   const navigate = useNavigate();
-  const [showPerfect, setShowPerfect] = useState(false);
   const { data, isLoading, error } = useChallengeResults(
     challengeId ? parseInt(challengeId) : null,
   );
@@ -115,50 +114,22 @@ export function Results() {
         <FinalLineup picks={picks} />
       </motion.div>
 
-      {/* Perfect lineup */}
+      {/* Head-to-Head: Tale of the Tape */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
         className="mb-4"
       >
-        <button
-          onClick={() => setShowPerfect(!showPerfect)}
-          className="flex items-center gap-2 text-sm text-muted hover:text-navy transition-colors mb-3 font-mono"
-        >
-          <span className="font-editorial font-bold text-navy">Perfect Lineup</span>
-          <span className="mono-stat text-[10px]">
-            {safeNum(perfectLineup.totalScore).toFixed(1)}
-          </span>
-          {showPerfect ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </button>
-        {showPerfect && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="space-y-1"
-          >
-            {perfectLineup.picks.map((pick, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-2 px-3 py-1.5 rounded"
-              >
-                <span className="font-mono text-[10px] font-bold text-muted w-7 text-center">
-                  {pick.position}
-                </span>
-                <span className="flex-1 text-sm text-navy truncate font-mono">
-                  {pick.playerName} ({pick.year})
-                </span>
-                <span className={cn(
-                  'font-mono text-xs font-bold',
-                  safeNum(pick.legendScore) >= 9.5 ? 'text-gold' : 'text-navy',
-                )}>
-                  {safeNum(pick.legendScore).toFixed(1)}
-                </span>
-              </div>
-            ))}
-          </motion.div>
-        )}
+        <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
+          Tale of the Tape
+        </h3>
+        <HeadToHead
+          picks={picks}
+          perfectPicks={perfectLineup.picks}
+          yourTotal={totalScore}
+          perfectTotal={safeNum(perfectLineup.totalScore)}
+        />
       </motion.div>
 
       {/* Navigation */}
