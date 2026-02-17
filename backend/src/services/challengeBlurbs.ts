@@ -147,7 +147,7 @@ function buildCareerContext(targetYear: number, career: CareerSeason[]): string 
 const SYSTEM_PROMPT = `You are a witty baseball writer texting a friend about a player-season. You have deep knowledge of baseball history — awards, MVP voting, All-Star selections, injuries, trades, team context, and memorable moments.
 
 RULES:
-- Write 3-4 sentences, 60-100 words
+- Write 4-5 sentences, 80-130 words
 - Lead with the most interesting angle (context > raw stats)
 - Include 2+ specific stats woven naturally into the narrative
 - Put this season in career context — is this a peak, a down year, a bounce-back, a swan song?
@@ -159,16 +159,16 @@ RULES:
 EXAMPLES:
 
 [LEGENDARY batter — Mike Trout, 2017 LAA, Legend Score 9.2]
-Look, a "down year" for Trout still means .306/.442/.629 with 33 homers in just 114 games. A calf injury robbed us of what could have been another MVP campaign — he was on pace for 47 dingers. Even hobbled, he posted a 185 OPS+ that would be the best season of most careers. The man is simply unfair.
+Look, a "down year" for Trout still means .306/.442/.629 with 33 homers in just 114 games. A calf injury robbed us of what could have been another MVP campaign — he was on pace for 47 dingers. Even hobbled, he posted a 185 OPS+ that would be the best season of most careers. The man is simply unfair. You could argue this is the most impressive "disappointing" season in modern baseball history.
 
 [LEGENDARY pitcher — Greg Maddux, 1993 ATL, Legend Score 9.5]
-Maddux's first year in Atlanta after leaving the Cubs was an absolute masterclass — 20 wins, a 2.36 ERA, and just 52 walks in 267 innings. This was the beginning of the most dominant four-year pitching stretch of the modern era, winning his second consecutive Cy Young. He painted corners like Rembrandt and made hitters look foolish doing it.
+Maddux's first year in Atlanta after leaving the Cubs was an absolute masterclass — 20 wins, a 2.36 ERA, and just 52 walks in 267 innings. This was the beginning of the most dominant four-year pitching stretch of the modern era, winning his second consecutive Cy Young. He painted corners like Rembrandt and made hitters look foolish doing it. The Braves got the best pitcher on the planet as a free agent, and he somehow exceeded expectations.
 
 [AVERAGE batter — Derek Jeter, 2010 NYA, Legend Score 4.8]
-Father Time started whispering to The Captain in 2010. A .270 average and 10 homers from your 36-year-old shortstop isn't embarrassing, but this was a far cry from the Jeter who once hit .349. The Yankees still made the ALCS, but Jeter's declining range at short was becoming impossible to ignore. A quiet bridge year before his famous contract drama.
+Father Time started whispering to The Captain in 2010. A .270 average and 10 homers from your 36-year-old shortstop isn't embarrassing, but this was a far cry from the Jeter who once hit .349. The Yankees still made the ALCS, but Jeter's declining range at short was becoming impossible to ignore. A quiet bridge year before his famous contract drama. The mystique was still there, but the bat speed wasn't.
 
 [SOLID pitcher — Mark Buehrle, 2007 CHA, Legend Score 6.3]
-Somehow Buehrle threw a no-hitter against the Rangers in April and still only managed a 3.63 ERA for the year — that's the most Mark Buehrle stat line imaginable. He ate 201 innings with his trademark pace, working so fast that fielders barely had time to spit between pitches. A reliable workhorse who happened to have one magic night tucked into an otherwise solid season.`;
+Somehow Buehrle threw a no-hitter against the Rangers in April and still only managed a 3.63 ERA for the year — that's the most Mark Buehrle stat line imaginable. He ate 201 innings with his trademark pace, working so fast that fielders barely had time to spit between pitches. A reliable workhorse who happened to have one magic night tucked into an otherwise solid season. If every starter in your rotation pitched like Buehrle, you'd win 90 games and never stress about it.`;
 
 // Generate a blurb using GPT-5.2 with web search for real-time context
 async function generateBlurb(info: PlayerYearInfo): Promise<string> {
@@ -191,7 +191,7 @@ Season stats: ${statsStr}
 Career context:
 ${info.careerContext}
 
-Write a 3-4 sentence blurb (60-100 words) about this player-season.`;
+Write a 4-5 sentence blurb (80-130 words) about this player-season.`;
 
   try {
     const response = await client.responses.create({
@@ -200,7 +200,7 @@ Write a 3-4 sentence blurb (60-100 words) about this player-season.`;
       input: userPrompt,
       tools: [{ type: 'web_search' as const }],
       temperature: 0.85,
-      max_output_tokens: 250,
+      max_output_tokens: 350,
     });
 
     const text = response.output_text?.trim();
@@ -225,11 +225,11 @@ function getTemplateBlurb(info: PlayerYearInfo): string {
     const fmtAvg = typeof avg === 'number' ? avg.toFixed(3) : avg;
 
     if (legendScore >= 8) {
-      return `${lastName} was an absolute force in '${shortYear}, hitting ${fmtAvg} with ${hr} homers and ${rbi} RBI for ${team}. This was the kind of season that makes you stop and stare at the stat line. ${sb > 15 ? `Adding ${sb} stolen bases to that power output is just showing off.` : `The kind of production that anchors a lineup and terrifies opposing pitchers.`} A truly elite campaign.`;
+      return `${lastName} was an absolute force in '${shortYear}, hitting ${fmtAvg} with ${hr} homers and ${rbi} RBI for ${team}. This was the kind of season that makes you stop and stare at the stat line. ${sb > 15 ? `Adding ${sb} stolen bases to that power output is just showing off.` : `The kind of production that anchors a lineup and terrifies opposing pitchers.`} A truly elite campaign. Seasons like this are why you build a franchise around a player.`;
     } else if (legendScore >= 5) {
-      return `A solid '${shortYear} for ${lastName} with ${team} — ${hr} HR, ${rbi} RBI, and a ${fmtAvg} average. Not the kind of season that makes highlight reels, but the kind contenders need from their everyday guys. ${sb > 10 ? `Chipped in ${sb} steals for good measure.` : `Steady and reliable across the full 162.`} Professional baseball at its finest.`;
+      return `A solid '${shortYear} for ${lastName} with ${team} — ${hr} HR, ${rbi} RBI, and a ${fmtAvg} average. Not the kind of season that makes highlight reels, but the kind contenders need from their everyday guys. ${sb > 10 ? `Chipped in ${sb} steals for good measure.` : `Steady and reliable across the full 162.`} Professional baseball at its finest. Every winning clubhouse needs a guy putting up numbers like these.`;
     } else {
-      return `${lastName} had a forgettable ${year} with ${team}, hitting just ${fmtAvg} with ${hr} homers. The kind of season you hope is an outlier rather than a trend. ${rbi > 40 ? `Still managed to drive in ${rbi} runs through sheer persistence.` : `The RBI total of ${rbi} tells the story of a lineup spot that needed an upgrade.`} Sometimes baseball humbles even the best.`;
+      return `${lastName} had a forgettable ${year} with ${team}, hitting just ${fmtAvg} with ${hr} homers. The kind of season you hope is an outlier rather than a trend. ${rbi > 40 ? `Still managed to drive in ${rbi} runs through sheer persistence.` : `The RBI total of ${rbi} tells the story of a lineup spot that needed an upgrade.`} Sometimes baseball humbles even the best. You don't remember the bad years until someone pulls up the stats.`;
     }
   } else {
     const era = stats.ERA || stats.era || 0;
@@ -240,11 +240,11 @@ function getTemplateBlurb(info: PlayerYearInfo): string {
     const fmtWhip = typeof whip === 'number' ? whip.toFixed(2) : whip;
 
     if (legendScore >= 8) {
-      return `${lastName} was electric in '${shortYear} — ${w} wins with a ${fmtEra} ERA and ${so} strikeouts for ${team}. A WHIP of ${fmtWhip} means baserunners were a rare sight when this arm was on the mound. ${so > 200 ? `Fanning ${so} batters is the kind of dominance that changes games.` : `Every start felt like an event.`} This was pitching at its absolute peak.`;
+      return `${lastName} was electric in '${shortYear} — ${w} wins with a ${fmtEra} ERA and ${so} strikeouts for ${team}. A WHIP of ${fmtWhip} means baserunners were a rare sight when this arm was on the mound. ${so > 200 ? `Fanning ${so} batters is the kind of dominance that changes games.` : `Every start felt like an event.`} This was pitching at its absolute peak. The kind of arm that makes a rotation elite and a team dangerous in October.`;
     } else if (legendScore >= 5) {
-      return `A workmanlike ${year} for ${lastName} with ${team}, posting a ${fmtEra} ERA across ${w} wins. The ${so} strikeouts and ${fmtWhip} WHIP paint the picture of a reliable arm you could count on every fifth day. Not flashy, but exactly the kind of starter contending teams covet. Ate innings and kept his team in ballgames.`;
+      return `A workmanlike ${year} for ${lastName} with ${team}, posting a ${fmtEra} ERA across ${w} wins. The ${so} strikeouts and ${fmtWhip} WHIP paint the picture of a reliable arm you could count on every fifth day. Not flashy, but exactly the kind of starter contending teams covet. Ate innings and kept his team in ballgames. You don't win a pennant without a guy like this in your rotation.`;
     } else {
-      return `${lastName} had a rough go of it in ${year} with ${team}, posting a ${fmtEra} ERA that had the coaching staff reaching for the bullpen phone. The ${so} strikeouts showed flashes, but a ${fmtWhip} WHIP means there were too many free passes. ${w > 8 ? `Still scraped together ${w} wins, mostly on run support.` : `Just ${w} wins in a season to forget.`} Every pitcher has years like this.`;
+      return `${lastName} had a rough go of it in ${year} with ${team}, posting a ${fmtEra} ERA that had the coaching staff reaching for the bullpen phone. The ${so} strikeouts showed flashes, but a ${fmtWhip} WHIP means there were too many free passes. ${w > 8 ? `Still scraped together ${w} wins, mostly on run support.` : `Just ${w} wins in a season to forget.`} Every pitcher has years like this. The best ones use it as fuel and come back stronger.`;
     }
   }
 }
