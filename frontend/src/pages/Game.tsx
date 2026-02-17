@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../hooks/useGame';
@@ -8,7 +8,8 @@ import { LineupCard } from '../components/game/LineupCard';
 import { PickGrid } from '../components/game/PickGrid';
 import { RevealCard } from '../components/game/RevealCard';
 import { VintageButton } from '../components/ui/VintageButton';
-import { Loader2, FlaskConical } from 'lucide-react';
+import { PaperCard } from '../components/ui/PaperCard';
+import { Loader2, FlaskConical, Home } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
 
@@ -17,6 +18,7 @@ export function Game() {
   const [searchParams] = useSearchParams();
   const playtestId = searchParams.get('playtest');
   const playtestChallengeId = playtestId ? parseInt(playtestId) : null;
+  const [isPaused, setIsPaused] = useState(false);
 
   const game = useGame();
 
@@ -76,8 +78,26 @@ export function Game() {
     game.advanceRound();
   }, [game.advanceRound]);
 
+  const handlePause = useCallback(() => {
+    timer.stop();
+    setIsPaused(true);
+  }, [timer.stop]);
+
+  const handleResume = useCallback(() => {
+    setIsPaused(false);
+    if (game.phase === 'picking') {
+      timer.start();
+    }
+  }, [game.phase, timer.start]);
+
+  const handleQuit = useCallback(() => {
+    setIsPaused(false);
+    navigate('/');
+  }, [navigate]);
+
   const positions = game.challenge?.positionOrder ?? [];
   const totalScore = game.picks.reduce((sum, p) => sum + safeNum(p.legendScore), 0);
+  const showHomeIcon = (game.phase === 'picking' || game.phase === 'revealing') && !game.isPlaytest;
 
   if (game.phase === 'loading') {
     return (
@@ -102,6 +122,52 @@ export function Game() {
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom">
+      {/* Home icon + Pause overlay */}
+      {showHomeIcon && (
+        <button
+          onClick={handlePause}
+          className="absolute top-3 left-3 z-20 p-2 text-navy/40 hover:text-navy transition-colors"
+          aria-label="Home"
+        >
+          <Home size={20} />
+        </button>
+      )}
+
+      <AnimatePresence>
+        {isPaused && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-navy/40"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            >
+              <PaperCard className="p-6 w-72 text-center">
+                <h3 className="font-editorial font-bold text-xl text-navy mb-6">
+                  Game Paused
+                </h3>
+                <div className="flex flex-col gap-3">
+                  <VintageButton variant="ticket" onClick={handleResume} className="w-full">
+                    Resume Draft
+                  </VintageButton>
+                  <button
+                    onClick={handleQuit}
+                    className="btn-ghost text-sm"
+                  >
+                    Quit to Home
+                  </button>
+                </div>
+              </PaperCard>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Playtest banner */}
       {game.isPlaytest && (
         <div className="bg-gold/15 border-b-2 border-gold/30 px-4 py-2 flex items-center justify-center gap-2">
