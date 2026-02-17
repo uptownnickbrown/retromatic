@@ -45,11 +45,10 @@ function Confetti() {
   );
 }
 
-function StatBenchmark({ label, value, percentile, inverted, delay }: {
+function StatBenchmark({ label, value, percentile, delay }: {
   label: string;
   value: string;
   percentile: number | null;
-  inverted?: boolean;
   delay: number;
 }) {
   // For inverted stats (ERA, WHIP), a high Z-score means low stat = good
@@ -183,7 +182,6 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
                   label={stat.label}
                   value={stat.displayValue}
                   percentile={stat.percentile}
-                  inverted={stat.inverted}
                   delay={0.7 + i * 0.08}
                 />
               </div>
