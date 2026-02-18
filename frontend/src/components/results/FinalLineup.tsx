@@ -17,7 +17,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   const sortedPicks = [...picks].sort(
-    (a, b) => POSITIONS.indexOf(a.position as any) - POSITIONS.indexOf(b.position as any)
+    (a, b) => POSITIONS.indexOf(a.position as typeof POSITIONS[number]) - POSITIONS.indexOf(b.position as typeof POSITIONS[number])
   );
 
   return (
@@ -107,7 +107,7 @@ function ExpandedPickStats({ pick }: { pick: ResultsPick }) {
       {/* Stats grid with percentile bars */}
       <div className="border border-navy/10 rounded overflow-hidden mb-2">
         <div className="grid grid-cols-5 divide-x divide-navy/10 bg-paper">
-          {statConfigs.map((cfg, i) => {
+          {statConfigs.map((cfg) => {
             const rawValue = pick.stats[cfg.statKey] ?? pick.stats[cfg.statKey.toLowerCase()];
             const zScore = categoryZscores[cfg.key] ?? categoryZscores[cfg.key.toLowerCase()];
             const percentile = cfg.hasPercentile && zScore !== undefined ? zToPercentile(zScore) : null;
