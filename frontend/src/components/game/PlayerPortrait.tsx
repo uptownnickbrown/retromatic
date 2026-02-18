@@ -25,7 +25,14 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
           className,
         )}
       >
-        <img src={portraitUrl} alt={name} className="w-full h-full object-cover mix-blend-multiply" />
+        <img
+          src={portraitUrl}
+          alt={name}
+          className="w-full h-full object-cover object-top mix-blend-multiply"
+          style={{ filter: 'contrast(1.15) grayscale(0.15)', imageRendering: 'auto' }}
+        />
+        {/* Vignette overlay — softens edges at small sizes */}
+        <div className="absolute inset-0 rounded pointer-events-none shadow-[inset_0_0_4px_rgba(10,30,47,0.15)]" />
       </div>
     );
   }
