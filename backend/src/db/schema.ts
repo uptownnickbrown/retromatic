@@ -27,7 +27,7 @@ export const players = pgTable('players', {
 // Daily challenges
 export const challenges = pgTable('challenges', {
   id: serial('id').primaryKey(),
-  challengeDate: varchar('challenge_date', { length: 10 }).notNull().unique(), // YYYY-MM-DD
+  challengeDate: varchar('challenge_date', { length: 50 }).notNull().unique(), // YYYY-MM-DD or draft placeholder
   positionOrder: jsonb('position_order').notNull(), // string[] of 10 positions
   status: varchar('status', { length: 20 }).notNull().default('draft'), // draft | scheduled | active | completed
   theme: varchar('theme', { length: 200 }), // e.g. "Oops, All Phillies!" or null
