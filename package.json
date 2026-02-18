@@ -1,7 +1,14 @@
 {
-  "name": "retromatic",
+  "name": "sandlot",
+  "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "build": "cd frontend && npm ci && npm run build && cd ../backend && npm ci && npm run build",
+    "start": "cd backend && npx drizzle-kit push && node dist/index.js",
+    "db:push": "cd backend && npm run db:push",
     "prepare": "husky",
     "lint:frontend": "cd frontend && npm run lint",
     "lint:backend": "cd backend && npm run lint",
