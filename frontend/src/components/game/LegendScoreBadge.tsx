@@ -45,7 +45,7 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
       <div className={cn('flex flex-col items-center gap-1.5', tier)}>
         <div
           className={cn(
-            'rounded-full flex items-center justify-center font-mono font-bold leading-none text-paper',
+            'rounded-full flex items-center justify-center font-editorial font-bold text-paper',
             'border-2',
             isHot
               ? 'bg-red border-red-dark'
@@ -56,10 +56,9 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
             boxShadow: isHot
               ? 'inset 0 0 0 2px rgba(255,255,255,0.25), 2px 2px 0px rgba(10,30,47,0.15)'
               : 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)',
-            paddingTop: '2px', // optical centering nudge for numerals
           }}
         >
-          {score.toFixed(1)}
+          <span className="translate-y-[1px]">{score.toFixed(1)}</span>
         </div>
         {showLabel && (
           <span className={cn(
@@ -98,13 +97,12 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
     <div className={cn('flex flex-col items-center gap-1.5', tier)}>
       <div
         className={cn(
-          'rounded-full flex items-center justify-center font-mono font-bold leading-none text-muted',
+          'rounded-full flex items-center justify-center font-editorial font-bold text-muted',
           'bg-paper border border-navy/20',
           avgSizeClasses[size],
         )}
-        style={{ paddingTop: '2px' }}
       >
-        {score.toFixed(1)}
+        <span className="translate-y-[1px]">{score.toFixed(1)}</span>
       </div>
       {showLabel && (
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
