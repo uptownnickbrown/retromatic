@@ -17,7 +17,7 @@ export const players = pgTable('players', {
   categoryZscores: jsonb('category_zscores').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => [
-  unique('unique_player_year').on(table.playerId, table.year),
+  unique('unique_player_year_type').on(table.playerId, table.year, table.playerType),
   index('idx_players_name').on(table.nameLast, table.nameFirst),
   index('idx_players_year').on(table.year),
   index('idx_players_position').on(table.primaryPosition),
