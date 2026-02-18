@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
-import { generateChallenge, generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
+import { generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
 import { generatePortraitsForChallenge, generatePortraitForOption } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
@@ -179,7 +179,7 @@ router.get('/challenges/:id', async (req, res) => {
       }
     }
 
-    let zScoreMap = new Map<string, number>();
+    const zScoreMap = new Map<string, number>();
     if (playerYearPairs.length > 0) {
       const whereClauses = playerYearPairs.map(
         p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
