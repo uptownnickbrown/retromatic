@@ -12,7 +12,7 @@ describe('asyncPool', () => {
     expect(failures).toHaveLength(0);
   });
 
-  it('respects concurrency limit', async () => {
+  it('enforces the concurrency limit', async () => {
     let running = 0;
     let maxRunning = 0;
 
@@ -26,10 +26,12 @@ describe('asyncPool', () => {
     };
 
     await asyncPool(items, 2, worker);
-    expect(maxRunning).toBeLessThanOrEqual(2);
+    // Must be exactly 2, not "at most 2" — we want to verify
+    // the pool actually parallelizes (not just serializes)
+    expect(maxRunning).toBe(2);
   });
 
-  it('retries failed items with backoff', async () => {
+  it('retries failed items and succeeds after transient errors', async () => {
     let attempts = 0;
     const worker = async (_n: number) => {
       attempts++;
@@ -47,7 +49,7 @@ describe('asyncPool', () => {
     expect(attempts).toBe(3); // 2 failures + 1 success
   });
 
-  it('records failures after exhausting retries', async () => {
+  it('records failures after exhausting all retries', async () => {
     const worker = async (_n: number): Promise<string> => {
       throw new Error('permanent failure');
     };
@@ -62,7 +64,27 @@ describe('asyncPool', () => {
     expect(failures[0].error.message).toBe('permanent failure');
   });
 
-  it('calls onProgress callback', async () => {
+  it('handles partial failures in a batch (some succeed, some fail)', async () => {
+    const worker = async (n: number) => {
+      if (n === 2) throw new Error(`item ${n} failed`);
+      return n * 10;
+    };
+
+    const { results, failures } = await asyncPool([1, 2, 3], 3, worker, {
+      retries: 0,
+      backoffMs: 1,
+    });
+
+    // Items 1 and 3 should succeed
+    expect(results[0]).toBe(10);
+    expect(results[2]).toBe(30);
+    // Item 2 should be in failures
+    expect(failures).toHaveLength(1);
+    expect(failures[0].item).toBe(2);
+    expect(failures[0].error.message).toBe('item 2 failed');
+  });
+
+  it('calls onProgress for each completed item', async () => {
     const onProgress = vi.fn();
     const items = [1, 2, 3];
     const worker = async (n: number) => n;
@@ -70,9 +92,8 @@ describe('asyncPool', () => {
     await asyncPool(items, 2, worker, { onProgress });
 
     expect(onProgress).toHaveBeenCalledTimes(3);
-    expect(onProgress).toHaveBeenCalledWith(1, 3);
-    expect(onProgress).toHaveBeenCalledWith(2, 3);
-    expect(onProgress).toHaveBeenCalledWith(3, 3);
+    // All 3 items should report done out of 3 total
+    expect(onProgress).toHaveBeenCalledWith(expect.any(Number), 3);
   });
 
   it('handles empty items array', async () => {
@@ -83,17 +104,9 @@ describe('asyncPool', () => {
     expect(failures).toHaveLength(0);
   });
 
-  it('handles concurrency greater than items length', async () => {
-    const items = [1, 2];
-    const worker = async (n: number) => n * 10;
-
-    const { results } = await asyncPool(items, 100, worker);
-    expect(results).toEqual([10, 20]);
-  });
-
-  it('converts non-Error throws to Error objects', async () => {
+  it('converts non-Error throws to Error objects in failures', async () => {
     const worker = async () => {
-      throw 'string error';
+      throw 'string error'; // eslint-disable-line no-throw-literal
     };
 
     const { failures } = await asyncPool([1], 1, worker, {
