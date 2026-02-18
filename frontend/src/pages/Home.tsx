@@ -66,7 +66,7 @@ export function Home() {
                     Today's Result
                   </p>
                 </div>
-                <LegendScoreBadge score={safeNum(session.totalLegendScore)} size="md" showLabel />
+                <LegendScoreBadge score={safeNum(session.totalLegendScore) / 10} size="md" showLabel />
               </div>
 
               {session.percentile !== null && (
@@ -114,7 +114,7 @@ export function Home() {
                 <br />
                 A daily fantasy draft through baseball history —
                 <br />
-                same slate for everyone. Build the ultimate lineup.
+                same slate for everyone. Chase the Legend Score.
               </p>
             </>
           )}

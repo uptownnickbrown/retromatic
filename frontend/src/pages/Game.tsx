@@ -121,7 +121,7 @@ export function Game() {
   }
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom">
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom relative">
       {/* Home icon + Pause overlay */}
       {showHomeIcon && (
         <button
@@ -259,11 +259,7 @@ export function Game() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              <RevealCard
-                reveal={game.reveal}
-                onContinue={handleContinue}
-                isLastRound={!game.currentRound}
-              />
+              <RevealCard reveal={game.reveal} />
             </motion.div>
           )}
         </AnimatePresence>

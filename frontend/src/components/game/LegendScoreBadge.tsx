@@ -75,18 +75,24 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
     return content;
   }
 
-  // Average: plain number
-  const textSizes = {
-    sm: 'text-sm',
-    md: 'text-xl',
-    lg: 'text-3xl',
+  // Average: light circle badge (paper fill, thin navy border)
+  const avgSizeClasses = {
+    sm: 'w-10 h-10 text-xs',
+    md: 'w-14 h-14 text-lg',
+    lg: 'w-20 h-20 text-2xl',
   };
 
   const content = (
-    <div className="flex flex-col items-center gap-1">
-      <span className={cn('font-mono font-bold text-muted', textSizes[size])}>
+    <div className={cn('flex flex-col items-center gap-1.5', tier)}>
+      <div
+        className={cn(
+          'rounded-full flex items-center justify-center font-editorial font-bold text-muted',
+          'bg-paper border border-navy/20',
+          avgSizeClasses[size],
+        )}
+      >
         {score.toFixed(1)}
-      </span>
+      </div>
       {showLabel && (
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {label}

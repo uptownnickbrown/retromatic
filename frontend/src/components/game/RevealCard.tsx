@@ -10,8 +10,6 @@ import { renderBlurb } from '../../lib/renderBlurb';
 
 interface RevealCardProps {
   reveal: RevealData;
-  onContinue: () => void;
-  isLastRound: boolean;
 }
 
 const CONFETTI_COLORS = ['#0A1E2F', '#D32F2F', '#C9A84C'];
@@ -123,11 +121,9 @@ function CommunityPicks({
       </p>
       {roundPlayers.map((player, pi) => {
         const isChosenPlayer = player.name === chosenPlayerName;
-        // Find the playerId from pickPercentages that matches this player's years
-        const playerYears = player.yearOptions.map(yo => yo.year);
-        const matchingEntry = pickPercentages.find(pp =>
-          playerYears.includes(pp.year) && pctMap.get(pp.playerId)?.has(pp.year)
-        );
+        // Find the playerId from pickPercentages using playerRecordId for reliable matching
+        const playerRecordIds = new Set(player.yearOptions.map(yo => yo.playerRecordId));
+        const matchingEntry = pickPercentages.find(pp => playerRecordIds.has(pp.playerId));
         const pid = matchingEntry?.playerId;
 
         return (
@@ -182,7 +178,7 @@ function CommunityPicks({
   );
 }
 
-export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps) {
+export function RevealCard({ reveal }: RevealCardProps) {
   const pickPcts = reveal.pickPercentages ?? [];
   const isLegendary = reveal.legendScore >= 9.5;
 
@@ -259,30 +255,25 @@ export function RevealCard({ reveal, onContinue, isLastRound }: RevealCardProps)
             </div>
           </motion.div>
 
-          {/* Blurb box with badge in bottom-right corner */}
+          {/* Blurb box with badge floated top-right — text wraps around it */}
           {reveal.blurb && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.8 }}
-              className="bg-[#ECE9E0] rounded p-3 mb-4 border border-navy/8 relative"
+              className="bg-[#ECE9E0] rounded p-3 mb-4 border border-navy/8"
             >
-              <p className={cn(
-                'text-base text-navy/70 font-editorial italic leading-snug text-left',
-                // Leave room for badge on the right side of the last line
-                'pr-16',
-              )}>
-                "{renderBlurb(reveal.blurb)}"
-              </p>
-              {/* Badge in bottom-right */}
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
-                className="absolute bottom-2 right-2"
+                className="float-right ml-3 mb-1"
               >
-                <LegendScoreBadge score={reveal.legendScore} size="md" animate />
+                <LegendScoreBadge score={reveal.legendScore} size="lg" animate />
               </motion.div>
+              <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
+                "{renderBlurb(reveal.blurb)}"
+              </p>
             </motion.div>
           )}
 
