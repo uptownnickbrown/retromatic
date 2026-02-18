@@ -354,7 +354,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
 
   // Collect all blurb tasks upfront
   interface BlurbTask {
-    option: typeof roundOptionsResult;
+    option: any;
     round: typeof rounds[0];
     year: number;
     playerRecord: any;
