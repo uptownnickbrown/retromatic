@@ -78,6 +78,76 @@ interface PortraitTask {
   year: number;
 }
 
+// Generate (or regenerate) a portrait for a single round option
+export async function generatePortraitForOption(optionId: number): Promise<{
+  generated: boolean;
+  portraitUrl: string;
+}> {
+  // Ensure portraits directory exists
+  if (!fs.existsSync(PORTRAITS_DIR)) {
+    fs.mkdirSync(PORTRAITS_DIR, { recursive: true });
+  }
+
+  const [option] = await db.select()
+    .from(roundOptions)
+    .where(eq(roundOptions.id, optionId))
+    .limit(1);
+
+  if (!option) throw new Error('Round option not found');
+
+  // Delete existing portrait from disk to force regeneration
+  const existingPath = getPortraitPath(option.playerId);
+  if (fs.existsSync(existingPath)) {
+    fs.unlinkSync(existingPath);
+  }
+
+  // Pick the best year's team for the portrait prompt
+  const years = option.yearOptions as number[];
+  let bestTeam = 'Unknown';
+  let bestYear = years[0] ?? 2000;
+  let bestZ = -Infinity;
+
+  for (const year of years) {
+    const [record] = await db.select({
+      team: players.team,
+      zScorePosition: players.zScorePosition,
+    })
+      .from(players)
+      .where(and(
+        eq(players.playerId, option.playerId),
+        eq(players.year, year),
+      ))
+      .limit(1);
+
+    if (record) {
+      const z = Number(record.zScorePosition);
+      if (z > bestZ) {
+        bestZ = z;
+        bestTeam = record.team ?? 'Unknown';
+        bestYear = year;
+      }
+    }
+  }
+
+  const teamName = getTeamName(bestTeam);
+  console.log(`  Generating portrait for ${option.playerName} (${bestYear} ${teamName})...`);
+
+  const imageBuffer = await generatePortrait(option.playerName, teamName, bestYear);
+
+  // Save to disk
+  fs.writeFileSync(existingPath, imageBuffer);
+
+  // Update DB
+  const portraitUrl = `/portraits/${option.playerId}.png`;
+  await db.update(roundOptions)
+    .set({ portraitUrl })
+    .where(eq(roundOptions.id, optionId));
+
+  console.log(`  ✓ ${option.playerName} portrait regenerated`);
+
+  return { generated: true, portraitUrl };
+}
+
 export async function generatePortraitsForChallenge(challengeId: number): Promise<{
   generated: number;
   skipped: number;

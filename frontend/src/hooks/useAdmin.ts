@@ -115,3 +115,41 @@ export function useActivateToday() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] }),
   });
 }
+
+export function useRegenerateOptionPortrait() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ optionId }: { optionId: number; challengeId: number }) =>
+      adminApi.regenerateOptionPortrait(optionId),
+    onSuccess: (_data, { challengeId }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'challenge', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'health', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}
+
+export function useRegenerateOptionBlurbs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ optionId }: { optionId: number; challengeId: number }) =>
+      adminApi.regenerateOptionBlurbs(optionId),
+    onSuccess: (_data, { challengeId }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'challenge', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'health', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}
+
+export function useUpdateOptionBlurb() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ optionId, year, blurb }: { optionId: number; year: number; blurb: string; challengeId: number }) =>
+      adminApi.updateOptionBlurb(optionId, year, blurb),
+    onSuccess: (_data, { challengeId }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'challenge', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'health', challengeId] });
+    },
+  });
+}
