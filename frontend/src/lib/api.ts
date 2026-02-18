@@ -70,6 +70,7 @@ export async function getChallengeResults(challengeId: number): Promise<ResultsD
   return fetchAPI(`/challenge/${challengeId}/results`);
 }
 
+// Streak API
 export async function getStreak(): Promise<{ current: number; longest: number }> {
-  return fetchAPI('/leaderboard/streak');
+  return fetchAPI('/challenge/streak');
 }

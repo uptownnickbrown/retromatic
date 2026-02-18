@@ -14,7 +14,6 @@ export async function activateTodaysChallenge(): Promise<{
 }> {
   const todayStr = today();
   let activated: number | null = null;
-  let completed = 0;
 
   // Complete any past active challenges
   const pastActive = await db.update(challenges)
@@ -24,7 +23,7 @@ export async function activateTodaysChallenge(): Promise<{
       lt(challenges.challengeDate, todayStr)
     ))
     .returning();
-  completed = pastActive.length;
+  const completed = pastActive.length;
 
   // Activate today's scheduled challenge
   const [todayChallenge] = await db.update(challenges)
