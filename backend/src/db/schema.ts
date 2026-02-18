@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, integer, decimal, text, timestamp, boolean, jsonb, uuid, index, unique } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, integer, decimal, timestamp, boolean, jsonb, uuid, index, unique } from 'drizzle-orm/pg-core';
 
 // Players table - read-only after data pipeline
 export const players = pgTable('players', {
