@@ -59,7 +59,7 @@ export function AdminDashboard() {
   const today = getTodayET();
   const next14 = useMemo(() => getNext14Days(), []);
 
-  const challenges = data?.challenges ?? [];
+  const challenges = useMemo(() => data?.challenges ?? [], [data?.challenges]);
 
   // Group by status
   const grouped = useMemo(() => {

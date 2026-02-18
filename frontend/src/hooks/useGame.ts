@@ -385,7 +385,7 @@ export function useGame() {
     } finally {
       submittingRef.current = false;
     }
-  }, [state.challenge, state.sessionId, state.pickSubmissions, state.picks]);
+  }, [state.challenge, state.sessionId, state.pickSubmissions, state.picks, state.communityStats, state.rounds]);
 
   // Derived values
   const currentRound = state.rounds[state.currentRoundIndex] ?? null;
