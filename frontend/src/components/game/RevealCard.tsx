@@ -121,10 +121,6 @@ function CommunityPicks({
       </p>
       {roundPlayers.map((player, pi) => {
         const isChosenPlayer = player.name === chosenPlayerName;
-        // Find the playerId from pickPercentages using playerRecordId for reliable matching
-        const playerRecordIds = new Set(player.yearOptions.map(yo => yo.playerRecordId));
-        const matchingEntry = pickPercentages.find(pp => playerRecordIds.has(pp.playerId));
-        const pid = matchingEntry?.playerId;
 
         return (
           <div key={pi} className="flex gap-2 items-start">
@@ -143,7 +139,8 @@ function CommunityPicks({
                 {player.name}
               </p>
               {player.yearOptions.map(yo => {
-                const pct = pid != null ? pctMap.get(pid)?.get(yo.year) ?? 0 : 0;
+                // Each year option has its own playerRecordId — look up directly
+                const pct = pctMap.get(yo.playerRecordId)?.get(yo.year) ?? 0;
                 const isChosenYearRow = isChosenPlayer && yo.year === chosenYear;
                 return (
                   <div key={yo.year} className="flex items-center gap-1.5 mb-0.5">
@@ -220,13 +217,19 @@ export function RevealCard({ reveal }: RevealCardProps) {
         </div>
 
         <div className="p-4">
-          {/* Player name — moved up, heavier weight */}
+          {/* Portrait + Player name header */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-center mb-3"
+            className="flex items-center gap-3 mb-3"
           >
+            <PlayerPortrait
+              name={reveal.playerName}
+              portraitUrl={reveal.portraitUrl}
+              size="lg"
+              className="flex-shrink-0"
+            />
             <h3 className={cn(
               'font-editorial font-black text-2xl leading-tight text-navy',
               isLegendary && 'text-gold',
@@ -267,7 +270,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
-                className="float-right ml-3 mb-1"
+                className="float-right ml-3 mb-2"
               >
                 <LegendScoreBadge score={reveal.legendScore} size="lg" animate />
               </motion.div>

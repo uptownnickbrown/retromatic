@@ -4,7 +4,7 @@ interface PlayerPortraitProps {
   name: string;
   portraitUrl: string | null;
   position?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }
 
@@ -12,6 +12,7 @@ const sizeMap = {
   sm: 'w-12 h-14',
   md: 'w-14 h-[70px]',
   lg: 'w-20 h-24',
+  xl: 'w-24 h-28',
 };
 
 export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: PlayerPortraitProps) {
@@ -28,7 +29,7 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
         <img
           src={portraitUrl}
           alt={name}
-          className="w-full h-full object-cover object-top mix-blend-multiply"
+          className="w-full h-full object-cover object-top"
         />
       </div>
     );

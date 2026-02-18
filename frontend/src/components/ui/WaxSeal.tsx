@@ -10,7 +10,7 @@ interface WaxSealProps {
 const sizes = {
   sm: 'w-10 h-10',
   md: 'w-16 h-16',
-  lg: 'w-24 h-24',
+  lg: 'w-[120px] h-[120px]',
 };
 
 export function WaxSeal({ score, size = 'md', animate = false, className }: WaxSealProps) {
@@ -28,10 +28,10 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
       />
       <span
         className={cn(
-          'absolute font-editorial font-black text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
+          'absolute font-editorial font-black text-white leading-none translate-y-[0.1em] drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
           size === 'sm' && 'text-[10px]',
           size === 'md' && 'text-sm',
-          size === 'lg' && 'text-xl',
+          size === 'lg' && 'text-2xl',
         )}
       >
         {score.toFixed(1)}

@@ -92,6 +92,7 @@ export interface RevealData {
   categoryZscores: Record<string, number>;
   playerType: 'batter' | 'pitcher';
   playerName: string;
+  portraitUrl: string | null;
   year: number;
   team: string;
   pickPercentages?: PickPercentage[];
