@@ -6,8 +6,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "cd frontend && npm ci && npm run build && cd ../backend && npm ci && npm run build",
-    "start": "cd backend && npx drizzle-kit push --force && node dist/index.js",
+    "build": "cd frontend && npm ci && npm run build && cd ../backend && npm ci && npx drizzle-kit push --force && npm run build",
+    "start": "cd backend && node dist/index.js",
     "db:push": "cd backend && npm run db:push",
     "prepare": "husky",
     "lint:frontend": "cd frontend && npm run lint",
