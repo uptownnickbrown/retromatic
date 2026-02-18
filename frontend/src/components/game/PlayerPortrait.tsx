@@ -9,7 +9,7 @@ interface PlayerPortraitProps {
 }
 
 const sizeMap = {
-  sm: 'w-10 h-12',
+  sm: 'w-12 h-14',
   md: 'w-14 h-[70px]',
   lg: 'w-20 h-24',
 };
@@ -29,10 +29,7 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
           src={portraitUrl}
           alt={name}
           className="w-full h-full object-cover object-top mix-blend-multiply"
-          style={{ filter: 'contrast(1.15) grayscale(0.15)', imageRendering: 'auto' }}
         />
-        {/* Vignette overlay — softens edges at small sizes */}
-        <div className="absolute inset-0 rounded pointer-events-none shadow-[inset_0_0_4px_rgba(10,30,47,0.15)]" />
       </div>
     );
   }
