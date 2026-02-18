@@ -18,14 +18,6 @@ export function useChallengeResults(challengeId: number | null) {
   });
 }
 
-export function useLeaderboard(period: string) {
-  return useQuery({
-    queryKey: ['leaderboard', period],
-    queryFn: () => api.getLeaderboard(period),
-    staleTime: 30_000,
-  });
-}
-
 export function useStreak() {
   return useQuery({
     queryKey: ['streak'],

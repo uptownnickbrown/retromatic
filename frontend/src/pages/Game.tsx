@@ -58,13 +58,16 @@ export function Game() {
   useEffect(() => {
     if (game.phase === 'complete' && game.challenge) {
       if (game.isPlaytest) {
-        // Return to admin challenge detail with playtest flag
-        navigate(`/admin/challenge/${game.challenge.id}?playtested=true`, { replace: true });
+        // Navigate to results page with playtest data in router state
+        navigate(`/results/${game.challenge.id}?playtest=true`, {
+          replace: true,
+          state: { playtestResults: game.playtestResults, challengeId: game.challenge.id },
+        });
       } else {
         navigate(`/results/${game.challenge.id}`, { replace: true });
       }
     }
-  }, [game.phase, game.challenge, game.isPlaytest, navigate]);
+  }, [game.phase, game.challenge, game.isPlaytest, game.playtestResults, navigate]);
 
   const handlePick = useCallback((playerId: number, year: number) => {
     timer.stop();
