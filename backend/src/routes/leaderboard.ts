@@ -33,6 +33,9 @@ router.get('/', async (req, res) => {
     // For "week" or "alltime", aggregate best scores
     let leaderboard;
 
+    // Exclude synthetic preseed sessions from leaderboard
+    const notSynthetic = sql`${gameSessions.guestToken} NOT LIKE 'preseed-%'`;
+
     if (period === 'today') {
       leaderboard = await db.select({
         guestToken: gameSessions.guestToken,
@@ -44,13 +47,14 @@ router.get('/', async (req, res) => {
         .innerJoin(challenges, eq(gameSessions.challengeId, challenges.id))
         .where(and(
           eq(gameSessions.status, 'completed'),
-          eq(challenges.challengeDate, today)
+          eq(challenges.challengeDate, today),
+          notSynthetic,
         ))
         .orderBy(desc(gameSessions.totalLegendScore))
         .limit(limit);
     } else {
       // For week/alltime, show best single-day score per user
-      const conditions = [eq(gameSessions.status, 'completed')];
+      const conditions = [eq(gameSessions.status, 'completed'), notSynthetic];
       if (dateFilter) {
         conditions.push(gte(challenges.challengeDate, dateFilter));
       }

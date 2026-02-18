@@ -217,7 +217,7 @@ router.post('/:id/complete', async (req, res) => {
 
       const [countResult] = await db.select({ count: sql<number>`count(*)` })
         .from(gameSessions)
-        .where(and(eq(gameSessions.challengeId, challengeId), eq(gameSessions.status, 'completed')));
+        .where(and(eq(gameSessions.challengeId, challengeId), eq(gameSessions.status, 'completed'), sql`${gameSessions.guestToken} NOT LIKE 'preseed-%'`));
 
       res.json({
         totalLegendScore: toNum(session.totalLegendScore),
@@ -367,14 +367,15 @@ router.get('/:id/results', async (req, res) => {
     // Get perfect lineup
     const perfectLineup = await calculatePerfectLineup(challengeId);
 
-    // Count total participants
+    // Count total participants (exclude synthetic preseed sessions)
     const [countResult] = await db.select({
       count: sql<number>`count(*)`,
     })
       .from(gameSessions)
       .where(and(
         eq(gameSessions.challengeId, challengeId),
-        eq(gameSessions.status, 'completed')
+        eq(gameSessions.status, 'completed'),
+        sql`${gameSessions.guestToken} NOT LIKE 'preseed-%'`,
       ));
 
     // Community stats for all rounds
