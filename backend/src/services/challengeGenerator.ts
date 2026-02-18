@@ -1,8 +1,7 @@
 import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { sql, eq, and, inArray, desc, asc, gte, lte, like, or } from 'drizzle-orm';
-import { calculateLegendScore } from './legendScore.js';
+import { eq, and, desc, gte, like, or } from 'drizzle-orm';
 import { getTeamName, THEME_TEAMS } from '../lib/teams.js';
 
 // Lazy-load OpenAI client

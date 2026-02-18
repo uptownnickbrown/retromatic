@@ -265,6 +265,84 @@ async function parallelLimit<T>(tasks: (() => Promise<T>)[], limit: number): Pro
   return results;
 }
 
+// Generate (or regenerate) blurbs for a single round option (all year options)
+export async function generateBlurbsForOption(optionId: number): Promise<{
+  generated: number;
+  failed: number;
+  blurbs: Record<string, string>;
+}> {
+  careerCache.clear();
+
+  const [option] = await db.select()
+    .from(roundOptions)
+    .where(eq(roundOptions.id, optionId))
+    .limit(1);
+
+  if (!option) throw new Error('Round option not found');
+
+  // Get the round to find the position
+  const [round] = await db.select()
+    .from(challengeRounds)
+    .where(eq(challengeRounds.id, option.roundId))
+    .limit(1);
+
+  if (!round) throw new Error('Round not found');
+
+  const years = option.yearOptions as number[];
+  const career = await getCareerContext(option.playerId);
+  const newBlurbs: Record<string, string> = {};
+  let generated = 0;
+  let failed = 0;
+
+  for (const year of years) {
+    const [playerRecord] = await db.select()
+      .from(players)
+      .where(and(
+        eq(players.playerId, option.playerId),
+        eq(players.year, year)
+      ))
+      .limit(1);
+
+    if (!playerRecord) {
+      failed++;
+      continue;
+    }
+
+    const legendScore = calculateLegendScore(Number(playerRecord.zScorePosition));
+    const careerContext = buildCareerContext(year, career);
+
+    try {
+      const blurb = await generateBlurb({
+        playerName: option.playerName,
+        year,
+        team: playerRecord.team || 'unknown',
+        position: round.position,
+        playerType: playerRecord.playerType,
+        stats: playerRecord.stats as Record<string, number>,
+        legendScore,
+        legendLabel: getLegendLabel(legendScore),
+        careerContext,
+      });
+
+      newBlurbs[String(year)] = blurb;
+      generated++;
+      console.log(`  ✓ ${option.playerName} ${year} (${legendScore.toFixed(1)} ${getLegendLabel(legendScore)})`);
+    } catch (err) {
+      console.error(`  ✗ Failed: ${option.playerName} ${year}:`, err);
+      failed++;
+    }
+  }
+
+  // Update DB with new blurbs
+  await db.update(roundOptions)
+    .set({ blurbs: newBlurbs })
+    .where(eq(roundOptions.id, optionId));
+
+  careerCache.clear();
+
+  return { generated, failed, blurbs: newBlurbs };
+}
+
 // Generate blurbs for all player-year options in a challenge
 export async function generateBlurbsForChallenge(challengeId: number): Promise<{ generated: number; failed: number }> {
   // Clear career cache at start of each generation run
@@ -276,16 +354,13 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
 
   // Collect all blurb tasks upfront
   interface BlurbTask {
-    option: typeof roundOptionsResult;
+    option: any;
     round: typeof rounds[0];
     year: number;
     playerRecord: any;
     career: CareerSeason[];
   }
-  type roundOptionsResult = Awaited<ReturnType<typeof db.select>>extends (infer U)[] ? U : never;
-
   const allTasks: BlurbTask[] = [];
-  const optionsByRound = new Map<number, { option: any; years: number[] }[]>();
 
   for (const round of rounds) {
     const options = await db.select()

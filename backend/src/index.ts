@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import challengeRouter from './routes/challenge.js';
-import leaderboardRouter from './routes/leaderboard.js';
 import adminRouter from './routes/admin.js';
 import { activateTodaysChallenge } from './services/dailyScheduler.js';
 
@@ -27,7 +26,6 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/challenge', challengeRouter);
-app.use('/api/leaderboard', leaderboardRouter);
 app.use('/api/admin', adminRouter);
 
 // Health check
@@ -36,7 +34,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Error handling
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });

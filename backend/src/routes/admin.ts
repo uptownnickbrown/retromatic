@@ -3,9 +3,9 @@ import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
-import { generateChallenge, generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
-import { generateBlurbsForChallenge } from '../services/challengeBlurbs.js';
-import { generatePortraitsForChallenge } from '../services/portraitGenerator.js';
+import { generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
+import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
+import { generatePortraitsForChallenge, generatePortraitForOption } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { activateTodaysChallenge } from '../services/dailyScheduler.js';
 import { calculateLegendScore } from '../services/legendScore.js';
@@ -179,7 +179,7 @@ router.get('/challenges/:id', async (req, res) => {
       }
     }
 
-    let zScoreMap = new Map<string, number>();
+    const zScoreMap = new Map<string, number>();
     if (playerYearPairs.length > 0) {
       const whereClauses = playerYearPairs.map(
         p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
@@ -380,6 +380,65 @@ router.delete('/challenges/:id', async (req, res) => {
     res.json({ deleted: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete challenge' });
+  }
+});
+
+// Regenerate portrait for a single player option
+router.post('/options/:optionId/portrait', async (req, res) => {
+  try {
+    const optionId = parseInt(req.params.optionId);
+    const result = await generatePortraitForOption(optionId);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Single portrait generation error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate portrait' });
+  }
+});
+
+// Regenerate blurbs for a single player option (all year options)
+router.post('/options/:optionId/blurbs', async (req, res) => {
+  try {
+    const optionId = parseInt(req.params.optionId);
+    const result = await generateBlurbsForOption(optionId);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Single blurb generation error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate blurbs' });
+  }
+});
+
+// Update a single blurb text (manual edit)
+router.patch('/options/:optionId/blurb', async (req, res) => {
+  try {
+    const optionId = parseInt(req.params.optionId);
+    const { year, blurb } = req.body;
+
+    if (!year || typeof blurb !== 'string') {
+      res.status(400).json({ error: 'year and blurb are required' });
+      return;
+    }
+
+    const [option] = await db.select()
+      .from(roundOptions)
+      .where(eq(roundOptions.id, optionId))
+      .limit(1);
+
+    if (!option) {
+      res.status(404).json({ error: 'Round option not found' });
+      return;
+    }
+
+    const existingBlurbs = (option.blurbs ?? {}) as Record<string, string>;
+    const updatedBlurbs = { ...existingBlurbs, [String(year)]: blurb };
+
+    await db.update(roundOptions)
+      .set({ blurbs: updatedBlurbs })
+      .where(eq(roundOptions.id, optionId));
+
+    res.json({ blurbs: updatedBlurbs });
+  } catch (error: any) {
+    console.error('Blurb update error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update blurb' });
   }
 });
 

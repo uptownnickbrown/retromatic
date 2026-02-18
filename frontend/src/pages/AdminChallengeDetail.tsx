@@ -16,6 +16,9 @@ import {
   EyeOff,
   Check,
   X,
+  RefreshCw,
+  Pencil,
+  Save,
 } from 'lucide-react';
 import {
   useAdminChallengeDetail,
@@ -25,6 +28,9 @@ import {
   useGeneratePortraits,
   useDeleteChallenge,
   useScheduleChallenges,
+  useRegenerateOptionPortrait,
+  useRegenerateOptionBlurbs,
+  useUpdateOptionBlurb,
 } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
@@ -52,6 +58,9 @@ export function AdminChallengeDetail() {
   const portraitsMutation = useGeneratePortraits();
   const deleteMutation = useDeleteChallenge();
   const scheduleMutation = useScheduleChallenges();
+  const regenPortraitMutation = useRegenerateOptionPortrait();
+  const regenBlurbsMutation = useRegenerateOptionBlurbs();
+  const updateBlurbMutation = useUpdateOptionBlurb();
 
   const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
   const [scheduleDate, setScheduleDate] = useState('');
@@ -382,7 +391,7 @@ export function AdminChallengeDetail() {
             exit={{ opacity: 0, height: 0 }}
             className="mb-6 px-4 py-3 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 text-xs font-mono"
           >
-            Pre-seeded {preseedMutation.data.totalPicks} picks across {preseedMutation.data.roundsSeeded} rounds
+            Pre-seeded {preseedMutation.data.syntheticSessions ?? 0} synthetic rosters ({preseedMutation.data.totalPicks} picks) across {preseedMutation.data.roundsSeeded} rounds
           </motion.div>
         )}
       </AnimatePresence>
@@ -412,6 +421,10 @@ export function AdminChallengeDetail() {
               round={round}
               isExpanded={expandedRounds.has(round.roundNumber)}
               onToggle={() => toggleRound(round.roundNumber)}
+              challengeId={challenge.id}
+              regenPortraitMutation={regenPortraitMutation}
+              regenBlurbsMutation={regenBlurbsMutation}
+              updateBlurbMutation={updateBlurbMutation}
             />
           </motion.div>
         ))}
@@ -457,15 +470,26 @@ function HealthMetric({
 
 // ─── Round Section ───────────────────────────────────────────
 
+interface PlayerCardMutations {
+  challengeId: number;
+  regenPortraitMutation: ReturnType<typeof useRegenerateOptionPortrait>;
+  regenBlurbsMutation: ReturnType<typeof useRegenerateOptionBlurbs>;
+  updateBlurbMutation: ReturnType<typeof useUpdateOptionBlurb>;
+}
+
 function RoundSection({
   round,
   isExpanded,
   onToggle,
+  challengeId,
+  regenPortraitMutation,
+  regenBlurbsMutation,
+  updateBlurbMutation,
 }: {
   round: AdminRound;
   isExpanded: boolean;
   onToggle: () => void;
-}) {
+} & PlayerCardMutations) {
   // Quick health check for this round
   const blurbCount = round.options.reduce((sum, opt) => {
     const blurbs = opt.blurbs ?? {};
@@ -531,7 +555,14 @@ function RoundSection({
             <div className="border-t border-navy/8 px-4 py-4">
               <div className="grid grid-cols-3 gap-4">
                 {round.options.map(option => (
-                  <PlayerCard key={option.id} option={option} />
+                  <PlayerCard
+                    key={option.id}
+                    option={option}
+                    challengeId={challengeId}
+                    regenPortraitMutation={regenPortraitMutation}
+                    regenBlurbsMutation={regenBlurbsMutation}
+                    updateBlurbMutation={updateBlurbMutation}
+                  />
                 ))}
               </div>
             </div>
@@ -544,9 +575,24 @@ function RoundSection({
 
 // ─── Player Card ─────────────────────────────────────────────
 
-function PlayerCard({ option }: { option: AdminRoundOption }) {
+function PlayerCard({
+  option,
+  challengeId,
+  regenPortraitMutation,
+  regenBlurbsMutation,
+  updateBlurbMutation,
+}: { option: AdminRoundOption } & PlayerCardMutations) {
   const [expandedBlurbs, setExpandedBlurbs] = useState<Set<number>>(new Set());
+  const [editingBlurb, setEditingBlurb] = useState<number | null>(null);
+  const [editText, setEditText] = useState('');
   const blurbs = option.blurbs ?? {};
+
+  const isRegenningPortrait = regenPortraitMutation.isPending
+    && (regenPortraitMutation.variables as any)?.optionId === option.id;
+  const isRegenningBlurbs = regenBlurbsMutation.isPending
+    && (regenBlurbsMutation.variables as any)?.optionId === option.id;
+  const isSavingBlurb = updateBlurbMutation.isPending
+    && (updateBlurbMutation.variables as any)?.optionId === option.id;
 
   const toggleBlurb = (year: number) => {
     setExpandedBlurbs(prev => {
@@ -557,25 +603,57 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
     });
   };
 
+  const startEditing = (year: number) => {
+    setEditingBlurb(year);
+    setEditText(blurbs[String(year)] || '');
+  };
+
+  const cancelEditing = () => {
+    setEditingBlurb(null);
+    setEditText('');
+  };
+
+  const saveBlurb = (year: number) => {
+    updateBlurbMutation.mutate(
+      { optionId: option.id, year, blurb: editText, challengeId },
+      { onSuccess: () => setEditingBlurb(null) },
+    );
+  };
+
   return (
     <div className="bg-bone/60 border border-navy/8 rounded p-3">
       {/* Player header */}
       <div className="flex items-start gap-3 mb-3">
-        {/* Portrait */}
-        <div className="w-16 h-[76px] flex-shrink-0 bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center">
-          {option.portraitUrl ? (
-            <img
-              src={option.portraitUrl}
-              alt={option.playerName}
-              className="w-full h-full object-cover object-top mix-blend-multiply"
-            />
-          ) : (
-            <img
-              src="/player.svg"
-              alt=""
-              className="w-10 h-12 opacity-15"
-            />
-          )}
+        {/* Portrait + regen button */}
+        <div className="flex-shrink-0 relative group">
+          <div className="w-16 h-[76px] bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center">
+            {option.portraitUrl ? (
+              <img
+                src={option.portraitUrl}
+                alt={option.playerName}
+                className="w-full h-full object-cover object-top"
+              />
+            ) : (
+              <img
+                src="/player.svg"
+                alt=""
+                className="w-10 h-12 opacity-15"
+              />
+            )}
+          </div>
+          <button
+            onClick={() => regenPortraitMutation.mutate({ optionId: option.id, challengeId })}
+            disabled={isRegenningPortrait}
+            className="absolute -bottom-1 -right-1 p-1 rounded-full bg-paper border border-navy/15
+                       text-muted hover:text-navy hover:border-navy/30 transition-colors
+                       opacity-0 group-hover:opacity-100 disabled:opacity-100"
+            title="Regenerate portrait"
+          >
+            {isRegenningPortrait
+              ? <Loader2 className="w-3 h-3 animate-spin" />
+              : <RefreshCw className="w-3 h-3" />
+            }
+          </button>
         </div>
         <div className="min-w-0 flex-1">
           <h4 className="font-editorial font-bold text-sm text-navy leading-tight truncate">
@@ -587,6 +665,25 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
           <p className="font-mono text-[9px] text-muted">
             Slot {option.playerSlot}
           </p>
+          {/* Regen all blurbs button */}
+          <button
+            onClick={() => regenBlurbsMutation.mutate({ optionId: option.id, challengeId })}
+            disabled={isRegenningBlurbs}
+            className="mt-1.5 flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors disabled:opacity-50"
+            title="Regenerate all blurbs for this player"
+          >
+            {isRegenningBlurbs ? (
+              <>
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-3 h-3" />
+                Regen blurbs
+              </>
+            )}
+          </button>
         </div>
       </div>
 
@@ -595,6 +692,7 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
         {option.yearScores.map(ys => {
           const hasBlurb = !!blurbs[String(ys.year)]?.trim();
           const isBlurbExpanded = expandedBlurbs.has(ys.year);
+          const isEditing = editingBlurb === ys.year;
 
           return (
             <div key={ys.year}>
@@ -637,7 +735,7 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
                 )}
               </div>
 
-              {/* Blurb preview */}
+              {/* Blurb preview / editor */}
               <AnimatePresence>
                 {isBlurbExpanded && hasBlurb && (
                   <motion.div
@@ -647,9 +745,55 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
                     transition={{ duration: 0.15 }}
                     className="overflow-hidden"
                   >
-                    <p className="font-editorial text-sm text-navy/60 italic leading-snug mt-1 pl-2 border-l-2 border-navy/10">
-                      {blurbs[String(ys.year)]}
-                    </p>
+                    {isEditing ? (
+                      <div className="mt-1 pl-2 border-l-2 border-navy/20">
+                        <textarea
+                          value={editText}
+                          onChange={e => setEditText(e.target.value)}
+                          className="w-full p-2 text-sm font-mono italic leading-relaxed text-navy/70
+                                     bg-paper border border-navy/15 rounded resize-y min-h-[80px]
+                                     focus:border-navy/40 focus:outline-none"
+                          rows={4}
+                        />
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <button
+                            onClick={() => saveBlurb(ys.year)}
+                            disabled={isSavingBlurb}
+                            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded
+                                       bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25
+                                       disabled:opacity-50 transition-colors"
+                          >
+                            {isSavingBlurb
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <Save className="w-3 h-3" />
+                            }
+                            Save
+                          </button>
+                          <button
+                            onClick={cancelEditing}
+                            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded
+                                       text-muted hover:text-navy transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-1 pl-2 border-l-2 border-navy/10 group/blurb relative">
+                        <p className="font-mono text-sm text-navy/60 italic leading-relaxed pr-6">
+                          {blurbs[String(ys.year)]}
+                        </p>
+                        <button
+                          onClick={() => startEditing(ys.year)}
+                          className="absolute top-0 right-0 p-0.5 text-muted hover:text-navy
+                                     opacity-0 group-hover/blurb:opacity-100 transition-opacity"
+                          title="Edit blurb"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
