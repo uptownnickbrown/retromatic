@@ -588,11 +588,11 @@ function PlayerCard({
   const blurbs = option.blurbs ?? {};
 
   const isRegenningPortrait = regenPortraitMutation.isPending
-    && (regenPortraitMutation.variables as any)?.optionId === option.id;
+    && regenPortraitMutation.variables?.optionId === option.id;
   const isRegenningBlurbs = regenBlurbsMutation.isPending
-    && (regenBlurbsMutation.variables as any)?.optionId === option.id;
+    && regenBlurbsMutation.variables?.optionId === option.id;
   const isSavingBlurb = updateBlurbMutation.isPending
-    && (updateBlurbMutation.variables as any)?.optionId === option.id;
+    && updateBlurbMutation.variables?.optionId === option.id;
 
   const toggleBlurb = (year: number) => {
     setExpandedBlurbs(prev => {
