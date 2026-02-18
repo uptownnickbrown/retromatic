@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Trophy, ArrowLeft, FlaskConical } from 'lucide-react';
+import { Home, ArrowLeft, FlaskConical } from 'lucide-react';
 import { useChallengeResults } from '../hooks/useChallenge';
 import { getOrdinalSuffix } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
@@ -173,24 +173,14 @@ export function Results() {
             Back to Challenge
           </VintageButton>
         ) : (
-          <>
-            <VintageButton
-              variant="section"
-              onClick={() => navigate('/')}
-              className="flex-1 flex items-center justify-center gap-2"
-            >
-              <Home size={16} />
-              Home
-            </VintageButton>
-            <VintageButton
-              variant="section"
-              onClick={() => navigate('/leaderboard')}
-              className="flex-1 flex items-center justify-center gap-2"
-            >
-              <Trophy size={16} />
-              Standings
-            </VintageButton>
-          </>
+          <VintageButton
+            variant="section"
+            onClick={() => navigate('/')}
+            className="flex-1 flex items-center justify-center gap-2"
+          >
+            <Home size={16} />
+            Home
+          </VintageButton>
         )}
       </div>
     </div>
