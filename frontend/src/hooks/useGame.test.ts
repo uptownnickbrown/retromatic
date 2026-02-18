@@ -45,7 +45,7 @@ function makeRound(roundNumber: number, position: string): RoundData {
         playerId: 'player1',
         portraitUrl: null,
         yearOptions: [
-          { year: 2020, playerRecordId: 1001, zScorePosition: 2.0, team: 'NYA', stats: {}, categoryZscores: {}, playerType: 'batter' },
+          { year: 2020, playerRecordId: 1001, zScorePosition: 2.0, team: 'NYA', stats: { HR: 30 }, categoryZscores: { HR: 1.5 }, playerType: 'batter' },
           { year: 2021, playerRecordId: 1002, zScorePosition: 1.5, team: 'NYA', stats: {}, categoryZscores: {}, playerType: 'batter' },
           { year: 2022, playerRecordId: 1003, zScorePosition: 0.5, team: 'NYA', stats: {}, categoryZscores: {}, playerType: 'batter' },
         ],
@@ -96,6 +96,23 @@ const mockFullGameData: FullGameData = {
   communityStats: mockCommunityStats,
 };
 
+// Helper: load a game to the picking state
+async function loadToPickingPhase() {
+  vi.mocked(api.getTodaysChallenge).mockResolvedValue({
+    challenge: mockChallenge,
+    session: null,
+  });
+  vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
+
+  const hook = renderHook(() => useGame());
+
+  await act(async () => {
+    await hook.result.current.loadAndStart();
+  });
+
+  return hook;
+}
+
 describe('useGame', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -117,23 +134,14 @@ describe('useGame', () => {
   });
 
   describe('loadAndStart', () => {
-    it('transitions to picking phase on successful load', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
-
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
-      });
+    it('transitions to picking with round data on successful load', async () => {
+      const { result } = await loadToPickingPhase();
 
       expect(result.current.phase).toBe('picking');
       expect(result.current.challenge).toEqual(mockChallenge);
       expect(result.current.sessionId).toBe('session-abc');
       expect(result.current.currentRound).toEqual(mockRounds[0]);
+      expect(result.current.totalRounds).toBe(2);
     });
 
     it('transitions to idle with error when no challenge is available', async () => {
@@ -180,7 +188,7 @@ describe('useGame', () => {
         rounds: mockRounds,
         communityStats: mockCommunityStats,
         currentRoundIndex: 1,
-        picks: [{ roundNumber: 1, position: 'C', playerName: 'Test Player 1', year: 2020, legendScore: 4.5 }],
+        picks: [{ roundNumber: 1, position: 'C', playerName: 'Test Player 1', year: 2020, legendScore: 4.0 }],
         pickSubmissions: [{ roundId: 100, playerRecordId: 1001, year: 2020, wasTimeout: false }],
       });
 
@@ -192,9 +200,8 @@ describe('useGame', () => {
 
       expect(result.current.phase).toBe('picking');
       expect(result.current.sessionId).toBe('session-saved');
-      expect(result.current.roundNumber).toBe(2); // resumed at round 2
+      expect(result.current.currentRound?.roundNumber).toBe(2);
       expect(result.current.picks).toHaveLength(1);
-      // Should not have called startGame since we resumed
       expect(api.startGame).not.toHaveBeenCalled();
     });
 
@@ -212,17 +219,7 @@ describe('useGame', () => {
     });
 
     it('saves initial state to localStorage on fresh start', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
-
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
-      });
+      await loadToPickingPhase();
 
       expect(gameStorage.saveGame).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -230,51 +227,50 @@ describe('useGame', () => {
           sessionId: 'session-abc',
           currentRoundIndex: 0,
           picks: [],
+          pickSubmissions: [],
         })
       );
     });
   });
 
   describe('submitPick', () => {
-    it('transitions from picking to revealing with correct data', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
-
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
-      });
+    it('computes correct Legend Score and builds reveal data', async () => {
+      const { result } = await loadToPickingPhase();
 
       act(() => {
+        // z-score 2.0 → Legend Score 4.0 via calculateLegendScore formula
         result.current.submitPick(1001, 2020);
       });
 
       expect(result.current.phase).toBe('revealing');
-      expect(result.current.reveal).not.toBeNull();
-      expect(result.current.reveal?.playerName).toBe('Test Player 1');
-      expect(result.current.reveal?.year).toBe(2020);
-      expect(result.current.reveal?.legendScore).toBeGreaterThan(0);
-      expect(result.current.reveal?.blurb).toBe('Great season');
+      expect(result.current.reveal).toEqual(expect.objectContaining({
+        playerName: 'Test Player 1',
+        year: 2020,
+        legendScore: 4.0,
+        blurb: 'Great season',
+        team: 'NYA',
+        stats: { HR: 30 },
+        playerType: 'batter',
+      }));
       expect(result.current.picks).toHaveLength(1);
+      expect(result.current.picks[0].legendScore).toBe(4.0);
     });
 
-    it('saves game state to localStorage after pick', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
+    it('is a no-op for an invalid playerRecordId/year combo', async () => {
+      const { result } = await loadToPickingPhase();
 
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
+      act(() => {
+        result.current.submitPick(9999, 1900); // doesn't exist in mock data
       });
 
+      // Should stay in picking — no transition, no pick recorded
+      expect(result.current.phase).toBe('picking');
+      expect(result.current.picks).toHaveLength(0);
+      expect(result.current.reveal).toBeNull();
+    });
+
+    it('saves updated game state to localStorage after pick', async () => {
+      const { result } = await loadToPickingPhase();
       vi.mocked(gameStorage.saveGame).mockClear();
 
       act(() => {
@@ -284,36 +280,23 @@ describe('useGame', () => {
       expect(gameStorage.saveGame).toHaveBeenCalledWith(
         expect.objectContaining({
           currentRoundIndex: 1,
-          picks: expect.arrayContaining([
-            expect.objectContaining({ playerName: 'Test Player 1', year: 2020 }),
-          ]),
+          picks: [expect.objectContaining({ playerName: 'Test Player 1', year: 2020, legendScore: 4.0 })],
+          pickSubmissions: [expect.objectContaining({ roundId: 100, playerRecordId: 1001, year: 2020, wasTimeout: false })],
         })
       );
     });
 
-    it('records wasTimeout flag', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
-
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
-      });
+    it('records wasTimeout flag in submission', async () => {
+      const { result } = await loadToPickingPhase();
+      vi.mocked(gameStorage.saveGame).mockClear();
 
       act(() => {
         result.current.submitPick(1001, 2020, true);
       });
 
-      // Check pickSubmissions include wasTimeout
       expect(gameStorage.saveGame).toHaveBeenCalledWith(
         expect.objectContaining({
-          pickSubmissions: expect.arrayContaining([
-            expect.objectContaining({ wasTimeout: true }),
-          ]),
+          pickSubmissions: [expect.objectContaining({ wasTimeout: true })],
         })
       );
     });
@@ -321,60 +304,114 @@ describe('useGame', () => {
 
   describe('advanceRound', () => {
     it('transitions from revealing to picking for next round', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
+      const { result } = await loadToPickingPhase();
 
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
-      });
-
-      // Pick in round 1
-      act(() => {
-        result.current.submitPick(1001, 2020);
-      });
+      act(() => { result.current.submitPick(1001, 2020); });
       expect(result.current.phase).toBe('revealing');
 
-      // Advance to round 2
-      act(() => {
-        result.current.advanceRound();
-      });
+      act(() => { result.current.advanceRound(); });
       expect(result.current.phase).toBe('picking');
       expect(result.current.reveal).toBeNull();
       expect(result.current.currentRound?.roundNumber).toBe(2);
     });
 
     it('transitions to submitting_final after last round', async () => {
-      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
-        challenge: mockChallenge,
-        session: null,
-      });
-      vi.mocked(api.startGame).mockResolvedValue(mockFullGameData);
+      const { result } = await loadToPickingPhase();
 
-      const { result } = renderHook(() => useGame());
-
-      await act(async () => {
-        await result.current.loadAndStart();
-      });
-
-      // Pick round 1
+      // Round 1
       act(() => { result.current.submitPick(1001, 2020); });
       act(() => { result.current.advanceRound(); });
 
-      // Pick round 2 (last round in our mock)
+      // Round 2 (last)
       act(() => { result.current.submitPick(2001, 2019); });
       act(() => { result.current.advanceRound(); });
 
       expect(result.current.phase).toBe('submitting_final');
+      expect(result.current.picks).toHaveLength(2);
     });
   });
 
-  describe('loadPlaytest', () => {
-    it('loads a playtest session', async () => {
+  describe('submitFinal', () => {
+    it('calls completeGame API and transitions to complete', async () => {
+      vi.mocked(api.completeGame).mockResolvedValue({
+        totalLegendScore: 8.8,
+        percentile: 75,
+        totalParticipants: 100,
+        communityStats: [],
+        perfectLineup: { picks: [], totalScore: 10 },
+      });
+
+      const { result } = await loadToPickingPhase();
+
+      // Play through both rounds
+      act(() => { result.current.submitPick(1001, 2020); });
+      act(() => { result.current.advanceRound(); });
+      act(() => { result.current.submitPick(2001, 2019); });
+      act(() => { result.current.advanceRound(); });
+
+      expect(result.current.phase).toBe('submitting_final');
+
+      await act(async () => {
+        await result.current.submitFinal();
+      });
+
+      expect(result.current.phase).toBe('complete');
+      expect(api.completeGame).toHaveBeenCalledWith(
+        1, // challengeId
+        'session-abc',
+        expect.arrayContaining([
+          expect.objectContaining({ roundId: 100, playerRecordId: 1001, year: 2020 }),
+          expect.objectContaining({ roundId: 200, playerRecordId: 2001, year: 2019 }),
+        ]),
+      );
+      expect(result.current.completeResponse?.totalLegendScore).toBe(8.8);
+    });
+
+    it('clears localStorage on successful completion', async () => {
+      vi.mocked(api.completeGame).mockResolvedValue({
+        totalLegendScore: 8.8,
+        percentile: 75,
+        totalParticipants: 100,
+        communityStats: [],
+        perfectLineup: { picks: [], totalScore: 10 },
+      });
+
+      const { result } = await loadToPickingPhase();
+
+      act(() => { result.current.submitPick(1001, 2020); });
+      act(() => { result.current.advanceRound(); });
+      act(() => { result.current.submitPick(2001, 2019); });
+      act(() => { result.current.advanceRound(); });
+
+      await act(async () => {
+        await result.current.submitFinal();
+      });
+
+      expect(gameStorage.clearSavedGame).toHaveBeenCalled();
+    });
+
+    it('stays in submitting_final with error on API failure', async () => {
+      vi.mocked(api.completeGame).mockRejectedValue(new Error('Server error'));
+
+      const { result } = await loadToPickingPhase();
+
+      act(() => { result.current.submitPick(1001, 2020); });
+      act(() => { result.current.advanceRound(); });
+      act(() => { result.current.submitPick(2001, 2019); });
+      act(() => { result.current.advanceRound(); });
+
+      await act(async () => {
+        await result.current.submitFinal();
+      });
+
+      expect(result.current.phase).toBe('submitting_final');
+      expect(result.current.error).toBe('Server error');
+      expect(gameStorage.clearSavedGame).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('playtest mode', () => {
+    it('loads and identifies as playtest', async () => {
       vi.mocked(adminApi.startPlaytest).mockResolvedValue({
         session: { id: 'playtest-1-12345', status: 'in_progress' },
         challenge: mockChallenge,
@@ -393,7 +430,7 @@ describe('useGame', () => {
       expect(result.current.sessionId).toBe('playtest-1-12345');
     });
 
-    it('does not save to localStorage in playtest mode', async () => {
+    it('does not save to localStorage during picks', async () => {
       vi.mocked(adminApi.startPlaytest).mockResolvedValue({
         session: { id: 'playtest-1-12345', status: 'in_progress' },
         challenge: mockChallenge,
@@ -411,8 +448,41 @@ describe('useGame', () => {
         result.current.submitPick(1001, 2020);
       });
 
-      // saveGame should not be called during playtest
       expect(gameStorage.saveGame).not.toHaveBeenCalled();
+    });
+
+    it('computes results client-side on submitFinal (no API call)', async () => {
+      vi.mocked(adminApi.startPlaytest).mockResolvedValue({
+        session: { id: 'playtest-1-12345', status: 'in_progress' },
+        challenge: mockChallenge,
+        rounds: mockRounds,
+        communityStats: mockCommunityStats,
+      });
+
+      const { result } = renderHook(() => useGame());
+
+      await act(async () => {
+        await result.current.loadPlaytest(1);
+      });
+
+      // Play through both rounds
+      act(() => { result.current.submitPick(1001, 2020); });
+      act(() => { result.current.advanceRound(); });
+      act(() => { result.current.submitPick(2001, 2019); });
+      act(() => { result.current.advanceRound(); });
+
+      await act(async () => {
+        await result.current.submitFinal();
+      });
+
+      expect(result.current.phase).toBe('complete');
+      expect(api.completeGame).not.toHaveBeenCalled();
+
+      // Should have client-computed results: 4.0 + 4.8 = 8.8
+      expect(result.current.playtestResults).not.toBeNull();
+      expect(result.current.playtestResults?.session.totalLegendScore).toBe(8.8);
+      expect(result.current.playtestResults?.picks).toHaveLength(2);
+      expect(result.current.playtestResults?.perfectLineup.picks).toHaveLength(2);
     });
   });
 });
