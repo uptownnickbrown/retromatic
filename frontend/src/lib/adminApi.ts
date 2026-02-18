@@ -188,3 +188,20 @@ export async function activateToday(): Promise<{ activated: number | null }> {
 export async function startPlaytest(challengeId: number): Promise<FullGameData> {
   return adminFetch(`/admin/challenges/${challengeId}/playtest`, { method: 'POST' });
 }
+
+// --- Single-player operations ---
+
+export async function regenerateOptionPortrait(optionId: number): Promise<{ generated: boolean; portraitUrl: string }> {
+  return adminFetch(`/admin/options/${optionId}/portrait`, { method: 'POST' });
+}
+
+export async function regenerateOptionBlurbs(optionId: number): Promise<{ generated: number; failed: number; blurbs: Record<string, string> }> {
+  return adminFetch(`/admin/options/${optionId}/blurbs`, { method: 'POST' });
+}
+
+export async function updateOptionBlurb(optionId: number, year: number, blurb: string): Promise<{ blurbs: Record<string, string> }> {
+  return adminFetch(`/admin/options/${optionId}/blurb`, {
+    method: 'PATCH',
+    body: JSON.stringify({ year, blurb }),
+  });
+}
