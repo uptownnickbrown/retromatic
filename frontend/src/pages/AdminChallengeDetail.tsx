@@ -562,13 +562,17 @@ function PlayerCard({ option }: { option: AdminRoundOption }) {
       {/* Player header */}
       <div className="flex items-start gap-3 mb-3">
         {/* Portrait */}
-        <div className="w-14 h-[70px] flex-shrink-0 bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center">
+        <div className="w-14 h-[70px] flex-shrink-0 bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center relative">
           {option.portraitUrl ? (
-            <img
-              src={option.portraitUrl}
-              alt={option.playerName}
-              className="w-full h-full object-cover mix-blend-multiply"
-            />
+            <>
+              <img
+                src={option.portraitUrl}
+                alt={option.playerName}
+                className="w-full h-full object-cover object-top mix-blend-multiply"
+                style={{ filter: 'contrast(1.15) grayscale(0.15)' }}
+              />
+              <div className="absolute inset-0 rounded pointer-events-none shadow-[inset_0_0_4px_rgba(10,30,47,0.15)]" />
+            </>
           ) : (
             <img
               src="/player.svg"
