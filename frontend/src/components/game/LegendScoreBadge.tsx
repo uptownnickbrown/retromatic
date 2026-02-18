@@ -32,8 +32,9 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
     );
   }
 
-  // Great: navy circle badge
+  // Great: circle badge (navy default, red for near-legendary 8.0+)
   if (isGreat) {
+    const isHot = score >= 8.0;
     const sizeClasses = {
       sm: 'w-10 h-10 text-xs',
       md: 'w-14 h-14 text-lg',
@@ -44,16 +45,27 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
       <div className={cn('flex flex-col items-center gap-1.5', tier)}>
         <div
           className={cn(
-            'rounded-full flex items-center justify-center font-editorial font-bold text-paper bg-navy',
-            'border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.15)]',
+            'rounded-full flex items-center justify-center font-mono font-bold leading-none text-paper',
+            'border-2',
+            isHot
+              ? 'bg-red border-red-dark'
+              : 'bg-navy border-navy',
             sizeClasses[size],
           )}
-          style={{ boxShadow: 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)' }}
+          style={{
+            boxShadow: isHot
+              ? 'inset 0 0 0 2px rgba(255,255,255,0.25), 2px 2px 0px rgba(10,30,47,0.15)'
+              : 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)',
+            paddingTop: '2px', // optical centering nudge for numerals
+          }}
         >
           {score.toFixed(1)}
         </div>
         {showLabel && (
-          <span className="font-mono text-[10px] uppercase tracking-widest text-navy">
+          <span className={cn(
+            'font-mono text-[10px] uppercase tracking-widest',
+            isHot ? 'text-red' : 'text-navy',
+          )}>
             {label}
           </span>
         )}
@@ -86,10 +98,11 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
     <div className={cn('flex flex-col items-center gap-1.5', tier)}>
       <div
         className={cn(
-          'rounded-full flex items-center justify-center font-editorial font-bold text-muted',
+          'rounded-full flex items-center justify-center font-mono font-bold leading-none text-muted',
           'bg-paper border border-navy/20',
           avgSizeClasses[size],
         )}
+        style={{ paddingTop: '2px' }}
       >
         {score.toFixed(1)}
       </div>
