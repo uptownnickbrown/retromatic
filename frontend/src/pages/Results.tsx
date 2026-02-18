@@ -1,6 +1,6 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Trophy } from 'lucide-react';
+import { Home, Trophy, ArrowLeft, FlaskConical } from 'lucide-react';
 import { useChallengeResults } from '../hooks/useChallenge';
 import { getOrdinalSuffix } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
@@ -10,15 +10,26 @@ import { HeadToHead } from '../components/results/HeadToHead';
 import { ShareCard } from '../components/results/ShareCard';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
+import type { ResultsData } from '../types';
 
 export function Results() {
   const { challengeId } = useParams<{ challengeId: string }>();
   const navigate = useNavigate();
-  const { data, isLoading, error } = useChallengeResults(
-    challengeId ? parseInt(challengeId) : null,
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const isPlaytest = searchParams.get('playtest') === 'true';
+  const playtestResults = (location.state as { playtestResults?: ResultsData } | null)?.playtestResults ?? null;
+  const playtestChallengeId = (location.state as { challengeId?: number } | null)?.challengeId ?? null;
+
+  // For playtest: use router state directly; for normal: fetch from API
+  const { data: apiData, isLoading, error } = useChallengeResults(
+    isPlaytest ? null : (challengeId ? parseInt(challengeId) : null),
   );
 
-  if (isLoading) {
+  const data = isPlaytest ? playtestResults : apiData;
+
+  if (!isPlaytest && isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-navy border-t-transparent rounded-full animate-spin" />
@@ -26,14 +37,14 @@ export function Results() {
     );
   }
 
-  if (error || !data) {
+  if (!data) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
         <p className="text-muted text-sm font-mono mb-4">
           {error ? (error as Error).message : 'Results not found'}
         </p>
-        <VintageButton variant="section" onClick={() => navigate('/')}>
-          Back Home
+        <VintageButton variant="section" onClick={() => navigate(isPlaytest ? '/admin' : '/')}>
+          {isPlaytest ? 'Back to Admin' : 'Back Home'}
         </VintageButton>
       </div>
     );
@@ -46,6 +57,20 @@ export function Results() {
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 py-5 safe-bottom">
+      {/* Playtest banner */}
+      {isPlaytest && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="bg-gold/15 border-2 border-gold/30 rounded px-4 py-2.5 mb-5 flex items-center justify-center gap-2"
+        >
+          <FlaskConical className="w-3.5 h-3.5 text-gold" />
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-navy/70">
+            Playtest Results
+          </span>
+        </motion.div>
+      )}
+
       {/* Header — Final Score */}
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
@@ -65,47 +90,51 @@ export function Results() {
         </p>
       </motion.div>
 
-      {/* Percentile */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="mb-4"
-      >
-        <PaperCard className="text-center">
-          <p className="text-sm font-mono text-navy">
-            You placed{' '}
-            <span className="font-editorial font-bold text-xl">
-              {getOrdinalSuffix(percentileRank)}
-            </span>{' '}
-            percentile
-          </p>
-          <p className="text-xs text-muted font-mono mt-1">
-            out of {totalParticipants} player{totalParticipants !== 1 ? 's' : ''}
-          </p>
-        </PaperCard>
-      </motion.div>
+      {/* Percentile — hide for playtest since there's no real data */}
+      {!isPlaytest && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="mb-4"
+        >
+          <PaperCard className="text-center">
+            <p className="text-sm font-mono text-navy">
+              You placed{' '}
+              <span className="font-editorial font-bold text-xl">
+                {getOrdinalSuffix(percentileRank)}
+              </span>{' '}
+              percentile
+            </p>
+            <p className="text-xs text-muted font-mono mt-1">
+              out of {totalParticipants} player{totalParticipants !== 1 ? 's' : ''}
+            </p>
+          </PaperCard>
+        </motion.div>
+      )}
 
-      {/* Share */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        className="mb-4"
-      >
-        <ShareCard
-          totalScore={totalScore}
-          percentile={percentile}
-          picks={picks}
-          date={session.completedAt?.split('T')[0] ?? ''}
-        />
-      </motion.div>
+      {/* Share — hide for playtest */}
+      {!isPlaytest && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="mb-4"
+        >
+          <ShareCard
+            totalScore={totalScore}
+            percentile={percentile}
+            picks={picks}
+            date={session.completedAt?.split('T')[0] ?? ''}
+          />
+        </motion.div>
+      )}
 
       {/* Your lineup */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
+        transition={{ delay: isPlaytest ? 0.2 : 0.4 }}
         className="mb-4"
       >
         <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
@@ -118,7 +147,7 @@ export function Results() {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
+        transition={{ delay: isPlaytest ? 0.3 : 0.5 }}
         className="mb-4"
       >
         <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
@@ -134,22 +163,35 @@ export function Results() {
 
       {/* Navigation */}
       <div className="flex gap-3 mt-auto pt-4">
-        <VintageButton
-          variant="section"
-          onClick={() => navigate('/')}
-          className="flex-1 flex items-center justify-center gap-2"
-        >
-          <Home size={16} />
-          Home
-        </VintageButton>
-        <VintageButton
-          variant="section"
-          onClick={() => navigate('/leaderboard')}
-          className="flex-1 flex items-center justify-center gap-2"
-        >
-          <Trophy size={16} />
-          Standings
-        </VintageButton>
+        {isPlaytest ? (
+          <VintageButton
+            variant="section"
+            onClick={() => navigate(`/admin/challenge/${playtestChallengeId ?? challengeId}?playtested=true`)}
+            className="flex-1 flex items-center justify-center gap-2"
+          >
+            <ArrowLeft size={16} />
+            Back to Challenge
+          </VintageButton>
+        ) : (
+          <>
+            <VintageButton
+              variant="section"
+              onClick={() => navigate('/')}
+              className="flex-1 flex items-center justify-center gap-2"
+            >
+              <Home size={16} />
+              Home
+            </VintageButton>
+            <VintageButton
+              variant="section"
+              onClick={() => navigate('/leaderboard')}
+              className="flex-1 flex items-center justify-center gap-2"
+            >
+              <Trophy size={16} />
+              Standings
+            </VintageButton>
+          </>
+        )}
       </div>
     </div>
   );
