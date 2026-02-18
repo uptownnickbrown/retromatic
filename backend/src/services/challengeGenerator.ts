@@ -591,14 +591,21 @@ export async function generateThemedBatch(count: number): Promise<{
   const challengeIds: number[] = [];
   const themes: string[] = [];
 
-  // Pre-compute dates starting tomorrow
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  // Find dates that already have challenges scheduled
+  const existingChallenges = await db.select({ challengeDate: challenges.challengeDate })
+    .from(challenges);
+  const takenDates = new Set(existingChallenges.map(c => c.challengeDate));
+
+  // Pre-compute dates starting tomorrow, skipping taken dates
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() + 1);
   const dates: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const d = new Date(tomorrow);
-    d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().split('T')[0]);
+  while (dates.length < count) {
+    const dateStr = cursor.toISOString().split('T')[0];
+    if (!takenDates.has(dateStr)) {
+      dates.push(dateStr);
+    }
+    cursor.setDate(cursor.getDate() + 1);
   }
 
   console.log(`Generating ${count} themed challenges (${dates[0]} → ${dates[dates.length - 1]})...`);
