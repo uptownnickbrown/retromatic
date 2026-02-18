@@ -35,7 +35,13 @@ cd backend && npx drizzle-kit push
 
 # Data pipeline (one-time, populates player data)
 cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahman_1871-2025_csv
+
+# CI verification (run before pushing — matches GitHub Actions exactly)
+cd frontend && npm run lint && npx tsc -b --noEmit && npm test
+cd backend && npm run lint && npx tsc --noEmit && npm test
 ```
+
+**Important:** The frontend CI uses `tsc -b --noEmit` (build mode), which is stricter than `tsc --noEmit`. Always use `-b` locally to catch errors before pushing.
 
 ## Architecture
 
@@ -136,6 +142,16 @@ Copy `backend/.env.example` to `backend/.env`:
 - Vite dev server listens on all interfaces (`host: true` in vite.config.ts)
 - Access from other devices on the same Wi-Fi via `http://<laptop-ip>:3000`
 - The Vite proxy forwards `/api` requests to the backend at `localhost:3001`
+
+### Fonts
+Only two font families are defined in the theme (`index.css`):
+- `font-editorial` — Playfair Display (headings, player names, scores)
+- `font-mono` — Space Mono (stats, labels, body text, blurbs)
+
+Do not use `font-hand`, `font-sans`, or other undefined font classes.
+
+### Data Model: Players Table
+Each row in `players` is a **player-season** (e.g., "Mike Trout 2019" and "Mike Trout 2020" are separate rows with different IDs). This means `playerRecordId` is unique per player-year, not per player name. When matching across year options for the same player, use the set of all `playerRecordId` values, not a single ID.
 
 ## Design Principles
 
