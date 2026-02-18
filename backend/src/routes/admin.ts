@@ -1,5 +1,8 @@
 import { Router } from 'express';
+import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import path from 'path';
+import fs from 'fs';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
@@ -521,6 +524,32 @@ router.delete('/challenges/:id/reset', async (req, res) => {
   } catch (error) {
     console.error('Reset error:', error);
     res.status(500).json({ error: 'Failed to reset session' });
+  }
+});
+
+// Temporary: upload portrait file (for migrating local portraits to Railway Volume)
+router.post('/portraits/upload', express.raw({ type: 'image/png', limit: '5mb' }), (req: Request, res: Response) => {
+  try {
+    const playerId = req.query.playerId as string;
+    if (!playerId || !/^[a-zA-Z0-9_.-]+$/.test(playerId)) {
+      res.status(400).json({ error: 'Invalid playerId query param' });
+      return;
+    }
+
+    const portraitDir = process.env.PORTRAIT_DIR
+      || path.resolve(import.meta.dirname ?? process.cwd(), '../../frontend/public/portraits');
+
+    if (!fs.existsSync(portraitDir)) {
+      fs.mkdirSync(portraitDir, { recursive: true });
+    }
+
+    const filePath = path.join(portraitDir, `${playerId}.png`);
+    fs.writeFileSync(filePath, req.body as Buffer);
+
+    res.json({ ok: true, path: `/portraits/${playerId}.png` });
+  } catch (error) {
+    console.error('Portrait upload error:', error);
+    res.status(500).json({ error: 'Upload failed' });
   }
 });
 
