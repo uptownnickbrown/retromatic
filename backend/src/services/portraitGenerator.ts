@@ -18,11 +18,14 @@ function getOpenAIClient(): OpenAI | null {
   return openai;
 }
 
-// Resolve portrait directory (frontend/public/portraits/)
-const PORTRAITS_DIR = path.resolve(
-  import.meta.dirname ?? process.cwd(),
-  '../../../frontend/public/portraits',
-);
+// Resolve portrait directory:
+//   Production: PORTRAIT_DIR env var (Railway Volume, e.g. /data/portraits)
+//   Development: relative path to frontend/public/portraits/
+const PORTRAITS_DIR = process.env.PORTRAIT_DIR
+  || path.resolve(
+    import.meta.dirname ?? process.cwd(),
+    '../../../frontend/public/portraits',
+  );
 
 function getPortraitPath(playerId: string): string {
   return path.join(PORTRAITS_DIR, `${playerId}.png`);

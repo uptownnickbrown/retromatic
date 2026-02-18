@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import challengeRouter from './routes/challenge.js';
 import adminRouter from './routes/admin.js';
@@ -32,6 +34,45 @@ app.use('/api/admin', adminRouter);
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// --- Production static file serving ---
+// In dev, Vite handles frontend on :3000 and proxies /api to Express on :3001.
+// In production (Railway), Express serves everything: API + portraits + frontend.
+if (process.env.NODE_ENV === 'production') {
+  // Portraits: serve from PORTRAIT_DIR (Railway Volume) or default dev path
+  const portraitDir = process.env.PORTRAIT_DIR
+    || path.resolve(import.meta.dirname ?? process.cwd(), '../../frontend/public/portraits');
+
+  if (fs.existsSync(portraitDir) || process.env.PORTRAIT_DIR) {
+    if (process.env.PORTRAIT_DIR && !fs.existsSync(portraitDir)) {
+      fs.mkdirSync(portraitDir, { recursive: true });
+    }
+    app.use('/portraits', express.static(portraitDir, {
+      maxAge: '7d',
+      immutable: true,
+    }));
+    console.log(`Serving portraits from ${portraitDir}`);
+  }
+
+  // Frontend: serve the Vite build output
+  const frontendDist = path.resolve(
+    import.meta.dirname ?? process.cwd(),
+    '../../frontend/dist',
+  );
+
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist, {
+      maxAge: '1d',
+      index: false,
+    }));
+
+    // SPA catch-all: serve index.html for all unmatched GET requests (React Router)
+    app.get('/{*path}', (_req, res) => {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+    console.log(`Serving frontend from ${frontendDist}`);
+  }
+}
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
