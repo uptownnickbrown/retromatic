@@ -237,9 +237,9 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
 
       {/* Perfect player's blurb */}
       {perfect.blurb && (
-        <div className="bg-[#ECE9E0] rounded p-2 border border-navy/8">
-          <p className="text-base text-navy/70 font-editorial italic leading-snug text-left">
-            "{renderBlurb(perfect.blurb)}"
+        <div className="bg-[#E8E4D9] rounded p-3 border border-navy/10">
+          <p className="font-mono text-[13px] leading-relaxed text-left" style={{ color: '#37474F', letterSpacing: '-0.02em' }}>
+            {renderBlurb(perfect.blurb)}
           </p>
         </div>
       )}
