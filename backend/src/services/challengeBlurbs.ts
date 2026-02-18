@@ -360,10 +360,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
     playerRecord: any;
     career: CareerSeason[];
   }
-  type roundOptionsResult = Awaited<ReturnType<typeof db.select>>extends (infer U)[] ? U : never;
-
   const allTasks: BlurbTask[] = [];
-  const optionsByRound = new Map<number, { option: any; years: number[] }[]>();
 
   for (const round of rounds) {
     const options = await db.select()

@@ -7,7 +7,7 @@
  */
 
 import { db } from '../db/index.js';
-import { challengeRounds, roundOptions, players, pickStats, gameSessions, userPicks } from '../db/schema.js';
+import { challengeRounds, roundOptions, players, pickStats, gameSessions } from '../db/schema.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { calculateLegendScore, calculateSessionPercentile } from './legendScore.js';
 
