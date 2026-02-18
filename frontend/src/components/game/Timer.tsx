@@ -25,10 +25,10 @@ export function Timer({ timeLeft, progress, isUrgent }: TimerProps) {
       <div className="flex-1 h-2.5 bg-navy/15 rounded-full overflow-hidden min-w-[60px] border border-navy/10">
         <div
           className={cn(
-            'h-full rounded-full transition-all duration-100 ease-linear',
+            'h-full rounded-full',
             isUrgent ? 'bg-red' : 'bg-navy',
           )}
-          style={{ width: `${progress * 100}%` }}
+          style={{ width: `${(Math.max(0, Math.min(1, progress)) * 100).toFixed(2)}%` }}
         />
       </div>
     </div>

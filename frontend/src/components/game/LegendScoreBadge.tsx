@@ -58,7 +58,7 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
               : 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)',
           }}
         >
-          <span className="translate-y-[1px]">{score.toFixed(1)}</span>
+          <span className="translate-y-[0.1em] leading-none">{score.toFixed(1)}</span>
         </div>
         {showLabel && (
           <span className={cn(
@@ -102,7 +102,7 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
           avgSizeClasses[size],
         )}
       >
-        <span className="translate-y-[1px]">{score.toFixed(1)}</span>
+        <span className="translate-y-[0.1em] leading-none">{score.toFixed(1)}</span>
       </div>
       {showLabel && (
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted">

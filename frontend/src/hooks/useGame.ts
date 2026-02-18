@@ -202,6 +202,7 @@ export function useGame() {
         categoryZscores: selectedYearOption.categoryZscores,
         playerType: selectedYearOption.playerType,
         playerName: selectedPlayer.name,
+        portraitUrl: selectedPlayer.portraitUrl,
         year,
         team: selectedYearOption.team,
         pickPercentages: roundStats?.picks,

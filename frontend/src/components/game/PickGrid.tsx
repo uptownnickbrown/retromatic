@@ -56,25 +56,24 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
           'transition-shadow duration-200',
           isFocused && 'shadow-[4px_4px_0px_#0A1E2F]',
           disabled && 'opacity-50 pointer-events-none',
-          // Sizing: focused = full width, unfocused in pyramid
           isFocused ? 'w-full' : '',
         )}
         onClick={() => handleCardTap(player.slot)}
       >
-        <div className="p-2.5 flex flex-col items-center">
+        <div className={cn('flex flex-col items-center', isFocused ? 'p-4' : 'p-3')}>
           {/* Portrait */}
           <PlayerPortrait
             name={player.name}
             portraitUrl={player.portraitUrl}
             position={position}
-            size={isFocused ? 'lg' : 'md'}
+            size={isFocused ? 'xl' : 'lg'}
             className="mb-2"
           />
 
           {/* Player name */}
           <h3 className={cn(
             'font-editorial font-black text-navy text-center leading-tight truncate w-full',
-            isFocused ? 'text-lg' : 'text-base',
+            isFocused ? 'text-xl' : 'text-lg',
           )}>
             {player.name}
           </h3>
@@ -97,8 +96,8 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="ink-divider mx-2" />
-              <div className="flex flex-col gap-1.5 p-2.5">
+              <div className="ink-divider mx-3" />
+              <div className="flex flex-col gap-1.5 p-3">
                 {[...player.yearOptions].sort((a, b) => a.year - b.year).map((yo, yi) => (
                   <motion.button
                     key={yo.year}
@@ -130,9 +129,9 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
     const otherPlayers = players.filter(p => p.slot !== focusedSlot);
 
     return (
-      <div className="flex flex-col gap-2 w-full px-2">
+      <div className="flex flex-col gap-2 w-full px-3">
         {renderCard(focusedPlayer, 0)}
-        <div className="flex gap-1.5">
+        <div className="flex gap-2">
           {otherPlayers.map((p, i) => (
             <div key={p.slot} className="flex-1 min-w-0">
               {renderCard(p, i + 1)}
@@ -143,13 +142,13 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
     );
   }
 
-  // Default pyramid: 1 on top, 2 on bottom
+  // Default pyramid: 1 on top, 2 on bottom — big cards filling the viewport
   return (
-    <div className="flex flex-col items-center gap-2 w-full px-2">
-      <div className="w-[55%]">
+    <div className="flex flex-col items-center gap-2 w-full px-3">
+      <div className="w-[70%]">
         {renderCard(topPlayer, 0)}
       </div>
-      <div className="flex gap-1.5 w-full">
+      <div className="flex gap-2 w-full">
         {bottomPlayers.map((p, i) => (
           <div key={p.slot} className="flex-1 min-w-0">
             {renderCard(p, i + 1)}
