@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
-import { players, challengeRounds, roundOptions, gameSessions, userPicks } from '../db/schema.js';
-import { eq, and, sql, desc, lt } from 'drizzle-orm';
+import { players, challengeRounds, roundOptions, gameSessions } from '../db/schema.js';
+import { eq, and, sql } from 'drizzle-orm';
 import { toNum } from '../lib/numeric.js';
 
 // Legend Score: maps position-adjusted Z-score to a 1.0-10.0 scale

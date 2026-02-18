@@ -202,12 +202,6 @@ router.post('/:id/complete', async (req, res) => {
 
     // Idempotent: if already completed, return existing results
     if (session.status === 'completed') {
-      const existingPicks = await db.select({ legendScore: userPicks.legendScore })
-        .from(userPicks)
-        .where(eq(userPicks.sessionId, sessionId));
-
-      const totalScore = existingPicks.reduce((sum, p) => sum + toNum(p.legendScore), 0);
-      const roundedTotal = Math.round(totalScore * 10) / 10;
       const perfectLineup = await calculatePerfectLineup(challengeId);
 
       // Fresh community stats
