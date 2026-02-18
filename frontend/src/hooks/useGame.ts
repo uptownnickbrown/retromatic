@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import type { Challenge, RoundData, RoundCommunityStats, RevealData, PickSummary, PickSubmission, CompleteResponse } from '../types';
+import type { Challenge, RoundData, RoundCommunityStats, RevealData, PickSummary, PickSubmission, CompleteResponse, ResultsData, ResultsPick, PerfectLineupPick } from '../types';
 import { calculateLegendScore } from '../lib/legendScore';
 import { saveGame, loadSavedGame, clearSavedGame } from '../lib/gameStorage';
 import * as api from '../lib/api';
@@ -24,6 +24,7 @@ interface GameState {
   picks: PickSummary[];
   pickSubmissions: PickSubmission[];
   completeResponse: CompleteResponse | null;
+  playtestResults: ResultsData | null;
   error: string | null;
 }
 
@@ -38,6 +39,7 @@ const initialState: GameState = {
   picks: [],
   pickSubmissions: [],
   completeResponse: null,
+  playtestResults: null,
   error: null,
 };
 
@@ -265,15 +267,90 @@ export function useGame() {
       const totalScore = state.picks.reduce((sum, p) => sum + p.legendScore, 0);
       const roundedTotal = Math.round(totalScore * 10) / 10;
 
+      // Build enriched ResultsPick[] by matching picks with round data
+      const resultsPicks: ResultsPick[] = state.picks.map((pick, i) => {
+        const submission = state.pickSubmissions[i];
+        const round = state.rounds.find(r => r.roundNumber === pick.roundNumber);
+        let team = '';
+        let stats: Record<string, number> = {};
+        if (round && submission) {
+          for (const player of round.players) {
+            const yo = player.yearOptions.find(
+              y => y.playerRecordId === submission.playerRecordId && y.year === submission.year
+            );
+            if (yo) {
+              team = yo.team;
+              stats = yo.stats;
+              break;
+            }
+          }
+        }
+        return {
+          roundNumber: pick.roundNumber,
+          position: pick.position,
+          playerName: pick.playerName,
+          year: pick.year,
+          team,
+          legendScore: pick.legendScore,
+          stats,
+          wasTimeout: submission?.wasTimeout ?? false,
+        };
+      });
+
+      // Compute perfect lineup: best option from each round
+      const perfectPicks: PerfectLineupPick[] = state.rounds.map(round => {
+        let bestScore = -Infinity;
+        let bestPick: PerfectLineupPick = {
+          roundNumber: round.roundNumber,
+          position: round.position,
+          playerName: '',
+          year: 0,
+          legendScore: 0,
+        };
+        for (const player of round.players) {
+          for (const yo of player.yearOptions) {
+            const ls = calculateLegendScore(yo.zScorePosition);
+            if (ls > bestScore) {
+              bestScore = ls;
+              bestPick = {
+                roundNumber: round.roundNumber,
+                position: round.position,
+                playerName: player.name,
+                year: yo.year,
+                legendScore: ls,
+                team: yo.team,
+                stats: yo.stats,
+                playerType: yo.playerType,
+              };
+            }
+          }
+        }
+        return bestPick;
+      });
+      const perfectTotal = Math.round(perfectPicks.reduce((sum, p) => sum + p.legendScore, 0) * 10) / 10;
+
+      const playtestResults: ResultsData = {
+        session: {
+          totalLegendScore: roundedTotal,
+          percentile: 0,
+          completedAt: new Date().toISOString(),
+        },
+        picks: resultsPicks,
+        perfectLineup: { picks: perfectPicks, totalScore: perfectTotal },
+        totalParticipants: 0,
+        communityStats: state.communityStats,
+      };
+
       setState(s => ({
         ...s,
         phase: 'complete',
+        playtestResults,
         completeResponse: {
           totalLegendScore: roundedTotal,
           percentile: 0,
           totalParticipants: 0,
           communityStats: [],
-          perfectLineup: { picks: [], totalScore: 0 },
+          perfectLineup: { picks: perfectPicks, totalScore: perfectTotal },
         },
       }));
       submittingRef.current = false;
@@ -314,6 +391,7 @@ export function useGame() {
     reveal: state.reveal,
     picks: state.picks,
     completeResponse: state.completeResponse,
+    playtestResults: state.playtestResults,
     roundNumber,
     totalRounds,
     error: state.error,
