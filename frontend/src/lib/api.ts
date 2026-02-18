@@ -1,4 +1,4 @@
-import type { Challenge, FullGameData, CompleteResponse, PickSubmission, ResultsData, LeaderboardEntry } from '../types';
+import type { Challenge, FullGameData, CompleteResponse, PickSubmission, ResultsData } from '../types';
 
 const API_BASE = '/api';
 
@@ -70,14 +70,7 @@ export async function getChallengeResults(challengeId: number): Promise<ResultsD
   return fetchAPI(`/challenge/${challengeId}/results`);
 }
 
-// Leaderboard API
-export async function getLeaderboard(period: string = 'today'): Promise<{
-  leaderboard: LeaderboardEntry[];
-  period: string;
-}> {
-  return fetchAPI(`/leaderboard?period=${period}`);
-}
-
+// Streak API
 export async function getStreak(): Promise<{ current: number; longest: number }> {
-  return fetchAPI('/leaderboard/streak');
+  return fetchAPI('/challenge/streak');
 }
