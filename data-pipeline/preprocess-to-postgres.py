@@ -661,10 +661,10 @@ def insert_players_to_postgres(players, conn):
     """
     cursor = conn.cursor()
 
-    # Ensure unique constraint exists for upsert
+    # Ensure unique constraint exists for upsert (includes player_type for two-way players like Ohtani)
     cursor.execute('''
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_players_player_id_year_unique
-        ON players(player_id, year)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_players_player_id_year_type_unique
+        ON players(player_id, year, player_type)
     ''')
     conn.commit()
 
@@ -694,7 +694,7 @@ def insert_players_to_postgres(players, conn):
             primary_position, positions_eligible, stats, z_score_overall,
             z_score_position, category_zscores)
            VALUES %s
-           ON CONFLICT (player_id, year) DO UPDATE SET
+           ON CONFLICT (player_id, year, player_type) DO UPDATE SET
             name_first = EXCLUDED.name_first,
             name_last = EXCLUDED.name_last,
             team = EXCLUDED.team,
