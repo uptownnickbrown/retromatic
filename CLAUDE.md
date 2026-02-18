@@ -45,13 +45,13 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - **Data Pipeline**: Python (pandas, numpy, scipy) processes Lahman Baseball Database
 
 ### Key Directories
-- `frontend/src/pages/` — Home, Game, Results, Leaderboard, AdminLogin, AdminDashboard, AdminChallengeDetail
+- `frontend/src/pages/` — Home, Game, Results, AdminLogin, AdminDashboard, AdminChallengeDetail
 - `frontend/src/components/game/` — PickGrid, Timer, LineupCard, RevealCard, LegendScoreBadge, PlayerPortrait
 - `frontend/src/components/admin/` — AdminGuard, StatusBadge, HealthIndicators
 - `frontend/src/components/ui/` — PaperCard, VintageButton (shared design system)
 - `frontend/src/hooks/` — useGame (state machine), useTimer, useChallenge, useAdmin (admin mutations)
 - `frontend/src/lib/` — api.ts (game API client), adminApi.ts (admin API client), legendScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
-- `backend/src/routes/` — challenge.ts, leaderboard.ts, admin.ts
+- `backend/src/routes/` — challenge.ts, admin.ts
 - `backend/src/services/` — legendScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts, portraitGenerator.ts, statsPreseeder.ts
 - `backend/src/db/` — Drizzle schema and connection
 - `data-preprocessing/` — Jupyter notebook, Python preprocessing scripts
@@ -73,7 +73,7 @@ cd data-pipeline && python preprocess-to-postgres.py ../data-preprocessing/lahma
 - `POST /api/challenge/:id/start` — begin game, returns ALL round data upfront (enriched players, stats, community picks)
 - `POST /api/challenge/:id/complete` — submit all 10 picks at once, get final results
 - `GET /api/challenge/:id/results` — completed game results with community stats
-- `GET /api/leaderboard` — daily/weekly/all-time rankings
+- `GET /api/challenge/streak` — current user's play streak
 
 **Admin (requires `x-admin-secret` header)**:
 - `POST /api/admin/challenges/generate` — generate challenge(s), optional `{count, theme, date}`
@@ -102,7 +102,6 @@ Picks are computed client-side (Legend Score from z-scores). Game state saved to
 - `/` — Home (daily challenge launcher)
 - `/play` — Game (10-round draft); supports `?playtest=<challengeId>` for admin playtest mode
 - `/results/:challengeId` — Results page
-- `/leaderboard` — Leaderboard
 - `/admin/login` — Admin login (enter `ADMIN_SECRET`)
 - `/admin` — Admin "Front Office" dashboard (pipeline overview, calendar strip, generation controls)
 - `/admin/challenge/:id` — Challenge detail (health, rounds, players, blurbs, playtest button)
