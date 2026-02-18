@@ -151,7 +151,7 @@ export async function generateBlurbs(id: number): Promise<{ generated: number; f
   return adminFetch(`/admin/challenges/${id}/blurbs`, { method: 'POST' });
 }
 
-export async function preseedStats(id: number): Promise<{ roundsSeeded: number; totalPicks: number }> {
+export async function preseedStats(id: number): Promise<{ roundsSeeded: number; totalPicks: number; syntheticSessions: number }> {
   return adminFetch(`/admin/challenges/${id}/preseed`, { method: 'POST' });
 }
 
