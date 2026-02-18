@@ -46,7 +46,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
             >
               <PlayerPortrait
                 name={pick.playerName}
-                portraitUrl={pick.portraitUrl}
+                portraitUrl={pick.portraitUrl ?? null}
                 position={pick.position}
                 size="sm"
                 className="flex-shrink-0"
