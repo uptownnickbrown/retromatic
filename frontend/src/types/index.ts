@@ -82,7 +82,7 @@ export interface CompleteResponse {
 export interface RevealRoundPlayer {
   name: string;
   portraitUrl: string | null;
-  yearOptions: { year: number; team: string }[];
+  yearOptions: { year: number; team: string; playerRecordId: number }[];
 }
 
 export interface RevealData {

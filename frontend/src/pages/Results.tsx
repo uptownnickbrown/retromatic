@@ -73,7 +73,7 @@ export function Results() {
                 <span className="text-sm text-muted font-mono">/100</span>
               </p>
             </div>
-            <LegendScoreBadge score={totalScore} size="md" animate showLabel />
+            <LegendScoreBadge score={totalScore / 10} size="md" animate showLabel />
           </div>
           {/* Percentile slab */}
           <div className="bg-[#ECE9E0] px-4 py-2.5 rounded-b">
