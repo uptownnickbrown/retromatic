@@ -48,8 +48,7 @@ if (process.env.NODE_ENV === 'production') {
       fs.mkdirSync(portraitDir, { recursive: true });
     }
     app.use('/portraits', express.static(portraitDir, {
-      maxAge: '7d',
-      immutable: true,
+      maxAge: '1h',
     }));
     console.log(`Serving portraits from ${portraitDir}`);
   }
