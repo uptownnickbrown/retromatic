@@ -268,21 +268,35 @@ router.get('/stats/today', async (req, res) => {
     if (roundIds.length > 0) {
       const allPickStats = await db.select({
         roundId: pickStats.roundId,
-        playerId: pickStats.playerId,
+        playerId: pickStats.playerId, // integer references players.id
         pickCount: pickStats.pickCount,
       }).from(pickStats).where(inArray(pickStats.roundId, roundIds));
 
       const allOptions = await db.select({
         roundId: roundOptions.roundId,
-        playerId: roundOptions.playerId,
+        playerId: roundOptions.playerId, // varchar Lahman player_id
         playerName: roundOptions.playerName,
         portraitUrl: roundOptions.portraitUrl,
         yearOptions: roundOptions.yearOptions,
       }).from(roundOptions).where(inArray(roundOptions.roundId, roundIds));
 
-      const playerInfoMap = new Map<string, { name: string; portraitUrl: string | null; yearOptions: number[] }>();
+      // Build a lookup from numeric players.id → Lahman playerId for this challenge
+      // pickStats uses players.id (integer), roundOptions uses Lahman playerId (varchar)
+      const numericIds = [...new Set(allPickStats.map(s => s.playerId))];
+      const playerIdMapping = new Map<number, string>(); // players.id → Lahman playerId
+      if (numericIds.length > 0) {
+        const playerRows = await db.select({ id: players.id, playerId: players.playerId })
+          .from(players)
+          .where(inArray(players.id, numericIds));
+        for (const row of playerRows) {
+          playerIdMapping.set(row.id, row.playerId);
+        }
+      }
+
+      // Map roundId + Lahman playerId → option info
+      const optionInfoMap = new Map<string, { name: string; portraitUrl: string | null; yearOptions: number[] }>();
       for (const opt of allOptions) {
-        playerInfoMap.set(`${opt.roundId}-${opt.playerId}`, {
+        optionInfoMap.set(`${opt.roundId}-${opt.playerId}`, {
           name: opt.playerName,
           portraitUrl: opt.portraitUrl,
           yearOptions: (opt.yearOptions as number[]) || [],
@@ -290,18 +304,19 @@ router.get('/stats/today', async (req, res) => {
       }
 
       roundStats = rounds.map(round => {
-        const stats = allPickStats.filter(s => s.roundId === round.id);
+        // Aggregate pick counts by Lahman playerId (translated from numeric ID)
         const playerTotals = new Map<string, number>();
+        const stats = allPickStats.filter(s => s.roundId === round.id);
         for (const s of stats) {
-          const pid = String(s.playerId);
-          playerTotals.set(pid, (playerTotals.get(pid) || 0) + s.pickCount);
+          const lahmanId = playerIdMapping.get(s.playerId) ?? String(s.playerId);
+          playerTotals.set(lahmanId, (playerTotals.get(lahmanId) || 0) + s.pickCount);
         }
         let mostPicked: MostPickedPlayer | null = null;
-        for (const [pid, count] of playerTotals) {
+        for (const [lahmanId, count] of playerTotals) {
           if (!mostPicked || count > mostPicked.pickCount) {
-            const info = playerInfoMap.get(`${round.id}-${pid}`);
+            const info = optionInfoMap.get(`${round.id}-${lahmanId}`);
             mostPicked = {
-              playerName: info?.name || `Player ${pid}`,
+              playerName: info?.name || lahmanId,
               pickCount: count,
               portraitUrl: info?.portraitUrl ?? null,
               yearOptions: info?.yearOptions ?? [],
