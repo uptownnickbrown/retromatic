@@ -99,12 +99,6 @@ export async function generatePortraitForOption(optionId: number): Promise<{
 
   if (!option) throw new Error('Round option not found');
 
-  // Delete existing portrait from disk to force regeneration
-  const existingPath = getPortraitPath(option.playerId);
-  if (fs.existsSync(existingPath)) {
-    fs.unlinkSync(existingPath);
-  }
-
   // Pick the best year's team for the portrait prompt
   const years = option.yearOptions as number[];
   let bestTeam = 'Unknown';
@@ -136,9 +130,12 @@ export async function generatePortraitForOption(optionId: number): Promise<{
   const teamName = getTeamName(bestTeam);
   console.log(`  Generating portrait for ${option.playerName} (${bestYear} ${teamName})...`);
 
+  // Generate new portrait BEFORE deleting old one — if generation fails,
+  // the old file is preserved instead of leaving a broken image
   const imageBuffer = await generatePortrait(option.playerName, teamName, bestYear);
 
-  // Save to disk
+  // Only now replace the old file
+  const existingPath = getPortraitPath(option.playerId);
   fs.writeFileSync(existingPath, imageBuffer);
 
   // Update DB — append cache-buster so browsers/CDNs fetch the new image
