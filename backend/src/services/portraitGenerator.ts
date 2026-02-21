@@ -140,8 +140,8 @@ export async function generatePortraitForOption(optionId: number): Promise<{
   // Save to disk
   fs.writeFileSync(existingPath, imageBuffer);
 
-  // Update DB
-  const portraitUrl = `/portraits/${option.playerId}.png`;
+  // Update DB — append cache-buster so browsers/CDNs fetch the new image
+  const portraitUrl = `/portraits/${option.playerId}.png?v=${Date.now()}`;
   await db.update(roundOptions)
     .set({ portraitUrl })
     .where(eq(roundOptions.id, optionId));
