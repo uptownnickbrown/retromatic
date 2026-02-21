@@ -6,11 +6,11 @@ import fs from 'fs';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
-import { generateBatch, scheduleChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
+import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
 import { generatePortraitsForChallenge, generatePortraitForOption } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
-import { activateTodaysChallenge } from '../services/dailyScheduler.js';
+import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { toNum } from '../lib/numeric.js';
 import { getAllRoundData } from './challenge.js';
@@ -54,18 +54,70 @@ router.post('/challenges/generate-themed', async (req, res) => {
   }
 });
 
-// Schedule challenges (assign dates) — must be before :id routes
-router.post('/challenges/schedule', async (req, res) => {
+// Queue challenges (add to the auto-promote queue) — must be before :id routes
+router.post('/challenges/queue', async (req, res) => {
   try {
-    const { challengeIds, startDate } = req.body;
-    if (!challengeIds?.length || !startDate) {
-      res.status(400).json({ error: 'challengeIds and startDate required' });
+    const { challengeIds } = req.body;
+    if (!challengeIds?.length) {
+      res.status(400).json({ error: 'challengeIds required' });
       return;
     }
-    await scheduleChallenges(challengeIds, startDate);
-    res.json({ scheduled: challengeIds.length, startDate });
+    await queueChallenges(challengeIds);
+    res.json({ queued: challengeIds.length });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to schedule challenges' });
+    res.status(500).json({ error: 'Failed to queue challenges' });
+  }
+});
+
+// Dequeue challenge (remove from queue, back to draft)
+router.post('/challenges/dequeue', async (req, res) => {
+  try {
+    const { challengeId } = req.body;
+    if (!challengeId) {
+      res.status(400).json({ error: 'challengeId required' });
+      return;
+    }
+    const [updated] = await db.update(challenges)
+      .set({ status: 'draft', publishedAt: null })
+      .where(and(
+        eq(challenges.id, challengeId),
+        eq(challenges.status, 'scheduled'),
+      ))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: 'Challenge not found or not queued' });
+      return;
+    }
+    res.json({ dequeued: true, challengeId });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to dequeue challenge' });
+  }
+});
+
+// History: completed challenges with audience stats
+router.get('/challenges/history', async (req, res) => {
+  try {
+    const history = await db.select({
+      id: challenges.id,
+      challengeDate: challenges.challengeDate,
+      theme: challenges.theme,
+      status: challenges.status,
+      createdAt: challenges.createdAt,
+      playerCount: sql<number>`count(distinct case when ${gameSessions.status} = 'completed' then ${gameSessions.id} end)`,
+      avgScore: sql<number>`round(avg(case when ${gameSessions.status} = 'completed' then ${gameSessions.totalLegendScore}::numeric end)::numeric, 1)`,
+      bestScore: sql<number>`max(case when ${gameSessions.status} = 'completed' then ${gameSessions.totalLegendScore}::numeric end)`,
+    })
+      .from(challenges)
+      .leftJoin(gameSessions, eq(gameSessions.challengeId, challenges.id))
+      .where(eq(challenges.status, 'completed'))
+      .groupBy(challenges.id)
+      .orderBy(desc(challenges.challengeDate));
+
+    res.json({ challenges: history });
+  } catch (error) {
+    console.error('History error:', error);
+    res.status(500).json({ error: 'Failed to fetch history' });
   }
 });
 
@@ -481,13 +533,13 @@ router.post('/challenges/:id/preseed', async (req, res) => {
   }
 });
 
-// Manually activate today's challenge
-router.post('/activate-today', async (req, res) => {
+// Manually promote the next queued challenge
+router.post('/promote-next', async (req, res) => {
   try {
-    const result = await activateTodaysChallenge();
+    const result = await promoteNextChallenge();
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to activate challenge' });
+    res.status(500).json({ error: 'Failed to promote challenge' });
   }
 });
 

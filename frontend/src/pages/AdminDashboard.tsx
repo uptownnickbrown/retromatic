@@ -4,91 +4,48 @@ import { motion } from 'framer-motion';
 import {
   Plus,
   Wand2,
-  Zap,
   ChevronRight,
-  Calendar,
   Loader2,
   AlertTriangle,
   LogOut,
+  Users,
+  Trophy,
+  Clock,
 } from 'lucide-react';
-import { useAdminPipeline, useGenerateChallenge, useGenerateThemedBatch, useActivateToday } from '../hooks/useAdmin';
+import { useAdminPipeline, useAdminHistory, useGenerateChallenge, useGenerateThemedBatch } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { StatusBadge } from '../components/admin/StatusBadge';
 import { HealthIndicators } from '../components/admin/HealthIndicators';
 import { clearAdminSecret } from '../lib/adminApi';
 import { cn } from '../lib/utils';
-import type { PipelineChallenge } from '../lib/adminApi';
-
-function getTodayET(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-}
+import type { PipelineChallenge, HistoryChallenge } from '../lib/adminApi';
 
 function formatDateShort(dateStr: string): string {
+  if (!dateStr || dateStr.startsWith('draft-')) return '—';
   const d = new Date(dateStr + 'T12:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function getDayAbbrev(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
-}
-
-function getDayNum(dateStr: string): number {
-  return new Date(dateStr + 'T12:00:00').getDate();
-}
-
-function getNext14Days(): string[] {
-  const days: string[] = [];
-  const now = new Date();
-  for (let i = 0; i < 14; i++) {
-    const d = new Date(now);
-    d.setDate(d.getDate() + i);
-    days.push(d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }));
-  }
-  return days;
 }
 
 export function AdminDashboard() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useAdminPipeline();
+  const { data: historyData } = useAdminHistory();
   const generateMutation = useGenerateChallenge();
   const themedMutation = useGenerateThemedBatch();
-  const activateMutation = useActivateToday();
-
-  const today = getTodayET();
-  const next14 = useMemo(() => getNext14Days(), []);
 
   const challenges = useMemo(() => data?.challenges ?? [], [data?.challenges]);
+  const history = useMemo(() => historyData?.challenges ?? [], [historyData?.challenges]);
 
   // Group by status
   const grouped = useMemo(() => {
     const active = challenges.filter(c => c.status === 'active');
-    const scheduled = challenges
+    const queued = challenges
       .filter(c => c.status === 'scheduled')
-      .sort((a, b) => a.challengeDate.localeCompare(b.challengeDate));
+      .sort((a, b) => a.id - b.id); // FIFO by id
     const draft = challenges.filter(c => c.status === 'draft');
-    return { active, scheduled, draft };
+    return { active, queued, draft };
   }, [challenges]);
-
-  // Map dates to challenges for calendar
-  const dateMap = useMemo(() => {
-    const map = new Map<string, PipelineChallenge>();
-    for (const c of challenges) {
-      if (c.challengeDate && c.challengeDate !== 'unassigned') {
-        map.set(c.challengeDate, c);
-      }
-    }
-    return map;
-  }, [challenges]);
-
-  // Days covered = scheduled + active with dates >= today
-  const daysCovered = useMemo(() => {
-    return challenges.filter(c =>
-      (c.status === 'scheduled' || c.status === 'active') &&
-      c.challengeDate >= today
-    ).length;
-  }, [challenges, today]);
 
   const handleGenerate = () => {
     generateMutation.mutate({ count: 1 });
@@ -96,10 +53,6 @@ export function AdminDashboard() {
 
   const handleGenerateThemed = () => {
     themedMutation.mutate(25);
-  };
-
-  const handleActivate = () => {
-    activateMutation.mutate();
   };
 
   const handleLogout = () => {
@@ -119,7 +72,7 @@ export function AdminDashboard() {
 
   return (
     <div className="max-w-5xl mx-auto w-full px-6 py-8">
-      {/* ═══ HEADER ═══ */}
+      {/* HEADER */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -135,17 +88,17 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Days Covered badge */}
+          {/* Queue depth badge */}
           <div className={cn(
             'px-3 py-1.5 rounded border font-mono text-xs font-bold',
-            daysCovered >= 7
+            grouped.queued.length >= 7
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700'
-              : daysCovered >= 3
+              : grouped.queued.length >= 3
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
                 : 'bg-red-400/10 border-red-400/30 text-red-600',
           )}>
-            <Calendar className="inline w-3 h-3 mr-1.5 -mt-px" />
-            {daysCovered} {daysCovered === 1 ? 'day' : 'days'} covered
+            <Clock className="inline w-3 h-3 mr-1.5 -mt-px" />
+            {grouped.queued.length} queued
           </div>
 
           <VintageButton
@@ -164,15 +117,6 @@ export function AdminDashboard() {
           >
             <Wand2 className="inline w-3.5 h-3.5 mr-1 -mt-px" />
             {themedMutation.isPending ? 'Generating 25...' : '25 Themed'}
-          </VintageButton>
-
-          <VintageButton
-            variant="section"
-            onClick={handleActivate}
-            disabled={activateMutation.isPending}
-          >
-            <Zap className="inline w-3.5 h-3.5 mr-1 -mt-px" />
-            {activateMutation.isPending ? 'Activating...' : 'Activate Today'}
           </VintageButton>
 
           <button
@@ -210,7 +154,7 @@ export function AdminDashboard() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-4 px-4 py-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 text-xs font-mono"
         >
-          Generated {themedMutation.data.count} themed challenges, scheduled starting tomorrow
+          Generated {themedMutation.data.count} themed challenges and added to queue
         </motion.div>
       )}
 
@@ -221,86 +165,42 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {/* ═══ CALENDAR STRIP ═══ */}
+      {/* Auto-promote info banner */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
       >
         <PaperCard noPadding className="mb-8 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-navy/8">
-            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
-              Next 14 Days
+          <div className="px-4 py-3 flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+            <span className="font-mono text-xs text-navy/70">
+              Games auto-promote at midnight ET. The next queued game will go live automatically.
             </span>
-          </div>
-          <div className="flex overflow-x-auto">
-            {next14.map((dateStr) => {
-              const challenge = dateMap.get(dateStr);
-              const isToday = dateStr === today;
-              const hasChallenge = !!challenge;
-              const isReady = challenge?.health.roundsReady && challenge?.health.blurbsReady;
-
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => challenge && navigate(`/admin/challenge/${challenge.id}`)}
-                  disabled={!hasChallenge}
-                  className={cn(
-                    'flex-shrink-0 w-[72px] py-3 flex flex-col items-center gap-1 border-r border-navy/6 transition-colors',
-                    isToday && 'bg-gold/8',
-                    hasChallenge && 'cursor-pointer hover:bg-navy/4',
-                    !hasChallenge && 'cursor-default opacity-50',
-                  )}
-                >
-                  <span className={cn(
-                    'font-mono text-[9px] font-bold uppercase tracking-wider',
-                    isToday ? 'text-gold' : 'text-muted',
-                  )}>
-                    {getDayAbbrev(dateStr)}
-                  </span>
-                  <span className={cn(
-                    'font-editorial font-bold text-lg leading-none',
-                    isToday ? 'text-navy' : 'text-navy/70',
-                  )}>
-                    {getDayNum(dateStr)}
-                  </span>
-                  {/* Status dot */}
-                  <div className={cn(
-                    'w-2 h-2 rounded-full mt-0.5',
-                    !hasChallenge && 'bg-navy/10',
-                    hasChallenge && isReady && 'bg-emerald-500',
-                    hasChallenge && !isReady && 'bg-amber-400',
-                  )} />
-                  {hasChallenge && (
-                    <span className="font-mono text-[8px] text-muted leading-none">
-                      #{challenge.id}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
           </div>
         </PaperCard>
       </motion.div>
 
-      {/* ═══ PIPELINE SECTIONS ═══ */}
+      {/* PIPELINE SECTIONS */}
       <div className="space-y-8">
-        {/* Today */}
+        {/* Now Playing */}
         {grouped.active.length > 0 && (
           <PipelineSection
-            title="Today"
+            title="Now Playing"
             challenges={grouped.active}
             onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
             highlight="gold"
           />
         )}
 
-        {/* Upcoming */}
-        {grouped.scheduled.length > 0 && (
+        {/* Up Next (Queue) */}
+        {grouped.queued.length > 0 && (
           <PipelineSection
-            title="Upcoming"
-            challenges={grouped.scheduled}
+            title="Up Next"
+            subtitle="Auto-promotes in order"
+            challenges={grouped.queued}
             onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
+            showQueuePosition
           />
         )}
 
@@ -308,6 +208,7 @@ export function AdminDashboard() {
         {grouped.draft.length > 0 && (
           <PipelineSection
             title="Drafts"
+            subtitle="Not yet queued"
             challenges={grouped.draft}
             onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
           />
@@ -322,23 +223,35 @@ export function AdminDashboard() {
             </VintageButton>
           </div>
         )}
+
+        {/* Previous Games */}
+        {history.length > 0 && (
+          <HistorySection
+            challenges={history}
+            onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Pipeline Section ─────────────────────────────────────────
+// Pipeline Section
 
 function PipelineSection({
   title,
+  subtitle,
   challenges,
   onNavigate,
   highlight,
+  showQueuePosition,
 }: {
   title: string;
+  subtitle?: string;
   challenges: PipelineChallenge[];
   onNavigate: (id: number) => void;
   highlight?: 'gold';
+  showQueuePosition?: boolean;
 }) {
   return (
     <motion.section
@@ -351,6 +264,11 @@ function PipelineSection({
         <span className="font-mono text-[10px] text-muted uppercase tracking-wider">
           {challenges.length} {challenges.length === 1 ? 'challenge' : 'challenges'}
         </span>
+        {subtitle && (
+          <span className="font-mono text-[10px] text-muted/60 italic">
+            {subtitle}
+          </span>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -365,6 +283,7 @@ function PipelineSection({
               challenge={challenge}
               onClick={() => onNavigate(challenge.id)}
               highlight={highlight}
+              queuePosition={showQueuePosition ? i + 1 : undefined}
             />
           </motion.div>
         ))}
@@ -373,21 +292,19 @@ function PipelineSection({
   );
 }
 
-// ─── Challenge Row ────────────────────────────────────────────
+// Challenge Row
 
 function ChallengeRow({
   challenge,
   onClick,
   highlight,
+  queuePosition,
 }: {
   challenge: PipelineChallenge;
   onClick: () => void;
   highlight?: 'gold';
+  queuePosition?: number;
 }) {
-  const dateDisplay = challenge.challengeDate === 'unassigned'
-    ? 'Unassigned'
-    : formatDateShort(challenge.challengeDate);
-
   return (
     <button
       onClick={onClick}
@@ -397,20 +314,18 @@ function ChallengeRow({
         highlight === 'gold' && 'border-l-3 border-l-gold',
       )}
     >
-      {/* Status */}
-      <StatusBadge status={challenge.status} />
+      {/* Queue position or status */}
+      {queuePosition !== undefined ? (
+        <span className="font-mono text-xs text-muted/60 font-bold w-6 flex-shrink-0 text-center">
+          {queuePosition}
+        </span>
+      ) : (
+        <StatusBadge status={challenge.status} />
+      )}
 
       {/* ID */}
       <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
         #{challenge.id}
-      </span>
-
-      {/* Date */}
-      <span className={cn(
-        'font-mono text-xs w-20 flex-shrink-0',
-        challenge.challengeDate === 'unassigned' ? 'text-muted/60 italic' : 'text-navy',
-      )}>
-        {dateDisplay}
       </span>
 
       {/* Theme */}
@@ -422,6 +337,104 @@ function ChallengeRow({
       <div className="flex-shrink-0">
         <HealthIndicators health={challenge.health} compact />
       </div>
+
+      {/* Arrow */}
+      <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
+    </button>
+  );
+}
+
+// History Section (Previous Games)
+
+function HistorySection({
+  challenges,
+  onNavigate,
+}: {
+  challenges: HistoryChallenge[];
+  onNavigate: (id: number) => void;
+}) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 }}
+    >
+      <div className="flex items-baseline gap-3 mb-3">
+        <h2 className="font-editorial font-bold text-xl text-navy">Previous Games</h2>
+        <span className="font-mono text-[10px] text-muted uppercase tracking-wider">
+          {challenges.length} played
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {challenges.map((challenge, i) => (
+          <motion.div
+            key={challenge.id}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.02 }}
+          >
+            <HistoryRow
+              challenge={challenge}
+              onClick={() => onNavigate(challenge.id)}
+            />
+          </motion.div>
+        ))}
+      </div>
+    </motion.section>
+  );
+}
+
+// History Row
+
+function HistoryRow({
+  challenge,
+  onClick,
+}: {
+  challenge: HistoryChallenge;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'w-full paper-card px-4 py-3 flex items-center gap-4 group',
+        'hover:shadow-[3px_3px_0px_rgba(10,30,47,0.2)] transition-shadow cursor-pointer text-left',
+        'opacity-80 hover:opacity-100',
+      )}
+    >
+      {/* Date */}
+      <span className="font-mono text-xs text-navy w-20 flex-shrink-0">
+        {formatDateShort(challenge.challengeDate)}
+      </span>
+
+      {/* ID */}
+      <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
+        #{challenge.id}
+      </span>
+
+      {/* Theme */}
+      <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
+        {challenge.theme || '—'}
+      </span>
+
+      {/* Player count */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <Users className="w-3 h-3 text-muted" />
+        <span className="font-mono text-xs text-navy font-bold tabular-nums">
+          {challenge.playerCount}
+        </span>
+      </div>
+
+      {/* Avg score */}
+      {challenge.avgScore != null && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <Trophy className="w-3 h-3 text-gold" />
+          <span className="font-mono text-xs text-navy/70 tabular-nums">
+            {challenge.avgScore}
+          </span>
+        </div>
+      )}
 
       {/* Arrow */}
       <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
