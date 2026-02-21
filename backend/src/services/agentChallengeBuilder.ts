@@ -484,7 +484,7 @@ DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dod
   try {
     // Initial call
     let response = await client.responses.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-5-mini',
       instructions: systemPrompt,
       input: prompt,
       tools,
@@ -552,7 +552,7 @@ DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dod
 
       // Continue the conversation with tool results
       response = await client.responses.create({
-        model: 'gpt-4.1-mini',
+        model: 'gpt-5-mini',
         instructions: systemPrompt,
         previous_response_id: response.id,
         input: toolResults,
