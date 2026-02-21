@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, Reorder } from 'framer-motion';
 import {
   Plus,
   Wand2,
@@ -11,8 +11,18 @@ import {
   Users,
   Trophy,
   Clock,
+  GripVertical,
+  Trash2,
 } from 'lucide-react';
-import { useAdminPipeline, useAdminHistory, useGenerateChallenge, useGenerateThemedBatch } from '../hooks/useAdmin';
+import {
+  useAdminPipeline,
+  useAdminHistory,
+  useGenerateChallenge,
+  useGenerateThemedBatch,
+  useReorderQueue,
+  useDequeueChallenges,
+  useDeleteChallenge,
+} from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { StatusBadge } from '../components/admin/StatusBadge';
@@ -33,6 +43,9 @@ export function AdminDashboard() {
   const { data: historyData } = useAdminHistory();
   const generateMutation = useGenerateChallenge();
   const themedMutation = useGenerateThemedBatch();
+  const reorderMutation = useReorderQueue();
+  const dequeueMutation = useDequeueChallenges();
+  const deleteMutation = useDeleteChallenge();
 
   const challenges = useMemo(() => data?.challenges ?? [], [data?.challenges]);
   const history = useMemo(() => historyData?.challenges ?? [], [historyData?.challenges]);
@@ -42,10 +55,45 @@ export function AdminDashboard() {
     const active = challenges.filter(c => c.status === 'active');
     const queued = challenges
       .filter(c => c.status === 'scheduled')
-      .sort((a, b) => a.id - b.id); // FIFO by id
+      .sort((a, b) => (a.queuePosition ?? Infinity) - (b.queuePosition ?? Infinity) || a.id - b.id);
     const draft = challenges.filter(c => c.status === 'draft');
     return { active, queued, draft };
   }, [challenges]);
+
+  // Local queue state for optimistic drag reordering.
+  // When not dragging, localQueue is null and we use grouped.queued (server data).
+  // During a drag, localQueue holds the in-progress order.
+  const [localQueue, setLocalQueue] = useState<PipelineChallenge[] | null>(null);
+  const isDragging = useRef(false);
+  const displayQueue = localQueue ?? grouped.queued;
+
+  const handleReorder = useCallback((newOrder: PipelineChallenge[]) => {
+    isDragging.current = true;
+    setLocalQueue(newOrder);
+  }, []);
+
+  const handleReorderEnd = useCallback(() => {
+    if (!isDragging.current || !localQueue) return;
+    isDragging.current = false;
+    const ids = localQueue.map(c => c.id);
+    const serverIds = grouped.queued.map(c => c.id);
+    if (ids.join(',') !== serverIds.join(',')) {
+      reorderMutation.mutate(ids);
+    }
+    setLocalQueue(null);
+  }, [localQueue, grouped.queued, reorderMutation]);
+
+  const handleDequeue = useCallback((id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    dequeueMutation.mutate(id);
+  }, [dequeueMutation]);
+
+  const handleDeleteDraft = useCallback((id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete Challenge #${id}? This cannot be undone.`)) {
+      deleteMutation.mutate(id);
+    }
+  }, [deleteMutation]);
 
   const handleGenerate = () => {
     generateMutation.mutate({ count: 1 });
@@ -175,7 +223,7 @@ export function AdminDashboard() {
           <div className="px-4 py-3 flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
             <span className="font-mono text-xs text-navy/70">
-              Games auto-promote at midnight ET. The next queued game will go live automatically.
+              Games auto-promote at midnight ET. Drag to reorder the queue.
             </span>
           </div>
         </PaperCard>
@@ -193,15 +241,41 @@ export function AdminDashboard() {
           />
         )}
 
-        {/* Up Next (Queue) */}
-        {grouped.queued.length > 0 && (
-          <PipelineSection
-            title="Up Next"
-            subtitle="Auto-promotes in order"
-            challenges={grouped.queued}
-            onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
-            showQueuePosition
-          />
+        {/* Up Next (Draggable Queue) */}
+        {displayQueue.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <div className="flex items-baseline gap-3 mb-3">
+              <h2 className="font-editorial font-bold text-xl text-navy">Up Next</h2>
+              <span className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                {displayQueue.length} {displayQueue.length === 1 ? 'challenge' : 'challenges'}
+              </span>
+              <span className="font-mono text-[10px] text-muted/60 italic">
+                Drag to reorder
+              </span>
+            </div>
+
+            <Reorder.Group
+              axis="y"
+              values={displayQueue}
+              onReorder={handleReorder}
+              className="space-y-2"
+            >
+              {displayQueue.map((challenge, i) => (
+                <QueueItem
+                  key={challenge.id}
+                  challenge={challenge}
+                  position={i + 1}
+                  onClick={() => navigate(`/admin/challenge/${challenge.id}`)}
+                  onRemove={(e) => handleDequeue(challenge.id, e)}
+                  onDragEnd={handleReorderEnd}
+                />
+              ))}
+            </Reorder.Group>
+          </motion.section>
         )}
 
         {/* Drafts */}
@@ -211,6 +285,7 @@ export function AdminDashboard() {
             subtitle="Not yet queued"
             challenges={grouped.draft}
             onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
+            onDelete={(id, e) => handleDeleteDraft(id, e)}
           />
         )}
 
@@ -236,7 +311,81 @@ export function AdminDashboard() {
   );
 }
 
-// Pipeline Section
+// Draggable Queue Item
+
+function QueueItem({
+  challenge,
+  position,
+  onClick,
+  onRemove,
+  onDragEnd,
+}: {
+  challenge: PipelineChallenge;
+  position: number;
+  onClick: () => void;
+  onRemove: (e: React.MouseEvent) => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <Reorder.Item
+      value={challenge}
+      onDragEnd={onDragEnd}
+      whileDrag={{ scale: 1.02, boxShadow: '4px 4px 0px rgba(10,30,47,0.25)' }}
+      className="list-none"
+    >
+      <div
+        className={cn(
+          'paper-card px-4 py-3 flex items-center gap-3 group cursor-grab active:cursor-grabbing',
+          'hover:shadow-[3px_3px_0px_rgba(10,30,47,0.15)] transition-shadow',
+        )}
+      >
+        {/* Drag handle */}
+        <GripVertical className="w-4 h-4 text-muted/30 group-hover:text-muted/60 flex-shrink-0" />
+
+        {/* Position number */}
+        <span className="font-mono text-xs text-muted/50 font-bold w-5 flex-shrink-0 text-center tabular-nums">
+          {position}
+        </span>
+
+        {/* Clickable content */}
+        <button
+          onClick={onClick}
+          className="flex items-center gap-4 flex-1 min-w-0 text-left"
+        >
+          {/* ID */}
+          <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
+            #{challenge.id}
+          </span>
+
+          {/* Theme */}
+          <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
+            {challenge.theme || '—'}
+          </span>
+
+          {/* Health */}
+          <div className="flex-shrink-0">
+            <HealthIndicators health={challenge.health} compact />
+          </div>
+
+          {/* Arrow */}
+          <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
+        </button>
+
+        {/* Remove from queue */}
+        <button
+          onClick={onRemove}
+          className="p-1.5 rounded text-muted/30 hover:text-red hover:bg-red/8 transition-colors
+                     opacity-0 group-hover:opacity-100 flex-shrink-0"
+          title="Remove from queue"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </Reorder.Item>
+  );
+}
+
+// Pipeline Section (for non-draggable lists: active, drafts)
 
 function PipelineSection({
   title,
@@ -244,14 +393,14 @@ function PipelineSection({
   challenges,
   onNavigate,
   highlight,
-  showQueuePosition,
+  onDelete,
 }: {
   title: string;
   subtitle?: string;
   challenges: PipelineChallenge[];
   onNavigate: (id: number) => void;
   highlight?: 'gold';
-  showQueuePosition?: boolean;
+  onDelete?: (id: number, e: React.MouseEvent) => void;
 }) {
   return (
     <motion.section
@@ -283,7 +432,7 @@ function PipelineSection({
               challenge={challenge}
               onClick={() => onNavigate(challenge.id)}
               highlight={highlight}
-              queuePosition={showQueuePosition ? i + 1 : undefined}
+              onDelete={onDelete ? (e) => onDelete(challenge.id, e) : undefined}
             />
           </motion.div>
         ))}
@@ -292,55 +441,64 @@ function PipelineSection({
   );
 }
 
-// Challenge Row
+// Challenge Row (non-draggable)
 
 function ChallengeRow({
   challenge,
   onClick,
   highlight,
-  queuePosition,
+  onDelete,
 }: {
   challenge: PipelineChallenge;
   onClick: () => void;
   highlight?: 'gold';
-  queuePosition?: number;
+  onDelete?: (e: React.MouseEvent) => void;
 }) {
   return (
-    <button
-      onClick={onClick}
+    <div
       className={cn(
-        'w-full paper-card px-4 py-3 flex items-center gap-4 group',
-        'hover:shadow-[3px_3px_0px_rgba(10,30,47,0.2)] transition-shadow cursor-pointer text-left',
+        'paper-card px-4 py-3 flex items-center gap-4 group',
+        'hover:shadow-[3px_3px_0px_rgba(10,30,47,0.2)] transition-shadow',
         highlight === 'gold' && 'border-l-3 border-l-gold',
       )}
     >
-      {/* Queue position or status */}
-      {queuePosition !== undefined ? (
-        <span className="font-mono text-xs text-muted/60 font-bold w-6 flex-shrink-0 text-center">
-          {queuePosition}
-        </span>
-      ) : (
+      <button
+        onClick={onClick}
+        className="flex items-center gap-4 flex-1 min-w-0 text-left cursor-pointer"
+      >
         <StatusBadge status={challenge.status} />
+
+        {/* ID */}
+        <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
+          #{challenge.id}
+        </span>
+
+        {/* Theme */}
+        <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
+          {challenge.theme || '—'}
+        </span>
+
+        {/* Health */}
+        <div className="flex-shrink-0">
+          <HealthIndicators health={challenge.health} compact />
+        </div>
+
+        {/* Arrow */}
+        <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
+      </button>
+
+      {/* Delete button */}
+      {onDelete && (
+        <button
+          onClick={onDelete}
+          className="p-1.5 rounded text-muted/30 hover:text-red hover:bg-red/8 transition-colors
+                     opacity-0 group-hover:opacity-100 flex-shrink-0"
+          title="Delete challenge"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       )}
-
-      {/* ID */}
-      <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
-        #{challenge.id}
-      </span>
-
-      {/* Theme */}
-      <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
-        {challenge.theme || '—'}
-      </span>
-
-      {/* Health */}
-      <div className="flex-shrink-0">
-        <HealthIndicators health={challenge.health} compact />
-      </div>
-
-      {/* Arrow */}
-      <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
-    </button>
+    </div>
   );
 }
 

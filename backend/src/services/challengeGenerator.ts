@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { eq, and, desc, gte, like, or } from 'drizzle-orm';
+import { eq, and, desc, gte, like, or, sql } from 'drizzle-orm';
 import { getTeamName, THEME_TEAMS } from '../lib/teams.js';
 
 // Lazy-load OpenAI client
@@ -226,10 +226,17 @@ export async function generateBatch(count: number, options: GenerateChallengeOpt
 
 // Queue challenges — mark as scheduled (ready to be auto-promoted)
 export async function queueChallenges(challengeIds: number[]): Promise<void> {
+  // Find the current max queue position so we append to the end
+  const [{ maxPos }] = await db.select({
+    maxPos: sql<number>`coalesce(max(${challenges.queuePosition}), 0)`,
+  }).from(challenges).where(eq(challenges.status, 'scheduled'));
+
+  let pos = (maxPos ?? 0) + 1;
   for (const id of challengeIds) {
     await db.update(challenges)
       .set({
         status: 'scheduled',
+        queuePosition: pos++,
         publishedAt: new Date(),
       })
       .where(eq(challenges.id, id));
