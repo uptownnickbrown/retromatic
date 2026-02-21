@@ -143,6 +143,37 @@ export function usePromoteNext() {
   });
 }
 
+export function useTodayStats() {
+  return useQuery({
+    queryKey: ['admin', 'stats', 'today'],
+    queryFn: adminApi.getTodayStats,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    enabled: adminApi.isAdminAuthenticated(),
+  });
+}
+
+export function useHistoryStats(days = 30) {
+  return useQuery({
+    queryKey: ['admin', 'stats', 'history', days],
+    queryFn: () => adminApi.getHistoryStats(days),
+    staleTime: 60_000,
+    enabled: adminApi.isAdminAuthenticated(),
+  });
+}
+
+export function useBakeChallenge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => adminApi.bakeChallenge(id),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'health', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'challenge', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}
+
 export function useRegenerateOptionPortrait() {
   const qc = useQueryClient();
   return useMutation({

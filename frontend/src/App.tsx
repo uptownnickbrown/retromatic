@@ -6,6 +6,7 @@ import { Results } from './pages/Results';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminChallengeDetail } from './pages/AdminChallengeDetail';
+import { AdminAnalytics } from './pages/AdminAnalytics';
 import { AdminGuard } from './components/admin/AdminGuard';
 
 const queryClient = new QueryClient({
@@ -27,6 +28,7 @@ function App() {
           <Route path="/results/:challengeId" element={<Results />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminGuard><AdminDashboard /></AdminGuard>} />
+          <Route path="/admin/analytics" element={<AdminGuard><AdminAnalytics /></AdminGuard>} />
           <Route path="/admin/challenge/:id" element={<AdminGuard><AdminChallengeDetail /></AdminGuard>} />
         </Routes>
       </BrowserRouter>

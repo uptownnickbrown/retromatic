@@ -219,6 +219,156 @@ export async function startPlaytest(challengeId: number): Promise<FullGameData> 
   return adminFetch(`/admin/challenges/${challengeId}/playtest`, { method: 'POST' });
 }
 
+// --- Stats ---
+
+export interface TodayStats {
+  active: boolean;
+  challengeId?: number;
+  theme?: string | null;
+  sessions?: { started: number; completed: number; completionRate: number };
+  avgScore?: number;
+  scoreDistribution?: number[];
+  roundStats?: Array<{
+    roundNumber: number;
+    position: string;
+    mostPicked: { playerName: string; pickCount: number } | null;
+  }>;
+}
+
+export interface DailyStat {
+  date: string;
+  challengeId: number;
+  theme: string | null;
+  completions: number;
+  uniqueUsers: number;
+  avgScore: number;
+}
+
+export async function getTodayStats(): Promise<TodayStats> {
+  return adminFetch('/admin/stats/today');
+}
+
+export async function getHistoryStats(days = 30): Promise<{ days: number; stats: DailyStat[] }> {
+  return adminFetch(`/admin/stats/history?days=${days}`);
+}
+
+// --- Bake ---
+
+export interface BakeResult {
+  blurbs: { generated: number; failed: number };
+  portraits: { generated: number; skipped: number; failed: number };
+  preseed: { roundsSeeded: number; totalPicks: number; syntheticSessions: number };
+}
+
+export async function bakeChallenge(id: number): Promise<BakeResult> {
+  return adminFetch(`/admin/challenges/${id}/bake`, { method: 'POST' });
+}
+
+export function streamBakeAll(onEvent: (event: Record<string, unknown>) => void): { abort: () => void } {
+  const secret = getAdminSecret();
+  if (!secret) throw new Error('Not authenticated');
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/admin/challenges/bake-all`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) {
+      onEvent({ type: 'error', error: `HTTP ${res.status}` });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', error: String(err) });
+    }
+  });
+
+  return { abort: () => controller.abort() };
+}
+
+// --- Agent Builder ---
+
+export interface AgentEvent {
+  type: 'thinking' | 'message' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete';
+  message?: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  challengeId?: number;
+  theme?: string;
+}
+
+export function streamAgentBuild(
+  prompt: string,
+  onEvent: (event: AgentEvent) => void,
+): { abort: () => void } {
+  const secret = getAdminSecret();
+  if (!secret) throw new Error('Not authenticated');
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/admin/challenges/generate-agent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+    body: JSON.stringify({ prompt }),
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) {
+      onEvent({ type: 'error', message: `HTTP ${res.status}` });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', message: String(err) });
+    }
+  });
+
+  return { abort: () => controller.abort() };
+}
+
 // --- Single-player operations ---
 
 export async function regenerateOptionPortrait(optionId: number): Promise<{ generated: boolean; portraitUrl: string }> {
