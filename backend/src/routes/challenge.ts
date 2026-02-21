@@ -17,16 +17,12 @@ function getGuestToken(req: any): string {
 // GET /api/challenge/today - Get today's active challenge + user's session
 router.get('/today', async (req, res) => {
   try {
-    const today = getTodayET();
     const guestToken = getGuestToken(req);
 
-    // Find today's active challenge
+    // Find the currently active challenge (auto-promoted at midnight)
     const [challenge] = await db.select()
       .from(challenges)
-      .where(and(
-        eq(challenges.challengeDate, today),
-        eq(challenges.status, 'active')
-      ))
+      .where(eq(challenges.status, 'active'))
       .limit(1);
 
     if (!challenge) {

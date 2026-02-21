@@ -5,7 +5,7 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import challengeRouter from './routes/challenge.js';
 import adminRouter from './routes/admin.js';
-import { activateTodaysChallenge } from './services/dailyScheduler.js';
+import { promoteNextChallenge, startMidnightScheduler } from './services/dailyScheduler.js';
 
 dotenv.config();
 
@@ -80,13 +80,15 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// On startup, try to activate today's challenge
-activateTodaysChallenge()
+// On startup, promote today's challenge if needed, then start midnight scheduler
+promoteNextChallenge()
   .then(result => {
-    if (result.activated) console.log(`Activated challenge ${result.activated} for today`);
-    if (result.completed) console.log(`Completed ${result.completed} past challenges`);
+    if (result.activated) console.log(`Activated challenge #${result.activated} for today`);
+    if (result.completed) console.log(`Completed ${result.completed} past challenge(s)`);
   })
   .catch(err => console.error('Scheduler error on startup:', err));
+
+startMidnightScheduler();
 
 app.listen(PORT, () => {
   console.log(`Sandlot API running on port ${PORT}`);

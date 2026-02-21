@@ -62,9 +62,21 @@ export interface PipelineChallenge {
   positionOrder: string[];
   status: string;
   theme: string | null;
+  queuePosition: number | null;
   createdAt: string;
   publishedAt: string | null;
   health: ChallengeHealth;
+}
+
+export interface HistoryChallenge {
+  id: number;
+  challengeDate: string;
+  theme: string | null;
+  status: string;
+  createdAt: string;
+  playerCount: number;
+  avgScore: number | null;
+  bestScore: number | null;
 }
 
 export interface DetailedHealth {
@@ -125,6 +137,10 @@ export async function getPipeline(): Promise<{ challenges: PipelineChallenge[] }
   return adminFetch('/admin/challenges/pipeline');
 }
 
+export async function getHistory(): Promise<{ challenges: HistoryChallenge[] }> {
+  return adminFetch('/admin/challenges/history');
+}
+
 export async function getChallengeDetail(id: number): Promise<AdminChallengeDetail> {
   return adminFetch(`/admin/challenges/${id}`);
 }
@@ -174,15 +190,29 @@ export async function deleteChallenge(id: number): Promise<{ deleted: boolean }>
   return adminFetch(`/admin/challenges/${id}`, { method: 'DELETE' });
 }
 
-export async function scheduleChallenges(challengeIds: number[], startDate: string): Promise<{ scheduled: number; startDate: string }> {
-  return adminFetch('/admin/challenges/schedule', {
+export async function queueChallenges(challengeIds: number[]): Promise<{ queued: number }> {
+  return adminFetch('/admin/challenges/queue', {
     method: 'POST',
-    body: JSON.stringify({ challengeIds, startDate }),
+    body: JSON.stringify({ challengeIds }),
   });
 }
 
-export async function activateToday(): Promise<{ activated: number | null }> {
-  return adminFetch('/admin/activate-today', { method: 'POST' });
+export async function dequeueChallenges(challengeId: number): Promise<{ dequeued: boolean }> {
+  return adminFetch('/admin/challenges/dequeue', {
+    method: 'POST',
+    body: JSON.stringify({ challengeId }),
+  });
+}
+
+export async function reorderQueue(challengeIds: number[]): Promise<{ reordered: number }> {
+  return adminFetch('/admin/challenges/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ challengeIds }),
+  });
+}
+
+export async function promoteNext(): Promise<{ activated: number | null; completed: number }> {
+  return adminFetch('/admin/promote-next', { method: 'POST' });
 }
 
 export async function startPlaytest(challengeId: number): Promise<FullGameData> {
