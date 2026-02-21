@@ -22,9 +22,30 @@ const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] a
 const tools: OpenAI.Responses.Tool[] = [
   {
     type: 'function' as const,
+    name: 'find_eligible_players',
+    strict: false,
+    description: `Find players eligible for the challenge — grouped by player with their available years. Only returns players who have at least 3 qualifying seasons in the database. This is the primary tool for building challenges.
+
+Returns for each player: playerId, name, position, playerType, years (list of qualifying years with z-scores), and totalSeasons count.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: '3-letter team code (e.g. NYA, BOS, LAN, PHI)' },
+        position: { type: 'string', description: 'Position code (C, 1B, 2B, SS, 3B, OF, SP, RP, P, UTIL)' },
+        yearMin: { type: 'number', description: 'Minimum year (inclusive)' },
+        yearMax: { type: 'number', description: 'Maximum year (inclusive)' },
+        name: { type: 'string', description: 'Player last name (partial match)' },
+        playerType: { type: 'string', enum: ['batter', 'pitcher'], description: 'Filter by player type' },
+        minSeasons: { type: 'number', description: 'Minimum qualifying seasons (default 3)' },
+        limit: { type: 'number', description: 'Max players to return (default 15)' },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
     name: 'search_players',
     strict: false,
-    description: 'Search for player-seasons in the database. Returns matching player names, years, teams, positions, and z-scores.',
+    description: 'Search for individual player-seasons. Returns one row per player-year. Use find_eligible_players instead when building challenges — this tool is for spot-checking specific player-years.',
     parameters: {
       type: 'object',
       properties: {
@@ -41,36 +62,16 @@ const tools: OpenAI.Responses.Tool[] = [
   },
   {
     type: 'function' as const,
-    name: 'get_player_seasons',
-    strict: false,
-    description: 'Get all qualifying seasons for a specific player by their Lahman player_id.',
-    parameters: {
-      type: 'object',
-      properties: {
-        playerId: { type: 'string', description: 'Lahman player_id (e.g. troutmi01)' },
-      },
-      required: ['playerId'],
-    },
-  },
-  {
-    type: 'function' as const,
-    name: 'get_position_leaders',
-    strict: false,
-    description: 'Get the top N players at a position by z-score.',
-    parameters: {
-      type: 'object',
-      properties: {
-        position: { type: 'string', description: 'Position code' },
-        limit: { type: 'number', description: 'How many to return (default 10)' },
-      },
-      required: ['position'],
-    },
-  },
-  {
-    type: 'function' as const,
     name: 'submit_challenge',
     strict: false,
-    description: 'Submit the final 10-round challenge. Each round has a position and 3 players, each with 3 year options. All positions must be covered, all player-years must exist in the database, and no duplicates are allowed.',
+    description: `Submit the final 10-round challenge. Validates and inserts into the database.
+
+Rules:
+- Exactly 10 rounds, one per position: C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P
+- Each round has exactly 3 players, each with exactly 3 year options
+- All player-years must exist in the database
+- No duplicate player-year combinations across the entire challenge
+- IMPORTANT: Only use years you confirmed exist via find_eligible_players or search_players`,
     parameters: {
       type: 'object',
       properties: {
@@ -109,35 +110,110 @@ const tools: OpenAI.Responses.Tool[] = [
 
 // ─── Tool execution ──────────────────────────────────────────
 
+function buildPositionFilter(pos: string) {
+  if (pos === 'UTIL') return eq(players.playerType, 'batter');
+  if (pos === 'P') return eq(players.playerType, 'pitcher');
+  if (pos === 'OF') {
+    return or(
+      like(players.positionsEligible, '%LF%'),
+      like(players.positionsEligible, '%CF%'),
+      like(players.positionsEligible, '%RF%'),
+      like(players.positionsEligible, '%OF%'),
+    );
+  }
+  return or(
+    eq(players.primaryPosition, pos),
+    like(players.positionsEligible, `%${pos}%`),
+  );
+}
+
+async function executeFindEligiblePlayers(args: Record<string, unknown>): Promise<string> {
+  const conditions = [];
+
+  if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
+  if (args.team) conditions.push(eq(players.team, String(args.team)));
+  if (args.position) conditions.push(buildPositionFilter(String(args.position))!);
+  if (args.yearMin) conditions.push(gte(players.year, Number(args.yearMin)));
+  if (args.yearMax) conditions.push(lte(players.year, Number(args.yearMax)));
+  if (args.playerType) conditions.push(eq(players.playerType, String(args.playerType)));
+
+  // Get all matching player-seasons
+  const rows = await db.select({
+    playerId: players.playerId,
+    nameFirst: players.nameFirst,
+    nameLast: players.nameLast,
+    year: players.year,
+    team: players.team,
+    position: players.primaryPosition,
+    zScore: players.zScorePosition,
+    playerType: players.playerType,
+    positionsEligible: players.positionsEligible,
+  })
+    .from(players)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(players.zScorePosition))
+    .limit(500); // fetch enough to group
+
+  // Group by playerId
+  const grouped = new Map<string, {
+    playerId: string;
+    name: string;
+    playerType: string;
+    position: string;
+    positions: string;
+    bestZScore: number;
+    years: Array<{ year: number; team: string; zScore: number }>;
+  }>();
+
+  for (const r of rows) {
+    const existing = grouped.get(r.playerId);
+    const zScore = Number(r.zScore);
+    if (existing) {
+      existing.years.push({ year: r.year, team: r.team ?? '', zScore });
+      if (zScore > existing.bestZScore) existing.bestZScore = zScore;
+    } else {
+      grouped.set(r.playerId, {
+        playerId: r.playerId,
+        name: `${r.nameFirst} ${r.nameLast}`,
+        playerType: r.playerType,
+        position: r.position,
+        positions: r.positionsEligible || r.position,
+        bestZScore: zScore,
+        years: [{ year: r.year, team: r.team ?? '', zScore }],
+      });
+    }
+  }
+
+  const minSeasons = Number(args.minSeasons) || 3;
+  const limit = Number(args.limit) || 15;
+
+  // Filter to players with enough seasons, sort by best z-score
+  const eligible = Array.from(grouped.values())
+    .filter(p => p.years.length >= minSeasons)
+    .sort((a, b) => b.bestZScore - a.bestZScore)
+    .slice(0, limit);
+
+  return JSON.stringify(eligible.map(p => ({
+    playerId: p.playerId,
+    name: p.name,
+    playerType: p.playerType,
+    position: p.position,
+    positions: p.positions,
+    totalSeasons: p.years.length,
+    years: p.years.sort((a, b) => b.zScore - a.zScore).map(y => ({
+      year: y.year,
+      team: y.team,
+      zScore: y.zScore,
+    })),
+  })));
+}
+
 async function executeSearchPlayers(args: Record<string, unknown>): Promise<string> {
   const conditions = [];
 
-  if (args.name) {
-    conditions.push(ilike(players.nameLast, `%${args.name}%`));
-  }
-  if (args.team) {
-    conditions.push(eq(players.team, String(args.team)));
-  }
-  if (args.position) {
-    const pos = String(args.position);
-    if (pos === 'UTIL') {
-      conditions.push(eq(players.playerType, 'batter'));
-    } else if (pos === 'P') {
-      conditions.push(eq(players.playerType, 'pitcher'));
-    } else if (pos === 'OF') {
-      conditions.push(or(
-        like(players.positionsEligible, '%LF%'),
-        like(players.positionsEligible, '%CF%'),
-        like(players.positionsEligible, '%RF%'),
-        like(players.positionsEligible, '%OF%'),
-      ));
-    } else {
-      conditions.push(or(
-        eq(players.primaryPosition, pos),
-        like(players.positionsEligible, `%${pos}%`),
-      ));
-    }
-  }
+  if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
+  if (args.team) conditions.push(eq(players.team, String(args.team)));
+  if (args.position) conditions.push(buildPositionFilter(String(args.position))!);
   if (args.yearMin) conditions.push(gte(players.year, Number(args.yearMin)));
   if (args.yearMax) conditions.push(lte(players.year, Number(args.yearMax)));
   if (args.minZScore) conditions.push(gte(players.zScorePosition, String(args.minZScore)));
@@ -167,79 +243,6 @@ async function executeSearchPlayers(args: Record<string, unknown>): Promise<stri
   })));
 }
 
-async function executeGetPlayerSeasons(args: Record<string, unknown>): Promise<string> {
-  const rows = await db.select({
-    playerId: players.playerId,
-    nameFirst: players.nameFirst,
-    nameLast: players.nameLast,
-    year: players.year,
-    team: players.team,
-    position: players.primaryPosition,
-    zScore: players.zScorePosition,
-    playerType: players.playerType,
-  })
-    .from(players)
-    .where(eq(players.playerId, String(args.playerId)))
-    .orderBy(desc(players.zScorePosition));
-
-  if (rows.length === 0) return JSON.stringify({ error: 'Player not found' });
-
-  return JSON.stringify({
-    playerId: rows[0].playerId,
-    name: `${rows[0].nameFirst} ${rows[0].nameLast}`,
-    playerType: rows[0].playerType,
-    seasons: rows.map(r => ({
-      year: r.year,
-      team: r.team,
-      position: r.position,
-      zScore: Number(r.zScore),
-    })),
-  });
-}
-
-async function executeGetPositionLeaders(args: Record<string, unknown>): Promise<string> {
-  const pos = String(args.position);
-  const limit = Number(args.limit) || 10;
-
-  let posFilter;
-  if (pos === 'UTIL') posFilter = eq(players.playerType, 'batter');
-  else if (pos === 'P') posFilter = eq(players.playerType, 'pitcher');
-  else if (pos === 'OF') {
-    posFilter = or(
-      like(players.positionsEligible, '%LF%'),
-      like(players.positionsEligible, '%CF%'),
-      like(players.positionsEligible, '%RF%'),
-      like(players.positionsEligible, '%OF%'),
-    );
-  } else {
-    posFilter = or(
-      eq(players.primaryPosition, pos),
-      like(players.positionsEligible, `%${pos}%`),
-    );
-  }
-
-  const rows = await db.select({
-    playerId: players.playerId,
-    nameFirst: players.nameFirst,
-    nameLast: players.nameLast,
-    year: players.year,
-    team: players.team,
-    zScore: players.zScorePosition,
-  })
-    .from(players)
-    .where(posFilter!)
-    .orderBy(desc(players.zScorePosition))
-    .limit(limit);
-
-  return JSON.stringify(rows.map(r => ({
-    playerId: r.playerId,
-    name: `${r.nameFirst} ${r.nameLast}`,
-    year: r.year,
-    team: r.team,
-    zScore: Number(r.zScore),
-  })));
-}
-
 interface SubmitRound {
   position: string;
   players: Array<{
@@ -262,20 +265,34 @@ async function executeSubmitChallenge(args: Record<string, unknown>): Promise<{ 
     if (!usedPositions.has(pos)) return { error: `Missing position: ${pos}` };
   }
 
+  // Collect all validation errors at once instead of failing on first
+  const errors: string[] = [];
   const allPlayerYears = new Set<string>();
+
   for (const round of rounds) {
-    if (round.players.length !== 3) return { error: `Round ${round.position} must have 3 players` };
+    if (round.players.length !== 3) {
+      errors.push(`Round ${round.position} must have 3 players`);
+      continue;
+    }
     for (const p of round.players) {
-      if (p.years.length !== 3) return { error: `Player ${p.playerName} must have 3 year options` };
+      if (p.years.length !== 3) {
+        errors.push(`${p.playerName} must have 3 year options (has ${p.years.length})`);
+        continue;
+      }
       for (const year of p.years) {
         const key = `${p.playerId}-${year}`;
-        if (allPlayerYears.has(key)) return { error: `Duplicate player-year: ${p.playerName} ${year}` };
+        if (allPlayerYears.has(key)) errors.push(`Duplicate: ${p.playerName} ${year}`);
         allPlayerYears.add(key);
       }
     }
   }
 
-  // Verify all player-years exist in DB
+  if (errors.length > 0) {
+    return { error: `Validation failed:\n${errors.join('\n')}` };
+  }
+
+  // Verify all player-years exist in DB — batch check
+  const missingYears: string[] = [];
   for (const round of rounds) {
     for (const p of round.players) {
       for (const year of p.years) {
@@ -283,9 +300,13 @@ async function executeSubmitChallenge(args: Record<string, unknown>): Promise<{ 
           .from(players)
           .where(and(eq(players.playerId, p.playerId), eq(players.year, year)))
           .limit(1);
-        if (!exists) return { error: `Player-year not found: ${p.playerName} ${year} (${p.playerId})` };
+        if (!exists) missingYears.push(`${p.playerName} ${year} (${p.playerId})`);
       }
     }
+  }
+
+  if (missingYears.length > 0) {
+    return { error: `Player-years not in database:\n${missingYears.join('\n')}` };
   }
 
   // Insert challenge
@@ -336,23 +357,25 @@ Each challenge has:
 - 10 rounds, one per position: C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P (any order)
 - Each round has 3 players, each with 3 year options
 
-Guidelines:
-- Pick interesting, diverse players that fit the theme
-- Each player needs 3 year options from their career (variety in quality is good)
-- Verify players exist by searching before submitting
-- For batters: use C, 1B, 2B, SS, 3B, OF, UTIL positions
-- For pitchers: use SP, RP, P positions
-- UTIL can be any batter. P can be any pitcher.
-- All player-years must exist in the database (1961-2025)
-- No duplicate player-year combinations across the entire challenge
+CRITICAL RULES:
+- Every player MUST have at least 3 qualifying seasons in the database
+- Use find_eligible_players as your PRIMARY tool — it only returns players with 3+ seasons and shows their exact available years
+- Only use years that were returned by the tools. NEVER guess or assume a year exists.
+- Pick 3 years from each player's available years list (prefer variety in z-score quality)
 
-Process:
-1. Think about what theme the prompt suggests
-2. Search for relevant players using the tools
-3. Build out all 10 rounds
-4. Submit the final challenge
+Positions:
+- Batters: C, 1B, 2B, SS, 3B, OF, UTIL (UTIL = any batter)
+- Pitchers: SP, RP, P (P = any pitcher)
 
-Work efficiently — search broadly, then select the best fits.`;
+EFFICIENT WORKFLOW:
+1. Use find_eligible_players with broad filters (team, era, position) to discover candidates
+2. Make a few calls to cover all 10 positions — e.g. search batters and pitchers separately
+3. Pick 3 players per position from the results, choosing 3 years each from their available years
+4. Submit once with all 10 rounds
+
+AVOID: searching one player at a time, using years you haven't verified, submitting before checking all players have 3 verified years.
+
+The database covers 1961-2025. Team codes use Lahman format (NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dodgers, etc).`;
 
   const send = (data: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -368,11 +391,11 @@ Work efficiently — search broadly, then select the best fits.`;
       input: prompt,
       tools,
       tool_choice: 'auto',
-      max_output_tokens: 8192,
+      max_output_tokens: 16384,
     });
 
     let iterations = 0;
-    const maxIterations = 20;
+    const maxIterations = 30;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -406,12 +429,10 @@ Work efficiently — search broadly, then select the best fits.`;
         send({ type: 'tool_call', tool: toolCall.name, args });
 
         let result: string;
-        if (toolCall.name === 'search_players') {
+        if (toolCall.name === 'find_eligible_players') {
+          result = await executeFindEligiblePlayers(args);
+        } else if (toolCall.name === 'search_players') {
           result = await executeSearchPlayers(args);
-        } else if (toolCall.name === 'get_player_seasons') {
-          result = await executeGetPlayerSeasons(args);
-        } else if (toolCall.name === 'get_position_leaders') {
-          result = await executeGetPositionLeaders(args);
         } else if (toolCall.name === 'submit_challenge') {
           const submitResult = await executeSubmitChallenge(args);
           if ('challengeId' in submitResult) {
@@ -441,7 +462,7 @@ Work efficiently — search broadly, then select the best fits.`;
         input: toolResults,
         tools,
         tool_choice: 'auto',
-        max_output_tokens: 8192,
+        max_output_tokens: 16384,
       });
     }
 
