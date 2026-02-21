@@ -24,11 +24,11 @@ const tools: OpenAI.Responses.Tool[] = [
     type: 'function' as const,
     name: 'search_players',
     strict: false,
-    description: `Search for players eligible for the challenge. Returns players GROUPED by player, each with their list of qualifying years. Only returns players who have at least 3 qualifying seasons (configurable via minSeasons).
+    description: `Search for players eligible for the challenge. Filters find matching players, then returns ALL qualifying seasons for each player (not just seasons matching the filter). Only returns players with 3+ total qualifying seasons.
 
-Each result includes: playerId, name, position, positions (all eligible), playerType, totalSeasons, and years[] with year/team/zScore for each qualifying season.
+Each result includes: playerId, name, position, positions (all eligible), playerType, totalSeasons, and years[] (ALL qualifying years with year/team/zScore).
 
-Use this tool to discover candidates by team, era, position, or name. You can combine filters freely.`,
+Example: searching {team:"BOS", yearMin:2015, yearMax:2019} finds players who played for BOS in that window, but shows ALL their career seasons — so you can pick any 3 years.`,
     parameters: {
       type: 'object',
       properties: {
@@ -120,59 +120,77 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   if (args.yearMax) conditions.push(lte(players.year, Number(args.yearMax)));
   if (args.playerType) conditions.push(eq(players.playerType, String(args.playerType)));
 
-  // Get all matching player-seasons
-  const rows = await db.select({
+  // Step 1: Find player-seasons matching the filters
+  const matchingRows = await db.select({
     playerId: players.playerId,
     nameFirst: players.nameFirst,
     nameLast: players.nameLast,
-    year: players.year,
-    team: players.team,
     position: players.primaryPosition,
-    zScore: players.zScorePosition,
     playerType: players.playerType,
     positionsEligible: players.positionsEligible,
+    zScore: players.zScorePosition,
   })
     .from(players)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(players.zScorePosition))
-    .limit(500); // fetch enough to group
+    .limit(500);
 
-  // Group by playerId
-  const grouped = new Map<string, {
+  // Get unique player IDs from matching rows
+  const playerIds = [...new Set(matchingRows.map(r => r.playerId))];
+  if (playerIds.length === 0) return JSON.stringify([]);
+
+  // Step 2: Fetch ALL seasons for those players (not just filtered ones)
+  // This ensures the agent sees every available year, even outside the search range
+  const allSeasons = await db.select({
+    playerId: players.playerId,
+    year: players.year,
+    team: players.team,
+    zScore: players.zScorePosition,
+  })
+    .from(players)
+    .where(or(...playerIds.map(id => eq(players.playerId, id))))
+    .orderBy(desc(players.zScorePosition));
+
+  // Build player info from matching rows (deduped)
+  const playerInfo = new Map<string, {
     playerId: string;
     name: string;
     playerType: string;
     position: string;
     positions: string;
     bestZScore: number;
-    years: Array<{ year: number; team: string; zScore: number }>;
   }>();
 
-  for (const r of rows) {
-    const existing = grouped.get(r.playerId);
-    const zScore = Number(r.zScore);
-    if (existing) {
-      existing.years.push({ year: r.year, team: r.team ?? '', zScore });
-      if (zScore > existing.bestZScore) existing.bestZScore = zScore;
-    } else {
-      grouped.set(r.playerId, {
+  for (const r of matchingRows) {
+    if (!playerInfo.has(r.playerId)) {
+      playerInfo.set(r.playerId, {
         playerId: r.playerId,
         name: `${r.nameFirst} ${r.nameLast}`,
         playerType: r.playerType,
         position: r.position,
         positions: r.positionsEligible || r.position,
-        bestZScore: zScore,
-        years: [{ year: r.year, team: r.team ?? '', zScore }],
+        bestZScore: Number(r.zScore),
       });
+    } else {
+      const info = playerInfo.get(r.playerId)!;
+      if (Number(r.zScore) > info.bestZScore) info.bestZScore = Number(r.zScore);
     }
+  }
+
+  // Group all seasons by player
+  const yearsByPlayer = new Map<string, Array<{ year: number; team: string; zScore: number }>>();
+  for (const s of allSeasons) {
+    const arr = yearsByPlayer.get(s.playerId) || [];
+    arr.push({ year: s.year, team: s.team ?? '', zScore: Number(s.zScore) });
+    yearsByPlayer.set(s.playerId, arr);
   }
 
   const minSeasons = Number(args.minSeasons) || 3;
   const limit = Number(args.limit) || 15;
 
-  // Filter to players with enough seasons, sort by best z-score
-  const eligible = Array.from(grouped.values())
-    .filter(p => p.years.length >= minSeasons)
+  // Filter to players with enough total seasons, sort by best z-score
+  const eligible = Array.from(playerInfo.values())
+    .filter(p => (yearsByPlayer.get(p.playerId)?.length ?? 0) >= minSeasons)
     .sort((a, b) => b.bestZScore - a.bestZScore)
     .slice(0, limit);
 
@@ -182,12 +200,10 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
     playerType: p.playerType,
     position: p.position,
     positions: p.positions,
-    totalSeasons: p.years.length,
-    years: p.years.sort((a, b) => b.zScore - a.zScore).map(y => ({
-      year: y.year,
-      team: y.team,
-      zScore: y.zScore,
-    })),
+    totalSeasons: yearsByPlayer.get(p.playerId)?.length ?? 0,
+    years: (yearsByPlayer.get(p.playerId) || [])
+      .sort((a, b) => b.zScore - a.zScore)
+      .map(y => ({ year: y.year, team: y.team, zScore: y.zScore })),
   })));
 }
 
