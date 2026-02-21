@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { eq, and, desc, gte, like, or } from 'drizzle-orm';
+import { eq, and, desc, gte, like, or, sql } from 'drizzle-orm';
 import { getTeamName, THEME_TEAMS } from '../lib/teams.js';
 
 // Lazy-load OpenAI client
@@ -224,26 +224,31 @@ export async function generateBatch(count: number, options: GenerateChallengeOpt
   return ids;
 }
 
-// Assign dates to unassigned challenges
-export async function scheduleChallenges(
-  challengeIds: number[],
-  startDate: string // YYYY-MM-DD
-): Promise<void> {
-  const start = new Date(startDate);
+// Queue challenges — mark as scheduled (ready to be auto-promoted)
+export async function queueChallenges(challengeIds: number[]): Promise<void> {
+  // Find the current max queue position so we append to the end
+  const [{ maxPos }] = await db.select({
+    maxPos: sql<number>`coalesce(max(${challenges.queuePosition}), 0)`,
+  }).from(challenges).where(eq(challenges.status, 'scheduled'));
 
-  for (let i = 0; i < challengeIds.length; i++) {
-    const date = new Date(start);
-    date.setDate(date.getDate() + i);
-    const dateStr = date.toISOString().split('T')[0];
-
+  let pos = (maxPos ?? 0) + 1;
+  for (const id of challengeIds) {
     await db.update(challenges)
       .set({
-        challengeDate: dateStr,
         status: 'scheduled',
+        queuePosition: pos++,
         publishedAt: new Date(),
       })
-      .where(eq(challenges.id, challengeIds[i]));
+      .where(eq(challenges.id, id));
   }
+}
+
+// Legacy alias — dates are no longer assigned manually, just queues them
+export async function scheduleChallenges(
+  challengeIds: number[],
+  _startDate?: string
+): Promise<void> {
+  return queueChallenges(challengeIds);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -591,30 +596,13 @@ export async function generateThemedBatch(count: number): Promise<{
   const challengeIds: number[] = [];
   const themes: string[] = [];
 
-  // Find dates that already have challenges scheduled
-  const existingChallenges = await db.select({ challengeDate: challenges.challengeDate })
-    .from(challenges);
-  const takenDates = new Set(existingChallenges.map(c => c.challengeDate));
-
-  // Pre-compute dates starting tomorrow, skipping taken dates
-  const cursor = new Date();
-  cursor.setDate(cursor.getDate() + 1);
-  const dates: string[] = [];
-  while (dates.length < count) {
-    const dateStr = cursor.toISOString().split('T')[0];
-    if (!takenDates.has(dateStr)) {
-      dates.push(dateStr);
-    }
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  console.log(`Generating ${count} themed challenges (${dates[0]} → ${dates[dates.length - 1]})...`);
+  console.log(`Generating ${count} themed challenges...`);
 
   for (let i = 0; i < strategies.length; i++) {
     const strategy = strategies[i];
     console.log(`\n[${i + 1}/${count}] ${strategy.type}: ${strategy.label}`);
 
-    const id = await generateThemedChallenge(strategy, dates[i]);
+    const id = await generateThemedChallenge(strategy);
     challengeIds.push(id);
 
     // Fetch the final theme name
@@ -624,10 +612,10 @@ export async function generateThemedBatch(count: number): Promise<{
     themes.push(ch?.theme ?? strategy.label);
   }
 
-  // Schedule all (update status from draft → scheduled)
-  await scheduleChallenges(challengeIds, dates[0]);
+  // Queue all (update status from draft → scheduled)
+  await queueChallenges(challengeIds);
 
-  console.log(`\nDone! ${count} themed challenges scheduled starting ${dates[0]}`);
+  console.log(`\nDone! ${count} themed challenges queued`);
 
   return { challengeIds, themes };
 }

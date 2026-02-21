@@ -10,6 +10,15 @@ export function useAdminPipeline() {
   });
 }
 
+export function useAdminHistory() {
+  return useQuery({
+    queryKey: ['admin', 'history'],
+    queryFn: adminApi.getHistory,
+    staleTime: 10_000,
+    enabled: adminApi.isAdminAuthenticated(),
+  });
+}
+
 export function useAdminChallengeDetail(id: number | null) {
   return useQuery({
     queryKey: ['admin', 'challenge', id],
@@ -99,20 +108,38 @@ export function useDeleteChallenge() {
   });
 }
 
-export function useScheduleChallenges() {
+export function useQueueChallenges() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ challengeIds, startDate }: { challengeIds: number[]; startDate: string }) =>
-      adminApi.scheduleChallenges(challengeIds, startDate),
+    mutationFn: (challengeIds: number[]) => adminApi.queueChallenges(challengeIds),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] }),
   });
 }
 
-export function useActivateToday() {
+export function useReorderQueue() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => adminApi.activateToday(),
+    mutationFn: (challengeIds: number[]) => adminApi.reorderQueue(challengeIds),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] }),
+  });
+}
+
+export function useDequeueChallenges() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (challengeId: number) => adminApi.dequeueChallenges(challengeId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] }),
+  });
+}
+
+export function usePromoteNext() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => adminApi.promoteNext(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'history'] });
+    },
   });
 }
 
