@@ -4,13 +4,14 @@ import type { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { db } from '../db/index.js';
-import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players } from '../db/schema.js';
-import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players, pickStats } from '../db/schema.js';
+import { eq, and, desc, inArray, sql, asc } from 'drizzle-orm';
 import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
 import { generatePortraitsForChallenge, generatePortraitForOption } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
+import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
 import { calculateLegendScore } from '../services/legendScore.js';
 import { toNum } from '../lib/numeric.js';
 import { getAllRoundData } from './challenge.js';
@@ -118,6 +119,251 @@ router.post('/challenges/reorder', async (req, res) => {
   } catch (error) {
     console.error('Reorder error:', error);
     res.status(500).json({ error: 'Failed to reorder queue' });
+  }
+});
+
+// AI agent challenge builder — SSE stream (must be before :id routes)
+router.post('/challenges/generate-agent', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    res.status(400).json({ error: 'prompt string required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await runAgentBuilder(prompt, res);
+  } catch (error) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: String(error) })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+    res.end();
+  }
+});
+
+// Bake all incomplete queued challenges — SSE progress stream (must be before :id routes)
+router.post('/challenges/bake-all', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    // Find all queued (scheduled) challenges
+    const queued = await db.select()
+      .from(challenges)
+      .where(eq(challenges.status, 'scheduled'))
+      .orderBy(sql`${challenges.queuePosition} ASC NULLS LAST`, asc(challenges.id));
+
+    // Check which are incomplete
+    const incomplete: typeof queued = [];
+    for (const c of queued) {
+      const rounds = await db.select({ id: challengeRounds.id })
+        .from(challengeRounds)
+        .where(eq(challengeRounds.challengeId, c.id));
+      const roundIds = rounds.map(r => r.id);
+      if (roundIds.length === 0) { incomplete.push(c); continue; }
+
+      const options = await db.select({
+        portraitUrl: roundOptions.portraitUrl,
+        blurbs: roundOptions.blurbs,
+        yearOptions: roundOptions.yearOptions,
+      }).from(roundOptions).where(inArray(roundOptions.roundId, roundIds));
+
+      let isComplete = rounds.length === 10 && options.length === 30;
+      if (isComplete) {
+        for (const opt of options) {
+          if (!opt.portraitUrl) { isComplete = false; break; }
+          const blurbs = (opt.blurbs ?? {}) as Record<string, string>;
+          for (const year of (opt.yearOptions as number[])) {
+            if (!blurbs[String(year)]?.trim()) { isComplete = false; break; }
+          }
+          if (!isComplete) break;
+        }
+      }
+      if (!isComplete) incomplete.push(c);
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'start', total: incomplete.length })}\n\n`);
+
+    for (let i = 0; i < incomplete.length; i++) {
+      const c = incomplete[i];
+      res.write(`data: ${JSON.stringify({ type: 'progress', index: i, challengeId: c.id, theme: c.theme })}\n\n`);
+      try {
+        const blurbResult = await generateBlurbsForChallenge(c.id);
+        const portraitResult = await generatePortraitsForChallenge(c.id);
+        await preseedStatsForChallenge(c.id);
+        res.write(`data: ${JSON.stringify({ type: 'done', index: i, challengeId: c.id, blurbs: blurbResult, portraits: portraitResult })}\n\n`);
+      } catch (err) {
+        res.write(`data: ${JSON.stringify({ type: 'error', index: i, challengeId: c.id, error: String(err) })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'complete', processed: incomplete.length })}\n\n`);
+    res.end();
+  } catch (error) {
+    res.write(`data: ${JSON.stringify({ type: 'error', error: String(error) })}\n\n`);
+    res.end();
+  }
+});
+
+// Live stats for today's active challenge
+router.get('/stats/today', async (req, res) => {
+  try {
+    const [active] = await db.select()
+      .from(challenges)
+      .where(eq(challenges.status, 'active'))
+      .limit(1);
+
+    if (!active) {
+      res.json({ active: false });
+      return;
+    }
+
+    const sessions = await db.select({
+      status: gameSessions.status,
+      totalLegendScore: gameSessions.totalLegendScore,
+    })
+      .from(gameSessions)
+      .where(eq(gameSessions.challengeId, active.id));
+
+    const started = sessions.length;
+    const completed = sessions.filter(s => s.status === 'completed').length;
+    const completedScores = sessions
+      .filter(s => s.status === 'completed' && s.totalLegendScore != null)
+      .map(s => Number(s.totalLegendScore));
+    const avgScore = completedScores.length > 0
+      ? completedScores.reduce((a, b) => a + b, 0) / completedScores.length
+      : 0;
+
+    // Score distribution (buckets of 10: 0-10, 10-20, ..., 90-100)
+    const distribution = Array(10).fill(0) as number[];
+    for (const score of completedScores) {
+      const bucket = Math.min(9, Math.floor(score / 10));
+      distribution[bucket]++;
+    }
+
+    // Per-round most-picked player
+    const rounds = await db.select()
+      .from(challengeRounds)
+      .where(eq(challengeRounds.challengeId, active.id))
+      .orderBy(asc(challengeRounds.roundNumber));
+
+    const roundIds = rounds.map(r => r.id);
+    let roundStats: Array<{
+      roundNumber: number;
+      position: string;
+      mostPicked: { playerName: string; pickCount: number } | null;
+    }> = [];
+
+    if (roundIds.length > 0) {
+      const allPickStats = await db.select({
+        roundId: pickStats.roundId,
+        playerId: pickStats.playerId,
+        pickCount: pickStats.pickCount,
+      }).from(pickStats).where(inArray(pickStats.roundId, roundIds));
+
+      const allOptions = await db.select({
+        roundId: roundOptions.roundId,
+        playerId: roundOptions.playerId,
+        playerName: roundOptions.playerName,
+      }).from(roundOptions).where(inArray(roundOptions.roundId, roundIds));
+
+      const playerNameMap = new Map<string, string>();
+      for (const opt of allOptions) {
+        playerNameMap.set(`${opt.roundId}-${opt.playerId}`, opt.playerName);
+      }
+
+      roundStats = rounds.map(round => {
+        const stats = allPickStats.filter(s => s.roundId === round.id);
+        const playerTotals = new Map<string, number>();
+        for (const s of stats) {
+          const pid = String(s.playerId);
+          playerTotals.set(pid, (playerTotals.get(pid) || 0) + s.pickCount);
+        }
+        let mostPicked: { playerName: string; pickCount: number } | null = null;
+        for (const [pid, count] of playerTotals) {
+          if (!mostPicked || count > mostPicked.pickCount) {
+            const name = playerNameMap.get(`${round.id}-${pid}`) || `Player ${pid}`;
+            mostPicked = { playerName: name, pickCount: count };
+          }
+        }
+        return { roundNumber: round.roundNumber, position: round.position, mostPicked };
+      });
+    }
+
+    res.json({
+      active: true,
+      challengeId: active.id,
+      theme: active.theme,
+      sessions: { started, completed, completionRate: started > 0 ? completed / started : 0 },
+      avgScore: Math.round(avgScore * 10) / 10,
+      scoreDistribution: distribution,
+      roundStats,
+    });
+  } catch (error) {
+    console.error('Today stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch today stats' });
+  }
+});
+
+// Historical daily stats
+router.get('/stats/history', async (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.query.days as string) || 30, 180);
+
+    const completedChallenges = await db.select({
+      id: challenges.id,
+      challengeDate: challenges.challengeDate,
+      theme: challenges.theme,
+    })
+      .from(challenges)
+      .where(eq(challenges.status, 'completed'))
+      .orderBy(desc(challenges.challengeDate));
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const recentChallenges = completedChallenges.filter(c =>
+      c.challengeDate && c.challengeDate >= cutoffStr
+    ).slice(0, days);
+
+    const dailyStats = await Promise.all(recentChallenges.map(async (ch) => {
+      const sessions = await db.select({
+        status: gameSessions.status,
+        totalLegendScore: gameSessions.totalLegendScore,
+        guestToken: gameSessions.guestToken,
+      })
+        .from(gameSessions)
+        .where(eq(gameSessions.challengeId, ch.id));
+
+      const completions = sessions.filter(s => s.status === 'completed').length;
+      const uniqueUsers = new Set(sessions.map(s => s.guestToken)).size;
+      const scores = sessions
+        .filter(s => s.status === 'completed' && s.totalLegendScore != null)
+        .map(s => Number(s.totalLegendScore));
+      const avgScore = scores.length > 0
+        ? scores.reduce((a, b) => a + b, 0) / scores.length
+        : 0;
+
+      return {
+        date: ch.challengeDate,
+        challengeId: ch.id,
+        theme: ch.theme,
+        completions,
+        uniqueUsers,
+        avgScore: Math.round(avgScore * 10) / 10,
+      };
+    }));
+
+    res.json({ days, stats: dailyStats });
+  } catch (error) {
+    console.error('History stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch history stats' });
   }
 });
 
@@ -520,6 +766,20 @@ router.patch('/options/:optionId/blurb', async (req, res) => {
   } catch (error: any) {
     console.error('Blurb update error:', error);
     res.status(500).json({ error: error.message || 'Failed to update blurb' });
+  }
+});
+
+// Bake a single challenge: blurbs + portraits + preseed
+router.post('/challenges/:id/bake', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const blurbResult = await generateBlurbsForChallenge(id);
+    const portraitResult = await generatePortraitsForChallenge(id);
+    const preseedResult = await preseedStatsForChallenge(id);
+    res.json({ blurbs: blurbResult, portraits: portraitResult, preseed: preseedResult });
+  } catch (error) {
+    console.error('Bake error:', error);
+    res.status(500).json({ error: 'Failed to bake challenge' });
   }
 });
 

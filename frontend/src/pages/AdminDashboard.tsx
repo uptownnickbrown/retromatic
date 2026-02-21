@@ -13,6 +13,8 @@ import {
   Clock,
   GripVertical,
   Trash2,
+  Sparkles,
+  BarChart3,
 } from 'lucide-react';
 import {
   useAdminPipeline,
@@ -22,12 +24,17 @@ import {
   useReorderQueue,
   useDequeueChallenges,
   useDeleteChallenge,
+  useBakeChallenge,
 } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { StatusBadge } from '../components/admin/StatusBadge';
 import { HealthIndicators } from '../components/admin/HealthIndicators';
+import { TodayStatsCard } from '../components/admin/TodayStatsCard';
+import { InlineThemeEditor } from '../components/admin/InlineThemeEditor';
 import { clearAdminSecret } from '../lib/adminApi';
+import { streamBakeAll } from '../lib/adminApi';
+import { AgentChatPanel } from '../components/admin/AgentChatPanel';
 import { cn } from '../lib/utils';
 import type { PipelineChallenge, HistoryChallenge } from '../lib/adminApi';
 
@@ -46,6 +53,34 @@ export function AdminDashboard() {
   const reorderMutation = useReorderQueue();
   const dequeueMutation = useDequeueChallenges();
   const deleteMutation = useDeleteChallenge();
+  const bakeMutation = useBakeChallenge();
+  const [agentOpen, setAgentOpen] = useState(false);
+
+  // Bake-all SSE state
+  const [bakeAllProgress, setBakeAllProgress] = useState<{
+    running: boolean;
+    total: number;
+    current: number;
+    currentTheme: string | null;
+  } | null>(null);
+  const bakeAllAbortRef = useRef<{ abort: () => void } | null>(null);
+
+  const handleBakeAll = useCallback(() => {
+    if (bakeAllProgress?.running) return;
+    setBakeAllProgress({ running: true, total: 0, current: 0, currentTheme: null });
+    const stream = streamBakeAll((event) => {
+      const e = event as Record<string, unknown>;
+      if (e.type === 'start') {
+        setBakeAllProgress({ running: true, total: e.total as number, current: 0, currentTheme: null });
+      } else if (e.type === 'progress') {
+        setBakeAllProgress(prev => prev ? { ...prev, current: (e.index as number) + 1, currentTheme: e.theme as string | null } : prev);
+      } else if (e.type === 'complete' || e.type === 'error') {
+        setBakeAllProgress(null);
+        bakeAllAbortRef.current = null;
+      }
+    });
+    bakeAllAbortRef.current = stream;
+  }, [bakeAllProgress]);
 
   const challenges = useMemo(() => data?.challenges ?? [], [data?.challenges]);
   const history = useMemo(() => historyData?.challenges ?? [], [historyData?.challenges]);
@@ -167,6 +202,22 @@ export function AdminDashboard() {
             {themedMutation.isPending ? 'Generating 25...' : '25 Themed'}
           </VintageButton>
 
+          <VintageButton
+            variant="section"
+            onClick={() => setAgentOpen(true)}
+          >
+            <Sparkles className="inline w-3.5 h-3.5 mr-1 -mt-px" />
+            AI Builder
+          </VintageButton>
+
+          <button
+            onClick={() => navigate('/admin/analytics')}
+            className="p-2 text-muted hover:text-navy transition-colors"
+            title="Analytics"
+          >
+            <BarChart3 className="w-4 h-4" />
+          </button>
+
           <button
             onClick={handleLogout}
             className="p-2 text-muted hover:text-navy transition-colors"
@@ -229,6 +280,9 @@ export function AdminDashboard() {
         </PaperCard>
       </motion.div>
 
+      {/* TODAY STATS */}
+      <TodayStatsCard />
+
       {/* PIPELINE SECTIONS */}
       <div className="space-y-8">
         {/* Now Playing */}
@@ -248,7 +302,7 @@ export function AdminDashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
           >
-            <div className="flex items-baseline gap-3 mb-3">
+            <div className="flex items-center gap-3 mb-3">
               <h2 className="font-editorial font-bold text-xl text-navy">Up Next</h2>
               <span className="font-mono text-[10px] text-muted uppercase tracking-wider">
                 {displayQueue.length} {displayQueue.length === 1 ? 'challenge' : 'challenges'}
@@ -256,6 +310,29 @@ export function AdminDashboard() {
               <span className="font-mono text-[10px] text-muted/60 italic">
                 Drag to reorder
               </span>
+              <div className="flex-1" />
+              <button
+                onClick={handleBakeAll}
+                disabled={!!bakeAllProgress?.running}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
+                  bakeAllProgress?.running
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
+                    : 'bg-navy/5 border-navy/15 text-navy/60 hover:bg-navy/10 hover:text-navy',
+                )}
+              >
+                {bakeAllProgress?.running ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Baking {bakeAllProgress.current}/{bakeAllProgress.total}...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3" />
+                    Bake All
+                  </>
+                )}
+              </button>
             </div>
 
             <Reorder.Group
@@ -271,6 +348,8 @@ export function AdminDashboard() {
                   position={i + 1}
                   onClick={() => navigate(`/admin/challenge/${challenge.id}`)}
                   onRemove={(e) => handleDequeue(challenge.id, e)}
+                  onBake={(e) => { e.stopPropagation(); bakeMutation.mutate(challenge.id); }}
+                  isBaking={bakeMutation.isPending && bakeMutation.variables === challenge.id}
                   onDragEnd={handleReorderEnd}
                 />
               ))}
@@ -307,6 +386,9 @@ export function AdminDashboard() {
           />
         )}
       </div>
+
+      {/* AI Builder Panel */}
+      <AgentChatPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
     </div>
   );
 }
@@ -318,14 +400,20 @@ function QueueItem({
   position,
   onClick,
   onRemove,
+  onBake,
+  isBaking,
   onDragEnd,
 }: {
   challenge: PipelineChallenge;
   position: number;
   onClick: () => void;
   onRemove: (e: React.MouseEvent) => void;
+  onBake: (e: React.MouseEvent) => void;
+  isBaking: boolean;
   onDragEnd: () => void;
 }) {
+  const isComplete = challenge.health.blurbsReady && challenge.health.portraitsReady;
+
   return (
     <Reorder.Item
       value={challenge}
@@ -347,28 +435,44 @@ function QueueItem({
           {position}
         </span>
 
-        {/* Clickable content */}
+        {/* ID */}
         <button
           onClick={onClick}
-          className="flex items-center gap-4 flex-1 min-w-0 text-left"
+          className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0 text-left cursor-pointer"
         >
-          {/* ID */}
-          <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
-            #{challenge.id}
-          </span>
+          #{challenge.id}
+        </button>
 
-          {/* Theme */}
-          <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
-            {challenge.theme || '—'}
-          </span>
+        {/* Theme — inline editable */}
+        <InlineThemeEditor challengeId={challenge.id} theme={challenge.theme} />
 
-          {/* Health */}
-          <div className="flex-shrink-0">
-            <HealthIndicators health={challenge.health} compact />
-          </div>
+        {/* Health */}
+        <div className="flex-shrink-0">
+          <HealthIndicators health={challenge.health} compact />
+        </div>
 
-          {/* Arrow */}
-          <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
+        {/* Bake button — only show when incomplete */}
+        {!isComplete && (
+          <button
+            onClick={onBake}
+            disabled={isBaking}
+            className="p-1.5 rounded text-amber-600 hover:bg-amber-500/10 transition-colors
+                       opacity-0 group-hover:opacity-100 disabled:opacity-100 flex-shrink-0"
+            title="Bake (blurbs + portraits + preseed)"
+          >
+            {isBaking
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Sparkles className="w-3.5 h-3.5" />
+            }
+          </button>
+        )}
+
+        {/* Detail link */}
+        <button
+          onClick={onClick}
+          className="p-1.5 text-muted/40 hover:text-navy transition-colors flex-shrink-0 cursor-pointer"
+        >
+          <ChevronRight className="w-4 h-4" />
         </button>
 
         {/* Remove from queue */}
