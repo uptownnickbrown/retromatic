@@ -2,7 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "cd backend && npx drizzle-kit push --force && cd .. && npm start"
+startCommand = "cd backend && npx tsx src/scripts/migrate.ts && cd .. && npm start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
