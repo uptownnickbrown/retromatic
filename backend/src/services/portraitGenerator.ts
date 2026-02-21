@@ -19,14 +19,13 @@ function getOpenAIClient(): OpenAI | null {
 }
 
 // Resolve portrait directory:
-//   Production: PORTRAIT_DIR env var (Railway Volume), or frontend/dist/portraits/
+//   Production: PORTRAIT_DIR env var (Railway Volume at /data/portraits)
 //   Development: frontend/public/portraits/ (Vite serves public/ directly)
-// In production, Express serves frontend/dist/ as static, so generated portraits
-// must go there (not public/, which doesn't survive the Vite build).
 const PORTRAITS_DIR = process.env.PORTRAIT_DIR
-  || (process.env.NODE_ENV === 'production'
-    ? path.resolve(import.meta.dirname ?? process.cwd(), '../../../frontend/dist/portraits')
-    : path.resolve(import.meta.dirname ?? process.cwd(), '../../../frontend/public/portraits'));
+  || path.resolve(
+    import.meta.dirname ?? process.cwd(),
+    '../../../frontend/public/portraits',
+  );
 
 function getPortraitPath(playerId: string): string {
   return path.join(PORTRAITS_DIR, `${playerId}.png`);
