@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, startTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, Reorder } from 'framer-motion';
 import {
@@ -22,13 +22,11 @@ import {
   useGenerateChallenge,
   useGenerateThemedBatch,
   useReorderQueue,
-  useDequeueChallenges,
   useDeleteChallenge,
   useBakeChallenge,
 } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
-import { StatusBadge } from '../components/admin/StatusBadge';
 import { HealthIndicators } from '../components/admin/HealthIndicators';
 import { TodayStatsCard } from '../components/admin/TodayStatsCard';
 import { InlineThemeEditor } from '../components/admin/InlineThemeEditor';
@@ -51,7 +49,6 @@ export function AdminDashboard() {
   const generateMutation = useGenerateChallenge();
   const themedMutation = useGenerateThemedBatch();
   const reorderMutation = useReorderQueue();
-  const dequeueMutation = useDequeueChallenges();
   const deleteMutation = useDeleteChallenge();
   const bakeMutation = useBakeChallenge();
   const [agentOpen, setAgentOpen] = useState(false);
@@ -89,10 +86,9 @@ export function AdminDashboard() {
   const grouped = useMemo(() => {
     const active = challenges.filter(c => c.status === 'active');
     const queued = challenges
-      .filter(c => c.status === 'scheduled')
+      .filter(c => c.status === 'scheduled' || c.status === 'draft')
       .sort((a, b) => (a.queuePosition ?? Infinity) - (b.queuePosition ?? Infinity) || a.id - b.id);
-    const draft = challenges.filter(c => c.status === 'draft');
-    return { active, queued, draft };
+    return { active, queued };
   }, [challenges]);
 
   // Local queue state for optimistic drag reordering.
@@ -108,7 +104,7 @@ export function AdminDashboard() {
     const localIds = localQueue.map(c => c.id).join(',');
     const serverIds = grouped.queued.map(c => c.id).join(',');
     if (localIds === serverIds) {
-      setLocalQueue(null);
+      startTransition(() => setLocalQueue(null));
     }
   }, [grouped.queued, localQueue]);
 
@@ -132,12 +128,7 @@ export function AdminDashboard() {
     }
   }, [localQueue, grouped.queued, reorderMutation]);
 
-  const handleDequeue = useCallback((id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    dequeueMutation.mutate(id);
-  }, [dequeueMutation]);
-
-  const handleDeleteDraft = useCallback((id: number, e: React.MouseEvent) => {
+  const handleRemoveFromQueue = useCallback((id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`Delete Challenge #${id}? This cannot be undone.`)) {
       deleteMutation.mutate(id);
@@ -351,7 +342,7 @@ export function AdminDashboard() {
                   challenge={challenge}
                   position={i + 1}
                   onClick={() => navigate(`/admin/challenge/${challenge.id}`)}
-                  onRemove={(e) => handleDequeue(challenge.id, e)}
+                  onRemove={(e) => handleRemoveFromQueue(challenge.id, e)}
                   onBake={(e) => { e.stopPropagation(); bakeMutation.mutate(challenge.id); }}
                   isBaking={bakeMutation.isPending && bakeMutation.variables === challenge.id}
                   onDragEnd={handleReorderEnd}
@@ -359,17 +350,6 @@ export function AdminDashboard() {
               ))}
             </Reorder.Group>
           </motion.section>
-        )}
-
-        {/* Drafts */}
-        {grouped.draft.length > 0 && (
-          <PipelineSection
-            title="Drafts"
-            subtitle="Not yet queued"
-            challenges={grouped.draft}
-            onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
-            onDelete={(id, e) => handleDeleteDraft(id, e)}
-          />
         )}
 
         {challenges.length === 0 && !isLoading && (
@@ -490,123 +470,6 @@ function QueueItem({
         </button>
       </div>
     </Reorder.Item>
-  );
-}
-
-// Pipeline Section (for non-draggable lists: active, drafts)
-
-function PipelineSection({
-  title,
-  subtitle,
-  challenges,
-  onNavigate,
-  highlight,
-  onDelete,
-}: {
-  title: string;
-  subtitle?: string;
-  challenges: PipelineChallenge[];
-  onNavigate: (id: number) => void;
-  highlight?: 'gold';
-  onDelete?: (id: number, e: React.MouseEvent) => void;
-}) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1 }}
-    >
-      <div className="flex items-baseline gap-3 mb-3">
-        <h2 className="font-editorial font-bold text-xl text-navy">{title}</h2>
-        <span className="font-mono text-[10px] text-muted uppercase tracking-wider">
-          {challenges.length} {challenges.length === 1 ? 'challenge' : 'challenges'}
-        </span>
-        {subtitle && (
-          <span className="font-mono text-[10px] text-muted/60 italic">
-            {subtitle}
-          </span>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {challenges.map((challenge, i) => (
-          <motion.div
-            key={challenge.id}
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.03 }}
-          >
-            <ChallengeRow
-              challenge={challenge}
-              onClick={() => onNavigate(challenge.id)}
-              highlight={highlight}
-              onDelete={onDelete ? (e) => onDelete(challenge.id, e) : undefined}
-            />
-          </motion.div>
-        ))}
-      </div>
-    </motion.section>
-  );
-}
-
-// Challenge Row (non-draggable)
-
-function ChallengeRow({
-  challenge,
-  onClick,
-  highlight,
-  onDelete,
-}: {
-  challenge: PipelineChallenge;
-  onClick: () => void;
-  highlight?: 'gold';
-  onDelete?: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <div
-      className={cn(
-        'paper-card px-4 py-3 flex items-center gap-4 group',
-        'hover:shadow-[3px_3px_0px_rgba(10,30,47,0.2)] transition-shadow',
-        highlight === 'gold' && 'border-l-3 border-l-gold',
-      )}
-    >
-      <button
-        onClick={onClick}
-        className="flex items-center gap-4 flex-1 min-w-0 text-left cursor-pointer"
-      >
-        <StatusBadge status={challenge.status} />
-
-        {/* ID */}
-        <span className="font-mono text-xs text-muted font-bold w-10 flex-shrink-0">
-          #{challenge.id}
-        </span>
-
-        {/* Theme */}
-        <span className="flex-1 font-editorial italic text-sm text-navy/60 truncate min-w-0">
-          {challenge.theme || '—'}
-        </span>
-
-        {/* Health */}
-        <div className="flex-shrink-0">
-          <HealthIndicators health={challenge.health} compact />
-        </div>
-
-        {/* Arrow */}
-        <ChevronRight className="w-4 h-4 text-muted/40 group-hover:text-navy transition-colors flex-shrink-0" />
-      </button>
-
-      {/* Delete button */}
-      {onDelete && (
-        <button
-          onClick={onDelete}
-          className="p-1.5 rounded text-muted/30 hover:text-red hover:bg-red/8 transition-colors
-                     opacity-0 group-hover:opacity-100 flex-shrink-0"
-          title="Delete challenge"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      )}
-    </div>
   );
 }
 

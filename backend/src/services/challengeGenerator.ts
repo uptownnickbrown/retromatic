@@ -211,6 +211,9 @@ export async function generateChallenge(options: GenerateChallengeOptions = {}):
     }
   }
 
+  // Auto-queue the challenge
+  await queueChallenges([challenge.id]);
+
   return challenge.id;
 }
 
@@ -219,6 +222,7 @@ export async function generateBatch(count: number, options: GenerateChallengeOpt
   const ids: number[] = [];
   for (let i = 0; i < count; i++) {
     const id = await generateChallenge(options);
+    // Each challenge is auto-queued by generateChallenge
     ids.push(id);
   }
   return ids;

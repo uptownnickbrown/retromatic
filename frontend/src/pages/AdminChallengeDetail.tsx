@@ -9,7 +9,6 @@ import {
   Image,
   Users,
   Play,
-  ListPlus,
   ListMinus,
   Trash2,
   AlertTriangle,
@@ -28,7 +27,6 @@ import {
   usePreseedStats,
   useGeneratePortraits,
   useDeleteChallenge,
-  useQueueChallenges,
   useDequeueChallenges,
   useRegenerateOptionPortrait,
   useRegenerateOptionBlurbs,
@@ -59,7 +57,6 @@ export function AdminChallengeDetail() {
   const preseedMutation = usePreseedStats();
   const portraitsMutation = useGeneratePortraits();
   const deleteMutation = useDeleteChallenge();
-  const queueMutation = useQueueChallenges();
   const dequeueMutation = useDequeueChallenges();
   const regenPortraitMutation = useRegenerateOptionPortrait();
   const regenBlurbsMutation = useRegenerateOptionBlurbs();
@@ -104,11 +101,6 @@ export function AdminChallengeDetail() {
         onSuccess: () => navigate('/admin', { replace: true }),
       });
     }
-  };
-
-  const handleQueue = () => {
-    if (!challengeId) return;
-    queueMutation.mutate([challengeId]);
   };
 
   const handleDequeue = () => {
@@ -287,18 +279,8 @@ export function AdminChallengeDetail() {
           )}
         </VintageButton>
 
-        {/* Queue / Dequeue */}
-        {challenge.status === 'draft' && (
-          <VintageButton
-            variant="section"
-            onClick={handleQueue}
-            disabled={queueMutation.isPending}
-          >
-            <ListPlus className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
-            {queueMutation.isPending ? 'Queuing...' : 'Add to Queue'}
-          </VintageButton>
-        )}
-        {challenge.status === 'scheduled' && (
+        {/* Remove from queue (scheduled challenges) */}
+        {(challenge.status === 'scheduled' || challenge.status === 'draft') && (
           <VintageButton
             variant="section"
             onClick={handleDequeue}

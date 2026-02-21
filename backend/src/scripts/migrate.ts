@@ -37,6 +37,21 @@ async function migrate() {
   `;
   console.log('[migrate] ✓ unique_guest_challenge constraint');
 
+  // Queue any remaining 'draft' challenges (eliminate draft status)
+  const drafts = await sql`
+    UPDATE challenges
+    SET status = 'scheduled',
+        queue_position = COALESCE(
+          (SELECT MAX(queue_position) FROM challenges WHERE status = 'scheduled'), 0
+        ) + ROW_NUMBER() OVER (ORDER BY id),
+        published_at = NOW()
+    WHERE status = 'draft'
+    RETURNING id
+  `;
+  if (drafts.length > 0) {
+    console.log(`[migrate] ✓ Queued ${drafts.length} draft challenges`);
+  }
+
   console.log('[migrate] Done.');
   await sql.end();
 }
