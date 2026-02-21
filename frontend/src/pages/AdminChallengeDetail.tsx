@@ -9,7 +9,8 @@ import {
   Image,
   Users,
   Play,
-  CalendarPlus,
+  ListPlus,
+  ListMinus,
   Trash2,
   AlertTriangle,
   Eye,
@@ -27,7 +28,8 @@ import {
   usePreseedStats,
   useGeneratePortraits,
   useDeleteChallenge,
-  useScheduleChallenges,
+  useQueueChallenges,
+  useDequeueChallenges,
   useRegenerateOptionPortrait,
   useRegenerateOptionBlurbs,
   useUpdateOptionBlurb,
@@ -57,14 +59,13 @@ export function AdminChallengeDetail() {
   const preseedMutation = usePreseedStats();
   const portraitsMutation = useGeneratePortraits();
   const deleteMutation = useDeleteChallenge();
-  const scheduleMutation = useScheduleChallenges();
+  const queueMutation = useQueueChallenges();
+  const dequeueMutation = useDequeueChallenges();
   const regenPortraitMutation = useRegenerateOptionPortrait();
   const regenBlurbsMutation = useRegenerateOptionBlurbs();
   const updateBlurbMutation = useUpdateOptionBlurb();
 
   const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
-  const [scheduleDate, setScheduleDate] = useState('');
-  const [showScheduleInput, setShowScheduleInput] = useState(false);
 
   const justPlaytested = searchParams.get('playtested') === 'true';
 
@@ -105,12 +106,14 @@ export function AdminChallengeDetail() {
     }
   };
 
-  const handleSchedule = () => {
-    if (!challengeId || !scheduleDate) return;
-    scheduleMutation.mutate(
-      { challengeIds: [challengeId], startDate: scheduleDate },
-      { onSuccess: () => setShowScheduleInput(false) },
-    );
+  const handleQueue = () => {
+    if (!challengeId) return;
+    queueMutation.mutate([challengeId]);
+  };
+
+  const handleDequeue = () => {
+    if (!challengeId) return;
+    dequeueMutation.mutate(challengeId);
   };
 
   if (detailLoading) {
@@ -284,39 +287,25 @@ export function AdminChallengeDetail() {
           )}
         </VintageButton>
 
-        {/* Schedule */}
-        {showScheduleInput ? (
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={scheduleDate}
-              onChange={e => setScheduleDate(e.target.value)}
-              className="px-2 py-1.5 border-2 border-navy/15 rounded font-mono text-xs bg-bone text-navy
-                         focus:border-navy/40 focus:outline-none"
-            />
-            <button
-              onClick={handleSchedule}
-              disabled={!scheduleDate || scheduleMutation.isPending}
-              className="p-1.5 rounded bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 disabled:opacity-40 transition-colors"
-              title="Confirm schedule"
-            >
-              <Check className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setShowScheduleInput(false)}
-              className="p-1.5 rounded text-muted hover:text-navy transition-colors"
-              title="Cancel"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
+        {/* Queue / Dequeue */}
+        {challenge.status === 'draft' && (
           <VintageButton
             variant="section"
-            onClick={() => setShowScheduleInput(true)}
+            onClick={handleQueue}
+            disabled={queueMutation.isPending}
           >
-            <CalendarPlus className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
-            Schedule
+            <ListPlus className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
+            {queueMutation.isPending ? 'Queuing...' : 'Add to Queue'}
+          </VintageButton>
+        )}
+        {challenge.status === 'scheduled' && (
+          <VintageButton
+            variant="section"
+            onClick={handleDequeue}
+            disabled={dequeueMutation.isPending}
+          >
+            <ListMinus className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
+            {dequeueMutation.isPending ? 'Removing...' : 'Remove from Queue'}
           </VintageButton>
         )}
 
