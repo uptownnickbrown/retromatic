@@ -35,11 +35,11 @@ export async function promoteNextChallenge(): Promise<{
     return { activated: todayActive.id, completed: completedCount };
   }
 
-  // Find the next scheduled (queued) challenge — FIFO by id
+  // Find the next scheduled (queued) challenge — by queue position, then id
   const [nextChallenge] = await db.select()
     .from(challenges)
     .where(eq(challenges.status, 'scheduled'))
-    .orderBy(asc(challenges.id))
+    .orderBy(sql`${challenges.queuePosition} ASC NULLS LAST`, asc(challenges.id))
     .limit(1);
 
   if (!nextChallenge) {
@@ -52,6 +52,7 @@ export async function promoteNextChallenge(): Promise<{
       .set({
         status: 'active',
         challengeDate: todayStr,
+        queuePosition: null,
       })
       .where(eq(challenges.id, nextChallenge.id));
   } catch (err: any) {
