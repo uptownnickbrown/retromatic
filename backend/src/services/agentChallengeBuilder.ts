@@ -22,11 +22,13 @@ const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] a
 const tools: OpenAI.Responses.Tool[] = [
   {
     type: 'function' as const,
-    name: 'find_eligible_players',
+    name: 'search_players',
     strict: false,
-    description: `Find players eligible for the challenge — grouped by player with their available years. Only returns players who have at least 3 qualifying seasons in the database. This is the primary tool for building challenges.
+    description: `Search for players eligible for the challenge. Returns players GROUPED by player, each with their list of qualifying years. Only returns players who have at least 3 qualifying seasons (configurable via minSeasons).
 
-Returns for each player: playerId, name, position, playerType, years (list of qualifying years with z-scores), and totalSeasons count.`,
+Each result includes: playerId, name, position, positions (all eligible), playerType, totalSeasons, and years[] with year/team/zScore for each qualifying season.
+
+Use this tool to discover candidates by team, era, position, or name. You can combine filters freely.`,
     parameters: {
       type: 'object',
       properties: {
@@ -43,25 +45,6 @@ Returns for each player: playerId, name, position, playerType, years (list of qu
   },
   {
     type: 'function' as const,
-    name: 'search_players',
-    strict: false,
-    description: 'Search for individual player-seasons. Returns one row per player-year. Use find_eligible_players instead when building challenges — this tool is for spot-checking specific player-years.',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Player last name (partial match)' },
-        team: { type: 'string', description: '3-letter team code (e.g. NYA, BOS, LAN)' },
-        position: { type: 'string', description: 'Position code (C, 1B, 2B, SS, 3B, OF, SP, RP, P, UTIL)' },
-        yearMin: { type: 'number', description: 'Minimum year (inclusive)' },
-        yearMax: { type: 'number', description: 'Maximum year (inclusive)' },
-        minZScore: { type: 'number', description: 'Minimum position z-score' },
-        playerType: { type: 'string', enum: ['batter', 'pitcher'], description: 'Filter by player type' },
-        limit: { type: 'number', description: 'Max results (default 20)' },
-      },
-    },
-  },
-  {
-    type: 'function' as const,
     name: 'submit_challenge',
     strict: false,
     description: `Submit the final 10-round challenge. Validates and inserts into the database.
@@ -71,7 +54,7 @@ Rules:
 - Each round has exactly 3 players, each with exactly 3 year options
 - All player-years must exist in the database
 - No duplicate player-year combinations across the entire challenge
-- IMPORTANT: Only use years you confirmed exist via find_eligible_players or search_players`,
+- IMPORTANT: Only use years from the search_players results. Never guess years.`,
     parameters: {
       type: 'object',
       properties: {
@@ -208,41 +191,6 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   })));
 }
 
-async function executeSearchPlayers(args: Record<string, unknown>): Promise<string> {
-  const conditions = [];
-
-  if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
-  if (args.team) conditions.push(eq(players.team, String(args.team)));
-  if (args.position) conditions.push(buildPositionFilter(String(args.position))!);
-  if (args.yearMin) conditions.push(gte(players.year, Number(args.yearMin)));
-  if (args.yearMax) conditions.push(lte(players.year, Number(args.yearMax)));
-  if (args.minZScore) conditions.push(gte(players.zScorePosition, String(args.minZScore)));
-  if (args.playerType) conditions.push(eq(players.playerType, String(args.playerType)));
-
-  const rows = await db.select({
-    playerId: players.playerId,
-    nameFirst: players.nameFirst,
-    nameLast: players.nameLast,
-    year: players.year,
-    team: players.team,
-    position: players.primaryPosition,
-    zScore: players.zScorePosition,
-  })
-    .from(players)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(players.zScorePosition))
-    .limit(Number(args.limit) || 20);
-
-  return JSON.stringify(rows.map(r => ({
-    playerId: r.playerId,
-    name: `${r.nameFirst} ${r.nameLast}`,
-    year: r.year,
-    team: r.team,
-    position: r.position,
-    zScore: Number(r.zScore),
-  })));
-}
-
 interface SubmitRound {
   position: string;
   players: Array<{
@@ -292,21 +240,35 @@ async function executeSubmitChallenge(args: Record<string, unknown>): Promise<{ 
   }
 
   // Verify all player-years exist in DB — batch check
-  const missingYears: string[] = [];
+  const missingInfo: string[] = [];
+  const checkedPlayers = new Set<string>();
   for (const round of rounds) {
     for (const p of round.players) {
+      const missingForPlayer: number[] = [];
       for (const year of p.years) {
         const [exists] = await db.select({ id: players.id })
           .from(players)
           .where(and(eq(players.playerId, p.playerId), eq(players.year, year)))
           .limit(1);
-        if (!exists) missingYears.push(`${p.playerName} ${year} (${p.playerId})`);
+        if (!exists) missingForPlayer.push(year);
+      }
+      if (missingForPlayer.length > 0 && !checkedPlayers.has(p.playerId)) {
+        checkedPlayers.add(p.playerId);
+        // Look up what years this player actually has
+        const actualYears = await db.select({ year: players.year })
+          .from(players)
+          .where(eq(players.playerId, p.playerId))
+          .orderBy(players.year);
+        const availableYears = actualYears.map(r => r.year).join(', ');
+        missingInfo.push(
+          `${p.playerName} (${p.playerId}): years ${missingForPlayer.join(', ')} not in DB. Available years: [${availableYears}]`
+        );
       }
     }
   }
 
-  if (missingYears.length > 0) {
-    return { error: `Player-years not in database:\n${missingYears.join('\n')}` };
+  if (missingInfo.length > 0) {
+    return { error: `Player-years not in database — fix these players or replace them:\n${missingInfo.join('\n')}` };
   }
 
   // Insert challenge
@@ -357,25 +319,22 @@ Each challenge has:
 - 10 rounds, one per position: C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P (any order)
 - Each round has 3 players, each with 3 year options
 
-CRITICAL RULES:
-- Every player MUST have at least 3 qualifying seasons in the database
-- Use find_eligible_players as your PRIMARY tool — it only returns players with 3+ seasons and shows their exact available years
-- Only use years that were returned by the tools. NEVER guess or assume a year exists.
-- Pick 3 years from each player's available years list (prefer variety in z-score quality)
-
-Positions:
+POSITIONS:
 - Batters: C, 1B, 2B, SS, 3B, OF, UTIL (UTIL = any batter)
 - Pitchers: SP, RP, P (P = any pitcher)
 
-EFFICIENT WORKFLOW:
-1. Use find_eligible_players with broad filters (team, era, position) to discover candidates
-2. Make a few calls to cover all 10 positions — e.g. search batters and pitchers separately
-3. Pick 3 players per position from the results, choosing 3 years each from their available years
-4. Submit once with all 10 rounds
+WORKFLOW — follow this exactly:
+1. Call search_players a few times with broad filters to find candidates for each position. For example: search by team+era, search pitchers, search a position you still need to fill. Each result is pre-grouped by player and only includes players with 3+ qualifying seasons.
+2. From the results, pick 3 players per position. For each player, pick exactly 3 years from their "years" array. Only use years that appeared in the search results — never guess.
+3. Call submit_challenge with all 10 rounds at once.
 
-AVOID: searching one player at a time, using years you haven't verified, submitting before checking all players have 3 verified years.
+TIPS:
+- You need 30 players total (3 per position × 10 positions). Search broadly — a single call with team+yearRange typically returns 10-15 eligible players across multiple positions.
+- 3-5 search_players calls should be enough to find all 30 players.
+- If a search returns no results, try broadening the year range or dropping filters.
+- Mix in z-score variety — include some stars (high zScore) and some sleepers (lower zScore) in each round.
 
-The database covers 1961-2025. Team codes use Lahman format (NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dodgers, etc).`;
+The database covers 1961-2025. Team codes use Lahman format (NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dodgers, SFN=Giants, SLN=Cardinals, CHN=Cubs, CHA=White Sox, etc).`;
 
   const send = (data: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -429,10 +388,8 @@ The database covers 1961-2025. Team codes use Lahman format (NYA=Yankees, BOS=Re
         send({ type: 'tool_call', tool: toolCall.name, args });
 
         let result: string;
-        if (toolCall.name === 'find_eligible_players') {
+        if (toolCall.name === 'search_players') {
           result = await executeFindEligiblePlayers(args);
-        } else if (toolCall.name === 'search_players') {
-          result = await executeSearchPlayers(args);
         } else if (toolCall.name === 'submit_challenge') {
           const submitResult = await executeSubmitChallenge(args);
           if ('challengeId' in submitResult) {
