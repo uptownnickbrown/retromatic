@@ -153,6 +153,32 @@ Do not use `font-hand`, `font-sans`, or other undefined font classes.
 ### Data Model: Players Table
 Each row in `players` is a **player-season** (e.g., "Mike Trout 2019" and "Mike Trout 2020" are separate rows with different IDs). This means `playerRecordId` is unique per player-year, not per player name. When matching across year options for the same player, use the set of all `playerRecordId` values, not a single ID.
 
+## Deployment (Railway)
+
+Hosted on Railway with Nixpacks. Key files:
+- `railway.toml` — build/deploy configuration
+- `backend/src/scripts/migrate.ts` — idempotent SQL migrations (compiled to `dist/scripts/migrate.js`)
+
+### Deploy pipeline
+1. **Build**: Nixpacks runs `npm run build` (installs deps, builds frontend + backend)
+2. **Pre-deploy**: `preDeployCommand` runs the compiled migration script (`node backend/dist/scripts/migrate.js`). Runs in a separate ephemeral container with access to env vars (including `DATABASE_URL`). If it fails, the deploy is aborted and the old version keeps running.
+3. **Start**: `npm start` launches the Express server
+4. **Healthcheck**: Railway pings `/api/health` (60s timeout)
+
+### Migration rules
+- Migrations run via `preDeployCommand` in `railway.toml`, not in the start command
+- All migrations must be **idempotent** (use `IF NOT EXISTS`, `IF EXISTS`, `DO $$ ... END $$` blocks)
+- Migration script uses raw `postgres` (production dependency), not `drizzle-kit` (devDependency, unavailable at runtime)
+- On failure, `process.exitCode = 1` aborts the deploy cleanly
+
+### Important: devDependencies are pruned at runtime
+Nixpacks prunes devDependencies after the build phase. Never use devDependency tools (`tsx`, `drizzle-kit`, `vitest`, etc.) in `startCommand` or `preDeployCommand`. Use compiled JS (`node dist/...`) instead.
+
+## Working Principles
+
+- **Check docs before inventing solutions.** When facing infrastructure, deployment, or tooling problems, research the platform's documentation first (Railway docs, Nixpacks/Railpack docs, library docs). These platforms have solved common problems — use their built-in primitives (`preDeployCommand`, healthchecks, etc.) rather than building custom workarounds.
+- **One change at a time for infrastructure.** Don't switch the builder, migration strategy, and deploy config all at once. Make incremental changes so failures are easy to diagnose.
+
 ## Design Principles
 
 - **Mobile-first**: All UI optimized for phone screens (375px viewport). Touch targets 44px+.
