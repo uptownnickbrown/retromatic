@@ -231,7 +231,7 @@ export interface TodayStats {
   roundStats?: Array<{
     roundNumber: number;
     position: string;
-    mostPicked: { playerName: string; pickCount: number } | null;
+    mostPicked: { playerName: string; pickCount: number; portraitUrl: string | null; yearOptions: number[] } | null;
   }>;
 }
 

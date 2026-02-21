@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, Reorder } from 'framer-motion';
 import {
@@ -102,6 +102,16 @@ export function AdminDashboard() {
   const isDragging = useRef(false);
   const displayQueue = localQueue ?? grouped.queued;
 
+  // Clear local queue once server data catches up to our optimistic order
+  useEffect(() => {
+    if (!localQueue || isDragging.current) return;
+    const localIds = localQueue.map(c => c.id).join(',');
+    const serverIds = grouped.queued.map(c => c.id).join(',');
+    if (localIds === serverIds) {
+      setLocalQueue(null);
+    }
+  }, [grouped.queued, localQueue]);
+
   const handleReorder = useCallback((newOrder: PipelineChallenge[]) => {
     isDragging.current = true;
     setLocalQueue(newOrder);
@@ -113,9 +123,13 @@ export function AdminDashboard() {
     const ids = localQueue.map(c => c.id);
     const serverIds = grouped.queued.map(c => c.id);
     if (ids.join(',') !== serverIds.join(',')) {
-      reorderMutation.mutate(ids);
+      reorderMutation.mutate(ids, {
+        onError: () => setLocalQueue(null), // revert on failure
+      });
+      // Keep localQueue alive — it clears when server data catches up
+    } else {
+      setLocalQueue(null);
     }
-    setLocalQueue(null);
   }, [localQueue, grouped.queued, reorderMutation]);
 
   const handleDequeue = useCallback((id: number, e: React.MouseEvent) => {
@@ -285,16 +299,6 @@ export function AdminDashboard() {
 
       {/* PIPELINE SECTIONS */}
       <div className="space-y-8">
-        {/* Now Playing */}
-        {grouped.active.length > 0 && (
-          <PipelineSection
-            title="Now Playing"
-            challenges={grouped.active}
-            onNavigate={(id) => navigate(`/admin/challenge/${id}`)}
-            highlight="gold"
-          />
-        )}
-
         {/* Up Next (Draggable Queue) */}
         {displayQueue.length > 0 && (
           <motion.section

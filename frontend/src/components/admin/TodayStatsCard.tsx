@@ -1,11 +1,13 @@
 import { motion } from 'framer-motion';
-import { Users, Trophy, BarChart3 } from 'lucide-react';
+import { Users, Trophy, BarChart3, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { PaperCard } from '../ui/PaperCard';
 import { useTodayStats } from '../../hooks/useAdmin';
 import { cn } from '../../lib/utils';
 
 export function TodayStatsCard() {
   const { data } = useTodayStats();
+  const navigate = useNavigate();
 
   if (!data?.active) return null;
 
@@ -19,7 +21,7 @@ export function TodayStatsCard() {
       transition={{ delay: 0.05 }}
       className="mb-8"
     >
-      <PaperCard noPadding>
+      <PaperCard noPadding className="border-l-3 border-l-gold">
         <div className="px-5 py-4 border-b border-navy/8">
           <div className="flex items-center justify-between">
             <div>
@@ -34,6 +36,13 @@ export function TodayStatsCard() {
                 {theme && <span className="font-normal italic text-navy/50 ml-2">"{theme}"</span>}
               </h3>
             </div>
+            <button
+              onClick={() => navigate(`/admin/challenge/${challengeId}`)}
+              className="flex items-center gap-1 font-mono text-[10px] text-muted hover:text-navy transition-colors cursor-pointer"
+            >
+              Details
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
@@ -82,28 +91,68 @@ export function TodayStatsCard() {
           </div>
         )}
 
-        {/* Per-round most picked */}
+        {/* Per-round most picked — rich player cards */}
         {roundStats && roundStats.length > 0 && (
-          <div className="px-5 py-3">
-            <span className="font-mono text-[9px] text-muted uppercase tracking-wider block mb-2">
+          <div className="px-5 py-4">
+            <span className="font-mono text-[9px] text-muted uppercase tracking-wider block mb-3">
               Most Picked Per Round
             </span>
-            <div className="grid grid-cols-5 gap-x-4 gap-y-1">
+            <div className="grid grid-cols-5 gap-2">
               {roundStats.map((rs) => (
-                <div key={rs.roundNumber} className="flex items-baseline gap-1 min-w-0">
-                  <span className="font-mono text-[9px] text-muted font-bold flex-shrink-0">
-                    {rs.position}
-                  </span>
-                  <span className="font-mono text-[9px] text-navy/60 truncate">
-                    {rs.mostPicked?.playerName?.split(' ').pop() ?? '—'}
-                  </span>
-                </div>
+                <MostPickedCard key={rs.roundNumber} round={rs} />
               ))}
             </div>
           </div>
         )}
       </PaperCard>
     </motion.div>
+  );
+}
+
+function MostPickedCard({ round }: {
+  round: {
+    roundNumber: number;
+    position: string;
+    mostPicked: { playerName: string; pickCount: number; portraitUrl: string | null; yearOptions: number[] } | null;
+  };
+}) {
+  const { position, mostPicked } = round;
+  if (!mostPicked) {
+    return (
+      <div className="text-center">
+        <span className="font-mono text-[9px] text-muted font-bold block">{position}</span>
+        <span className="font-mono text-[8px] text-muted/40">—</span>
+      </div>
+    );
+  }
+
+  const lastName = mostPicked.playerName.split(' ').pop() ?? mostPicked.playerName;
+
+  return (
+    <div className="flex flex-col items-center text-center gap-1">
+      {/* Portrait */}
+      {mostPicked.portraitUrl ? (
+        <img
+          src={mostPicked.portraitUrl}
+          alt={mostPicked.playerName}
+          className="w-9 h-9 rounded-full object-cover border border-navy/10"
+        />
+      ) : (
+        <div className="w-9 h-9 rounded-full bg-navy/8 flex items-center justify-center">
+          <span className="font-editorial text-[10px] text-navy/30">{position}</span>
+        </div>
+      )}
+      {/* Name */}
+      <span className="font-mono text-[8px] text-navy font-bold leading-tight truncate w-full">
+        {lastName}
+      </span>
+      {/* Years */}
+      <span className="font-mono text-[7px] text-muted/60 leading-tight">
+        {mostPicked.yearOptions.length > 0
+          ? mostPicked.yearOptions.join(', ')
+          : '—'}
+      </span>
+    </div>
   );
 }
 
