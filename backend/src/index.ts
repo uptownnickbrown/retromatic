@@ -39,9 +39,9 @@ app.get('/api/health', (req, res) => {
 // In dev, Vite handles frontend on :3000 and proxies /api to Express on :3001.
 // In production (Railway), Express serves everything: API + portraits + frontend.
 if (process.env.NODE_ENV === 'production') {
-  // Portraits: serve from PORTRAIT_DIR (Railway Volume) or default dev path
+  // Portraits: serve from PORTRAIT_DIR (Railway Volume) or frontend/dist/portraits/
   const portraitDir = process.env.PORTRAIT_DIR
-    || path.resolve(import.meta.dirname ?? process.cwd(), '../../frontend/public/portraits');
+    || path.resolve(import.meta.dirname ?? process.cwd(), '../../frontend/dist/portraits');
 
   if (fs.existsSync(portraitDir) || process.env.PORTRAIT_DIR) {
     if (process.env.PORTRAIT_DIR && !fs.existsSync(portraitDir)) {
