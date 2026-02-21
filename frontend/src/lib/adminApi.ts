@@ -62,6 +62,7 @@ export interface PipelineChallenge {
   positionOrder: string[];
   status: string;
   theme: string | null;
+  queuePosition: number | null;
   createdAt: string;
   publishedAt: string | null;
   health: ChallengeHealth;
@@ -200,6 +201,13 @@ export async function dequeueChallenges(challengeId: number): Promise<{ dequeued
   return adminFetch('/admin/challenges/dequeue', {
     method: 'POST',
     body: JSON.stringify({ challengeId }),
+  });
+}
+
+export async function reorderQueue(challengeIds: number[]): Promise<{ reordered: number }> {
+  return adminFetch('/admin/challenges/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ challengeIds }),
   });
 }
 

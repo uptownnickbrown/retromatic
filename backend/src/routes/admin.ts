@@ -78,7 +78,7 @@ router.post('/challenges/dequeue', async (req, res) => {
       return;
     }
     const [updated] = await db.update(challenges)
-      .set({ status: 'draft', publishedAt: null })
+      .set({ status: 'draft', publishedAt: null, queuePosition: null })
       .where(and(
         eq(challenges.id, challengeId),
         eq(challenges.status, 'scheduled'),
@@ -92,6 +92,32 @@ router.post('/challenges/dequeue', async (req, res) => {
     res.json({ dequeued: true, challengeId });
   } catch (error) {
     res.status(500).json({ error: 'Failed to dequeue challenge' });
+  }
+});
+
+// Reorder the queue — receives ordered array of challenge IDs
+router.post('/challenges/reorder', async (req, res) => {
+  try {
+    const { challengeIds } = req.body as { challengeIds: number[] };
+    if (!Array.isArray(challengeIds) || challengeIds.length === 0) {
+      res.status(400).json({ error: 'challengeIds array required' });
+      return;
+    }
+
+    // Update each challenge's queuePosition to match the new order
+    for (let i = 0; i < challengeIds.length; i++) {
+      await db.update(challenges)
+        .set({ queuePosition: i + 1 })
+        .where(and(
+          eq(challenges.id, challengeIds[i]),
+          eq(challenges.status, 'scheduled'),
+        ));
+    }
+
+    res.json({ reordered: challengeIds.length });
+  } catch (error) {
+    console.error('Reorder error:', error);
+    res.status(500).json({ error: 'Failed to reorder queue' });
   }
 });
 

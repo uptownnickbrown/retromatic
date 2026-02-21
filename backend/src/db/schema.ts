@@ -31,6 +31,7 @@ export const challenges = pgTable('challenges', {
   positionOrder: jsonb('position_order').notNull(), // string[] of 10 positions
   status: varchar('status', { length: 20 }).notNull().default('draft'), // draft | scheduled | active | completed
   theme: varchar('theme', { length: 200 }), // e.g. "Oops, All Phillies!" or null
+  queuePosition: integer('queue_position'), // order in the auto-promote queue (lower = sooner), null when not queued
   createdAt: timestamp('created_at').defaultNow(),
   publishedAt: timestamp('published_at'),
 });

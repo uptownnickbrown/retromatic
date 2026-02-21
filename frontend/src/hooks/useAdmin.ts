@@ -116,6 +116,14 @@ export function useQueueChallenges() {
   });
 }
 
+export function useReorderQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (challengeIds: number[]) => adminApi.reorderQueue(challengeIds),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] }),
+  });
+}
+
 export function useDequeueChallenges() {
   const qc = useQueryClient();
   return useMutation({
