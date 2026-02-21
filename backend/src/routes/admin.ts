@@ -253,10 +253,16 @@ router.get('/stats/today', async (req, res) => {
       .orderBy(asc(challengeRounds.roundNumber));
 
     const roundIds = rounds.map(r => r.id);
+    interface MostPickedPlayer {
+      playerName: string;
+      pickCount: number;
+      portraitUrl: string | null;
+      yearOptions: number[];
+    }
     let roundStats: Array<{
       roundNumber: number;
       position: string;
-      mostPicked: { playerName: string; pickCount: number } | null;
+      mostPicked: MostPickedPlayer | null;
     }> = [];
 
     if (roundIds.length > 0) {
@@ -270,11 +276,17 @@ router.get('/stats/today', async (req, res) => {
         roundId: roundOptions.roundId,
         playerId: roundOptions.playerId,
         playerName: roundOptions.playerName,
+        portraitUrl: roundOptions.portraitUrl,
+        yearOptions: roundOptions.yearOptions,
       }).from(roundOptions).where(inArray(roundOptions.roundId, roundIds));
 
-      const playerNameMap = new Map<string, string>();
+      const playerInfoMap = new Map<string, { name: string; portraitUrl: string | null; yearOptions: number[] }>();
       for (const opt of allOptions) {
-        playerNameMap.set(`${opt.roundId}-${opt.playerId}`, opt.playerName);
+        playerInfoMap.set(`${opt.roundId}-${opt.playerId}`, {
+          name: opt.playerName,
+          portraitUrl: opt.portraitUrl,
+          yearOptions: (opt.yearOptions as number[]) || [],
+        });
       }
 
       roundStats = rounds.map(round => {
@@ -284,11 +296,16 @@ router.get('/stats/today', async (req, res) => {
           const pid = String(s.playerId);
           playerTotals.set(pid, (playerTotals.get(pid) || 0) + s.pickCount);
         }
-        let mostPicked: { playerName: string; pickCount: number } | null = null;
+        let mostPicked: MostPickedPlayer | null = null;
         for (const [pid, count] of playerTotals) {
           if (!mostPicked || count > mostPicked.pickCount) {
-            const name = playerNameMap.get(`${round.id}-${pid}`) || `Player ${pid}`;
-            mostPicked = { playerName: name, pickCount: count };
+            const info = playerInfoMap.get(`${round.id}-${pid}`);
+            mostPicked = {
+              playerName: info?.name || `Player ${pid}`,
+              pickCount: count,
+              portraitUrl: info?.portraitUrl ?? null,
+              yearOptions: info?.yearOptions ?? [],
+            };
           }
         }
         return { roundNumber: round.roundNumber, position: round.position, mostPicked };
