@@ -110,14 +110,15 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
   return { picks, totalScore: Math.round(totalScore * 10) / 10 };
 }
 
-// Calculate a session's percentile rank among all completed sessions for the same challenge
+// Calculate a session's percentile rank among all completed sessions for the same challenge.
+// Uses dense rank: same score = same percentile (COUNT DISTINCT scores below / total distinct scores).
 export async function calculateSessionPercentile(
   challengeId: number,
   totalLegendScore: number
 ): Promise<number> {
   const [result] = await db.select({
-    total: sql<number>`count(*)`,
-    below: sql<number>`count(*) filter (where ${gameSessions.totalLegendScore} < ${totalLegendScore})`,
+    totalDistinct: sql<number>`count(distinct ${gameSessions.totalLegendScore})`,
+    belowDistinct: sql<number>`count(distinct ${gameSessions.totalLegendScore}) filter (where ${gameSessions.totalLegendScore} < ${totalLegendScore})`,
   })
     .from(gameSessions)
     .where(and(
@@ -125,8 +126,8 @@ export async function calculateSessionPercentile(
       eq(gameSessions.status, 'completed')
     ));
 
-  const total = toNum(result?.total);
-  const below = toNum(result?.below);
-  if (total === 0) return 50; // Default if no other sessions
-  return Math.round((below / total) * 100);
+  const totalDistinct = toNum(result?.totalDistinct);
+  const belowDistinct = toNum(result?.belowDistinct);
+  if (totalDistinct === 0) return 50; // Default if no other sessions
+  return Math.round((belowDistinct / totalDistinct) * 100);
 }

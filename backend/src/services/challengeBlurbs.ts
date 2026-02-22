@@ -181,7 +181,11 @@ function normalizeBlurb(text: string): string {
   return text.replace(/\s*—\s*/g, ' — ');
 }
 
-// Generate a blurb using GPT-5.2 with web search for real-time context
+const MAX_RETRIES = 2;
+const BACKOFF_MS = [1000, 3000]; // 1s, 3s
+
+// Generate a blurb using GPT-5.2 with web search for real-time context.
+// Retries up to MAX_RETRIES times with exponential backoff on failure.
 async function generateBlurb(info: PlayerYearInfo): Promise<string> {
   const client = getOpenAIClient();
   if (!client) return getTemplateBlurb(info);
@@ -204,22 +208,34 @@ ${info.careerContext}
 
 Write a 4-5 sentence blurb (80-130 words) about this player-season.`;
 
-  try {
-    const response = await client.responses.create({
-      model: 'gpt-5.2',
-      instructions: SYSTEM_PROMPT,
-      input: userPrompt,
-      tools: [{ type: 'web_search' as const }],
-      temperature: 0.85,
-      max_output_tokens: 350,
-    });
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = BACKOFF_MS[attempt - 1] ?? 3000;
+        console.log(`  Retry ${attempt}/${MAX_RETRIES} for ${info.playerName} ${info.year} (waiting ${delay}ms)...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
 
-    const text = response.output_text?.trim();
-    return text ? normalizeBlurb(text) : getTemplateBlurb(info);
-  } catch (error) {
-    console.error('OpenAI blurb error:', error);
-    return getTemplateBlurb(info);
+      const response = await client.responses.create({
+        model: 'gpt-5.2',
+        instructions: SYSTEM_PROMPT,
+        input: userPrompt,
+        tools: [{ type: 'web_search' as const }],
+        temperature: 0.85,
+        max_output_tokens: 350,
+      });
+
+      const text = response.output_text?.trim();
+      return text ? normalizeBlurb(text) : getTemplateBlurb(info);
+    } catch (error) {
+      lastError = error;
+      if (attempt < MAX_RETRIES) continue;
+    }
   }
+
+  console.error('OpenAI blurb error (all retries exhausted):', lastError);
+  return getTemplateBlurb(info);
 }
 
 // Template-based fallback blurbs (3-4 sentences, tier-aware)
@@ -355,7 +371,11 @@ export async function generateBlurbsForOption(optionId: number): Promise<{
 }
 
 // Generate blurbs for all player-year options in a challenge
-export async function generateBlurbsForChallenge(challengeId: number): Promise<{ generated: number; failed: number }> {
+export async function generateBlurbsForChallenge(challengeId: number): Promise<{
+  generated: number;
+  failed: number;
+  failedOptionIds: number[];
+}> {
   // Clear career cache at start of each generation run
   careerCache.clear();
 
@@ -403,6 +423,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
   // Generate all blurbs in parallel (8 concurrent API calls)
   let generated = 0;
   let failed = 0;
+  const failedOptionIds = new Set<number>();
   const blurbResults = new Map<number, Record<string, string>>(); // optionId -> { year: blurb }
 
   const tasks = allTasks.map((task) => async () => {
@@ -430,6 +451,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
     } catch (err) {
       console.error(`  ✗ Failed: ${(task.option as any).playerName} ${task.year}:`, err);
       failed++;
+      failedOptionIds.add((task.option as any).id);
     }
   });
 
@@ -445,5 +467,5 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
   // Clear cache after generation
   careerCache.clear();
 
-  return { generated, failed };
+  return { generated, failed, failedOptionIds: [...failedOptionIds] };
 }

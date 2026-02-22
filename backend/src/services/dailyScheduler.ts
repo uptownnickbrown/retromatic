@@ -1,13 +1,71 @@
 import { db } from '../db/index.js';
-import { challenges } from '../db/schema.js';
-import { eq, and, sql, asc } from 'drizzle-orm';
+import { challenges, challengeRounds, roundOptions, pickStats } from '../db/schema.js';
+import { eq, and, sql, asc, inArray } from 'drizzle-orm';
 import { getTodayET } from '../lib/date.js';
+
+/**
+ * Check if a challenge is fully baked and ready for activation.
+ * Returns { ready: true } or { ready: false, reasons: [...] }.
+ */
+export async function isChallengeReady(challengeId: number): Promise<{
+  ready: boolean;
+  reasons: string[];
+}> {
+  const reasons: string[] = [];
+
+  const rounds = await db.select({ id: challengeRounds.id })
+    .from(challengeRounds)
+    .where(eq(challengeRounds.challengeId, challengeId));
+
+  if (rounds.length !== 10) {
+    reasons.push(`Expected 10 rounds, found ${rounds.length}`);
+  }
+
+  if (rounds.length === 0) {
+    return { ready: false, reasons };
+  }
+
+  const roundIds = rounds.map(r => r.id);
+  const options = await db.select({
+    portraitUrl: roundOptions.portraitUrl,
+    blurbs: roundOptions.blurbs,
+    yearOptions: roundOptions.yearOptions,
+  })
+    .from(roundOptions)
+    .where(inArray(roundOptions.roundId, roundIds));
+
+  let missingBlurbs = 0;
+  let missingPortraits = 0;
+  for (const opt of options) {
+    if (!opt.portraitUrl) missingPortraits++;
+    const blurbs = (opt.blurbs ?? {}) as Record<string, string>;
+    for (const year of (opt.yearOptions as number[])) {
+      if (!blurbs[String(year)]?.trim()) missingBlurbs++;
+    }
+  }
+
+  if (missingBlurbs > 0) reasons.push(`${missingBlurbs} blurbs missing`);
+  if (missingPortraits > 0) reasons.push(`${missingPortraits} portraits missing`);
+
+  // Check preseed stats
+  const [statsCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(pickStats)
+    .where(inArray(pickStats.roundId, roundIds));
+
+  if ((statsCount?.count ?? 0) === 0) {
+    reasons.push('No preseed stats');
+  }
+
+  return { ready: reasons.length === 0, reasons };
+}
 
 /**
  * Promote the next challenge in the queue.
  * 1. Complete any active challenge from a previous day.
  * 2. If today already has an active challenge, skip.
  * 3. Otherwise, activate the next "scheduled" challenge (FIFO by id).
+ * 4. Checks readiness before activation — skips incomplete challenges.
  */
 export async function promoteNextChallenge(): Promise<{
   activated: number | null;
@@ -43,6 +101,13 @@ export async function promoteNextChallenge(): Promise<{
     .limit(1);
 
   if (!nextChallenge) {
+    return { activated: null, completed: completedCount };
+  }
+
+  // Readiness gate: don't activate an incomplete challenge
+  const readiness = await isChallengeReady(nextChallenge.id);
+  if (!readiness.ready) {
+    console.warn(`[Daily Scheduler] Challenge #${nextChallenge.id} is NOT ready: ${readiness.reasons.join(', ')}. Skipping activation.`);
     return { activated: null, completed: completedCount };
   }
 

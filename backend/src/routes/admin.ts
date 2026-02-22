@@ -712,11 +712,57 @@ router.post('/challenges/:id/playtest', async (req, res) => {
   }
 });
 
+// Valid status transitions
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  draft: ['scheduled'],
+  scheduled: ['active', 'draft'],
+  active: ['completed', 'draft'],
+  completed: ['draft'],
+};
+
 // Update challenge
 router.patch('/challenges/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { status, theme, challengeDate, positionOrder } = req.body;
+
+    // Fetch current challenge
+    const [current] = await db.select().from(challenges).where(eq(challenges.id, id)).limit(1);
+    if (!current) {
+      res.status(404).json({ error: 'Challenge not found' });
+      return;
+    }
+
+    // Validate status transition
+    if (status && status !== current.status) {
+      const allowed = VALID_TRANSITIONS[current.status] ?? [];
+      if (!allowed.includes(status)) {
+        res.status(400).json({
+          error: `Invalid status transition: ${current.status} → ${status}. Allowed: ${allowed.join(', ') || 'none'}`,
+        });
+        return;
+      }
+      // Require challengeDate for draft → scheduled
+      if (current.status === 'draft' && status === 'scheduled' && !challengeDate && !current.challengeDate) {
+        res.status(400).json({ error: 'challengeDate is required when scheduling a challenge' });
+        return;
+      }
+    }
+
+    // Prevent duplicate dates
+    if (challengeDate) {
+      const [existing] = await db.select({ id: challenges.id })
+        .from(challenges)
+        .where(and(
+          eq(challenges.challengeDate, challengeDate),
+          sql`${challenges.id} != ${id}`,
+        ))
+        .limit(1);
+      if (existing) {
+        res.status(400).json({ error: `Another challenge (#${existing.id}) already has date ${challengeDate}` });
+        return;
+      }
+    }
 
     const updates: Record<string, any> = {};
     if (status) updates.status = status;
@@ -728,11 +774,6 @@ router.patch('/challenges/:id', async (req, res) => {
       .set(updates)
       .where(eq(challenges.id, id))
       .returning();
-
-    if (!updated) {
-      res.status(404).json({ error: 'Challenge not found' });
-      return;
-    }
 
     res.json({ challenge: updated });
   } catch (error) {
