@@ -257,10 +257,10 @@ export async function generateShareImage(opts: {
   }
 
   // Percentile — bold
-  const pctRank = Math.max(1, 100 - Math.round(opts.percentile));
+  const pctRank = Math.max(1, Math.round(opts.percentile));
   ctx.fillStyle = NAVY;
   ctx.font = '900 44px "Playfair Display", Georgia, serif';
-  ctx.fillText(`Top ${pctRank}%`, rCenter, statY + 8);
+  ctx.fillText(`Better than ${pctRank}%`, rCenter, statY + 8);
 
   // ─── Lineup mini-grid: sorted by canonical position order ───
   const gridY = 530;

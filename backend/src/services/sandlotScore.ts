@@ -111,7 +111,8 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
 }
 
 // Calculate a session's percentile rank among all completed sessions for the same challenge.
-// Uses dense rank: same score = same percentile (COUNT DISTINCT scores below / total distinct scores).
+// Uses dense rank: same score = same percentile (COUNT DISTINCT scores below / other distinct scores).
+// Denominator excludes the player's own score so 100/100 → 100th percentile.
 export async function calculateSessionPercentile(
   challengeId: number,
   totalLegendScore: number
@@ -128,6 +129,6 @@ export async function calculateSessionPercentile(
 
   const totalDistinct = toNum(result?.totalDistinct);
   const belowDistinct = toNum(result?.belowDistinct);
-  if (totalDistinct === 0) return 50; // Default if no other sessions
-  return Math.round((belowDistinct / totalDistinct) * 100);
+  if (totalDistinct <= 1) return 50; // Only one player, default to 50th
+  return Math.round((belowDistinct / (totalDistinct - 1)) * 100);
 }
