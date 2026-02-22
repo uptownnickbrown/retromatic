@@ -72,5 +72,8 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Portrait test output
+backend/portrait-test/
+
 # Claude
 .claude/
