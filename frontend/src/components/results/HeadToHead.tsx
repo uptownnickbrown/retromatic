@@ -83,7 +83,7 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal, leftL
                     'text-xs truncate',
                     pick.wasTimeout && 'line-through text-muted',
                   )}>
-                    {pick.playerName.split(' ').pop()} '{String(pick.year).slice(2)}
+                    {pick.playerName[0]}. {pick.playerName.split(' ').pop()} '{String(pick.year).slice(2)}
                   </span>
                   <span className={cn(
                     'font-mono text-[11px] font-bold flex-shrink-0 bg-paper px-1.5 py-0.5 rounded',
@@ -101,7 +101,7 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal, leftL
                     {perfectScore.toFixed(1)}
                   </span>
                   <span className="text-xs text-navy truncate text-right">
-                    {perfect?.playerName.split(' ').pop()} '{String(perfect?.year ?? 0).slice(2)}
+                    {perfect?.playerName[0]}. {perfect?.playerName.split(' ').pop()} '{String(perfect?.year ?? 0).slice(2)}
                   </span>
                 </div>
                 {isMatch ? (
@@ -240,8 +240,8 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
 
       {/* Perfect player's blurb */}
       {perfect.blurb && (
-        <div className="bg-[#E8E4D9] rounded p-3 border border-navy/10">
-          <p className="font-mono text-[13px] leading-relaxed text-left" style={{ color: '#37474F', letterSpacing: '-0.02em' }}>
+        <div className="bg-bone rounded p-3 border border-navy/10">
+          <p className="font-mono text-[13px] leading-relaxed text-left text-navy/80 tracking-tight">
             {renderBlurb(perfect.blurb)}
           </p>
         </div>

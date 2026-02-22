@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MotionConfig } from 'framer-motion';
 import { Home } from './pages/Home';
 import { Game } from './pages/Game';
 import { Results } from './pages/Results';
@@ -21,6 +22,7 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
+    <MotionConfig reducedMotion="user">
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
@@ -35,6 +37,7 @@ function App() {
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
+    </MotionConfig>
   );
 }
 

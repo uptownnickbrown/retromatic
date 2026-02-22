@@ -143,8 +143,8 @@ function ExpandedPickStats({ pick }: { pick: ResultsPick }) {
 
       {/* Blurb */}
       {pick.blurb && (
-        <div className="bg-[#E8E4D9] rounded p-3 border border-navy/10">
-          <p className="font-mono text-[13px] leading-relaxed text-left" style={{ color: '#37474F', letterSpacing: '-0.02em' }}>
+        <div className="bg-bone rounded p-3 border border-navy/10">
+          <p className="font-mono text-[13px] leading-relaxed text-left text-navy/80 tracking-tight">
             {renderBlurb(pick.blurb)}
           </p>
         </div>

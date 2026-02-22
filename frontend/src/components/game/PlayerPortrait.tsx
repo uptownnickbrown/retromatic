@@ -16,7 +16,7 @@ const sizeMap = {
   '2xl': 'w-32 h-[152px]',
 };
 
-export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: PlayerPortraitProps) {
+export function PlayerPortrait({ name, portraitUrl, position, size = 'md', className }: PlayerPortraitProps) {
   if (portraitUrl) {
     return (
       <div
@@ -36,7 +36,7 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
     );
   }
 
-  // Fallback: large Playfair initials
+  // Fallback: vintage silhouette placeholder with initials and position
   const initials = name
     .split(' ')
     .map(w => w[0])
@@ -48,19 +48,27 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
   return (
     <div
       className={cn(
-        'relative flex-shrink-0 rounded overflow-hidden border border-navy/15 bg-bone',
+        'relative flex-shrink-0 rounded overflow-hidden border border-navy/10 bg-bone',
         'shadow-[1px_1px_0px_rgba(10,30,47,0.1)]',
-        'flex items-center justify-center',
+        'flex flex-col items-center justify-center gap-0.5',
         sizeMap[size],
         className,
       )}
     >
       <span className={cn(
-        'font-editorial font-black text-navy/15 select-none leading-none',
-        size === '2xl' ? 'text-5xl' : 'text-3xl',
+        'font-editorial font-black text-navy/20 select-none leading-none',
+        size === '2xl' ? 'text-5xl' : size === 'xl' ? 'text-4xl' : 'text-2xl',
       )}>
         {initials}
       </span>
+      {position && (
+        <span className={cn(
+          'font-mono font-bold text-navy/15 uppercase select-none leading-none',
+          size === '2xl' || size === 'xl' ? 'text-[9px]' : 'text-[7px]',
+        )}>
+          {position}
+        </span>
+      )}
     </div>
   );
 }
