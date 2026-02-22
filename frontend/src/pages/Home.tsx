@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { BarChart3, Flame } from 'lucide-react';
 import { useTodaysChallenge, useStreak } from '../hooks/useChallenge';
-import { LegendScoreBadge } from '../components/game/LegendScoreBadge';
+import { SandlotScoreBadge } from '../components/game/SandlotScoreBadge';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { PostmarkDate } from '../components/ui/PostmarkDate';
@@ -66,7 +66,7 @@ export function Home() {
                     Today's Result
                   </p>
                 </div>
-                <LegendScoreBadge score={safeNum(session.totalLegendScore) / 10} size="md" showLabel />
+                <SandlotScoreBadge score={safeNum(session.totalLegendScore) / 10} size="md" showLabel />
               </div>
 
               {session.percentile !== null && (

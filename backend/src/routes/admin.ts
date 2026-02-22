@@ -12,7 +12,7 @@ import { generatePortraitsForChallenge, generatePortraitForOption } from '../ser
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
-import { calculateLegendScore } from '../services/legendScore.js';
+import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
 import { getAllRoundData } from './challenge.js';
 
@@ -566,7 +566,7 @@ router.get('/challenges/:id', async (req, res) => {
         yearScores: (opt.yearOptions as number[]).map(year => ({
           year,
           zScorePosition: zScoreMap.get(`${opt.playerId}-${year}`) ?? 0,
-          legendScore: calculateLegendScore(zScoreMap.get(`${opt.playerId}-${year}`) ?? 0),
+          legendScore: calculateSandlotScore(zScoreMap.get(`${opt.playerId}-${year}`) ?? 0),
           team: teamMap.get(`${opt.playerId}-${year}`) ?? '',
         })),
       })),
@@ -638,7 +638,7 @@ router.get('/challenges/:id/health', async (req, res) => {
         .from(players).where(combined);
 
       for (const r of records) {
-        const ls = calculateLegendScore(toNum(r.zScorePosition));
+        const ls = calculateSandlotScore(toNum(r.zScorePosition));
         if (minLegendScore === null || ls < minLegendScore) minLegendScore = ls;
         if (maxLegendScore === null || ls > maxLegendScore) maxLegendScore = ls;
       }

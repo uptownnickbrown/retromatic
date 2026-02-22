@@ -1,25 +1,25 @@
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
-import { getLegendScoreLabel, getLegendScoreTier } from '../../types';
+import { getSandlotScoreLabel, getSandlotScoreTier } from '../../types';
 import { safeNum } from '../../lib/numeric';
 import { WaxSeal } from '../ui/WaxSeal';
 
-interface LegendScoreBadgeProps {
+interface SandlotScoreBadgeProps {
   score: number;
   size?: 'sm' | 'md' | 'lg';
   animate?: boolean;
   showLabel?: boolean;
 }
 
-export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false, showLabel = false }: LegendScoreBadgeProps) {
+export function SandlotScoreBadge({ score: rawScore, size = 'md', animate = false, showLabel = false }: SandlotScoreBadgeProps) {
   const score = safeNum(rawScore);
-  const label = getLegendScoreLabel(score);
-  const tier = getLegendScoreTier(score);
-  const isLegendary = score >= 9.5;
-  const isGreat = score >= 6.0 && !isLegendary;
+  const label = getSandlotScoreLabel(score);
+  const tier = getSandlotScoreTier(score);
+  const isSandlotLegend = score >= 9.5;
+  const isGreat = score >= 6.0 && !isSandlotLegend;
 
-  // Legendary: wax seal
-  if (isLegendary) {
+  // Sandlot Legend: wax seal
+  if (isSandlotLegend) {
     return (
       <div className={cn('flex flex-col items-center gap-1.5', tier)}>
         <WaxSeal score={score} size={size} animate={animate} />

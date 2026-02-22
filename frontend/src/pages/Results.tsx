@@ -4,7 +4,7 @@ import { Home, ArrowLeft, FlaskConical } from 'lucide-react';
 import { useChallengeResults } from '../hooks/useChallenge';
 import { getOrdinalSuffix } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
-import { LegendScoreBadge } from '../components/game/LegendScoreBadge';
+import { SandlotScoreBadge } from '../components/game/SandlotScoreBadge';
 import { FinalLineup } from '../components/results/FinalLineup';
 import { HeadToHead } from '../components/results/HeadToHead';
 import { ShareCard } from '../components/results/ShareCard';
@@ -100,7 +100,7 @@ export function Results() {
                 <span className="text-sm text-muted font-mono">/100</span>
               </p>
             </div>
-            <LegendScoreBadge score={totalScore / 10} size="md" animate showLabel />
+            <SandlotScoreBadge score={totalScore / 10} size="md" animate showLabel />
           </div>
           {/* Percentile slab — hide for playtest */}
           {!isPlaytest && (

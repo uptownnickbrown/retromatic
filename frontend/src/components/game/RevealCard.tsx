@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import type { RevealData, RevealRoundPlayer } from '../../types';
-import { LegendScoreBadge } from './LegendScoreBadge';
+import { SandlotScoreBadge } from './SandlotScoreBadge';
 import { PaperCard } from '../ui/PaperCard';
 import { PlayerPortrait } from './PlayerPortrait';
 import { zToPercentile, getDisplayStats } from '../../lib/statBenchmark';
+import { getTeamFullName } from '../../lib/teams';
 import { renderBlurb } from '../../lib/renderBlurb';
 
 interface RevealCardProps {
@@ -177,7 +178,7 @@ function CommunityPicks({
 
 export function RevealCard({ reveal }: RevealCardProps) {
   const pickPcts = reveal.pickPercentages ?? [];
-  const isLegendary = reveal.legendScore >= 9.5;
+  const isSandlotLegend = reveal.legendScore >= 9.5;
 
   const displayStats = useMemo(() => {
     const configs = getDisplayStats(reveal.playerType);
@@ -203,16 +204,16 @@ export function RevealCard({ reveal }: RevealCardProps) {
       transition={{ type: 'spring', stiffness: 200, damping: 20 }}
       className="w-full px-3"
     >
-      {isLegendary && <TickerTapeConfetti />}
+      {isSandlotLegend && <TickerTapeConfetti />}
 
       <PaperCard
-        className={cn(isLegendary && 'ring-2 ring-gold/30')}
+        className={cn(isSandlotLegend && 'ring-2 ring-gold/30')}
         noPadding
       >
         {/* Year/Team header */}
         <div className="text-center py-2.5 border-b border-navy/10">
           <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted">
-            {reveal.year} — {reveal.team}
+            {reveal.year} — {getTeamFullName(reveal.team)}
           </span>
         </div>
 
@@ -232,7 +233,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
             />
             <h3 className={cn(
               'font-editorial font-black text-2xl leading-tight text-navy',
-              isLegendary && 'text-gold',
+              isSandlotLegend && 'text-gold',
             )}>
               {reveal.playerName}
             </h3>
@@ -278,7 +279,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
                   shapeMargin: '12px',
                 }}
               >
-                <LegendScoreBadge score={reveal.legendScore} size="lg" animate />
+                <SandlotScoreBadge score={reveal.legendScore} size="lg" animate />
               </motion.div>
               <p className="font-mono text-[13px] leading-relaxed text-left" style={{ color: '#37474F', letterSpacing: '-0.02em' }}>
                 {renderBlurb(reveal.blurb)}
@@ -294,7 +295,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
               transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
               className="flex justify-center mb-4"
             >
-              <LegendScoreBadge score={reveal.legendScore} size="lg" animate showLabel />
+              <SandlotScoreBadge score={reveal.legendScore} size="lg" animate showLabel />
             </motion.div>
           )}
 

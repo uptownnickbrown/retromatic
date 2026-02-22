@@ -238,7 +238,7 @@ describe('useGame', () => {
       const { result } = await loadToPickingPhase();
 
       act(() => {
-        // z-score 2.0 → Legend Score 4.0 via calculateLegendScore formula
+        // z-score 2.0 → Sandlot Score 4.0 via calculateSandlotScore formula
         result.current.submitPick(1001, 2020);
       });
 

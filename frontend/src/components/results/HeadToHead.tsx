@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { POSITIONS } from '../../types';
 import { safeNum } from '../../lib/numeric';
 import { getDisplayStats } from '../../lib/statBenchmark';
+import { getTeamNickname } from '../../lib/teams';
 import { renderBlurb } from '../../lib/renderBlurb';
 import type { ResultsPick, PerfectLineupPick } from '../../types';
 
@@ -151,7 +152,7 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div className="text-center">
           <p className="font-editorial font-bold text-sm text-navy leading-tight">{pick.playerName}</p>
-          <p className="font-mono text-[10px] text-muted">{pick.year} · {pick.team}</p>
+          <p className="font-mono text-[10px] text-muted">{pick.year} · {getTeamNickname(pick.team)}</p>
           <p className={cn(
             'font-mono text-sm font-bold mt-0.5',
             yourScore >= 9.5 ? 'text-gold' : yourScore >= 6.0 ? 'text-navy' : 'text-muted',
@@ -164,7 +165,7 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
             {perfect.playerName}
             {isMatch && <Check size={12} className="inline ml-1 text-[#2E7D32]" />}
           </p>
-          <p className="font-mono text-[10px] text-muted">{perfect.year} · {perfect.team ?? ''}</p>
+          <p className="font-mono text-[10px] text-muted">{perfect.year} · {getTeamNickname(perfect.team ?? '')}</p>
           <p className={cn(
             'font-mono text-sm font-bold mt-0.5',
             perfectScore >= 9.5 ? 'text-gold' : 'text-navy',
