@@ -23,10 +23,11 @@ interface PickOption {
 
 /**
  * Weighted random sampling: pick one option from a round's choices,
- * biased towards higher Sandlot Scores (weight = score^2).
+ * biased towards higher Sandlot Scores (weight = score^1.4).
+ * Softer exponent means best option gets ~21% instead of ~27%.
  */
 function samplePick(options: PickOption[]): PickOption {
-  const weights = options.map(o => Math.pow(Math.max(o.legendScore, 1.0), 2));
+  const weights = options.map(o => Math.pow(Math.max(o.legendScore, 1.0), 1.4));
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
   let r = Math.random() * totalWeight;
