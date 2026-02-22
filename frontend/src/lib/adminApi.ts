@@ -92,8 +92,8 @@ export interface DetailedHealth {
   portraits: { present: number; missing: number; total: number };
   portraitsReady: boolean;
   legendScoreRange: { min: number; max: number } | null;
-  preseedStats: number;
-  preseedReady: boolean;
+  drafts: { total: number; preseed: number; real: number };
+  draftsReady: boolean;
 }
 
 export interface YearScore {
@@ -238,7 +238,7 @@ export interface TodayStats {
   roundStats?: Array<{
     roundNumber: number;
     position: string;
-    mostPicked: { playerName: string; pickCount: number; portraitUrl: string | null; yearOptions: number[] } | null;
+    mostPicked: { playerName: string; pickCount: number; portraitUrl: string | null; selectedYear: number; team: string | null } | null;
   }>;
 }
 

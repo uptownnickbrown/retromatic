@@ -268,10 +268,10 @@ router.get('/stats/today', async (req, res) => {
       ? completedScores.reduce((a, b) => a + b, 0) / completedScores.length
       : 0;
 
-    // Score distribution (buckets of 10: 0-10, 10-20, ..., 90-100)
-    const distribution = Array(10).fill(0) as number[];
+    // Score distribution (50 buckets of 2: 0-2, 2-4, ..., 98-100)
+    const distribution = Array(50).fill(0) as number[];
     for (const score of completedScores) {
-      const bucket = Math.min(9, Math.floor(score / 10));
+      const bucket = Math.min(49, Math.floor(score / 2));
       distribution[bucket]++;
     }
 
@@ -286,7 +286,8 @@ router.get('/stats/today', async (req, res) => {
       playerName: string;
       pickCount: number;
       portraitUrl: string | null;
-      yearOptions: number[];
+      selectedYear: number;
+      team: string | null;
     }
     let roundStats: Array<{
       roundNumber: number;
@@ -298,6 +299,7 @@ router.get('/stats/today', async (req, res) => {
       const allPickStats = await db.select({
         roundId: pickStats.roundId,
         playerId: pickStats.playerId, // integer references players.id
+        selectedYear: pickStats.selectedYear,
         pickCount: pickStats.pickCount,
       }).from(pickStats).where(inArray(pickStats.roundId, roundIds));
 
@@ -306,49 +308,44 @@ router.get('/stats/today', async (req, res) => {
         playerId: roundOptions.playerId, // varchar Lahman player_id
         playerName: roundOptions.playerName,
         portraitUrl: roundOptions.portraitUrl,
-        yearOptions: roundOptions.yearOptions,
       }).from(roundOptions).where(inArray(roundOptions.roundId, roundIds));
 
-      // Build a lookup from numeric players.id → Lahman playerId for this challenge
-      // pickStats uses players.id (integer), roundOptions uses Lahman playerId (varchar)
+      // Build lookups from numeric players.id → Lahman playerId + team
       const numericIds = [...new Set(allPickStats.map(s => s.playerId))];
-      const playerIdMapping = new Map<number, string>(); // players.id → Lahman playerId
+      const playerIdMapping = new Map<number, { lahmanId: string; team: string | null }>();
       if (numericIds.length > 0) {
-        const playerRows = await db.select({ id: players.id, playerId: players.playerId })
+        const playerRows = await db.select({ id: players.id, playerId: players.playerId, team: players.team })
           .from(players)
           .where(inArray(players.id, numericIds));
         for (const row of playerRows) {
-          playerIdMapping.set(row.id, row.playerId);
+          playerIdMapping.set(row.id, { lahmanId: row.playerId, team: row.team });
         }
       }
 
       // Map roundId + Lahman playerId → option info
-      const optionInfoMap = new Map<string, { name: string; portraitUrl: string | null; yearOptions: number[] }>();
+      const optionInfoMap = new Map<string, { name: string; portraitUrl: string | null }>();
       for (const opt of allOptions) {
         optionInfoMap.set(`${opt.roundId}-${opt.playerId}`, {
           name: opt.playerName,
           portraitUrl: opt.portraitUrl,
-          yearOptions: (opt.yearOptions as number[]) || [],
         });
       }
 
       roundStats = rounds.map(round => {
-        // Aggregate pick counts by Lahman playerId (translated from numeric ID)
-        const playerTotals = new Map<string, number>();
+        // Find the single most-picked player-year combo (no aggregation across years)
         const stats = allPickStats.filter(s => s.roundId === round.id);
-        for (const s of stats) {
-          const lahmanId = playerIdMapping.get(s.playerId) ?? String(s.playerId);
-          playerTotals.set(lahmanId, (playerTotals.get(lahmanId) || 0) + s.pickCount);
-        }
         let mostPicked: MostPickedPlayer | null = null;
-        for (const [lahmanId, count] of playerTotals) {
-          if (!mostPicked || count > mostPicked.pickCount) {
+        for (const s of stats) {
+          if (!mostPicked || s.pickCount > mostPicked.pickCount) {
+            const mapping = playerIdMapping.get(s.playerId);
+            const lahmanId = mapping?.lahmanId ?? String(s.playerId);
             const info = optionInfoMap.get(`${round.id}-${lahmanId}`);
             mostPicked = {
               playerName: info?.name || lahmanId,
-              pickCount: count,
+              pickCount: s.pickCount,
               portraitUrl: info?.portraitUrl ?? null,
-              yearOptions: info?.yearOptions ?? [],
+              selectedYear: s.selectedYear,
+              team: mapping?.team ?? null,
             };
           }
         }
@@ -673,15 +670,20 @@ router.get('/challenges/:id/health', async (req, res) => {
       }
     }
 
-    // Count preseeded pick stats
-    let preseedTotal = 0;
-    if (roundIds.length > 0) {
-      const [statsCount] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(pickStats)
-        .where(inArray(pickStats.roundId, roundIds));
-      preseedTotal = statsCount?.count ?? 0;
-    }
+    // Count completed drafts (preseed vs real)
+    const [draftCounts] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        preseed: sql<number>`count(*) filter (where ${gameSessions.guestToken} like 'preseed-%')::int`,
+      })
+      .from(gameSessions)
+      .where(and(
+        eq(gameSessions.challengeId, id),
+        eq(gameSessions.status, 'completed'),
+      ));
+    const draftsTotal = draftCounts?.total ?? 0;
+    const draftsPreseed = draftCounts?.preseed ?? 0;
+    const draftsReal = draftsTotal - draftsPreseed;
 
     res.json({
       challengeId: id,
@@ -696,8 +698,8 @@ router.get('/challenges/:id/health', async (req, res) => {
       portraits: { present: portraitsPresent, missing: portraitsMissing, total: totalPlayerSlots },
       portraitsReady: portraitsMissing === 0 && portraitsPresent > 0,
       legendScoreRange: minLegendScore !== null ? { min: minLegendScore, max: maxLegendScore } : null,
-      preseedStats: preseedTotal,
-      preseedReady: preseedTotal > 0,
+      drafts: { total: draftsTotal, preseed: draftsPreseed, real: draftsReal },
+      draftsReady: draftsPreseed > 0,
     });
   } catch (error) {
     console.error('Health check error:', error);
