@@ -14,6 +14,7 @@ import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
 import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
+import { getTodayET } from '../lib/date.js';
 import { getAllRoundData } from './challenge.js';
 
 const router = Router();
@@ -874,6 +875,58 @@ router.post('/promote-next', async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Failed to promote challenge' });
+  }
+});
+
+// Force-activate a specific challenge (deactivates the current active one)
+router.post('/challenges/:id/activate', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
+
+    const todayStr = getTodayET();
+
+    // Verify the target challenge exists
+    const [target] = await db.select()
+      .from(challenges)
+      .where(eq(challenges.id, id))
+      .limit(1);
+
+    if (!target) {
+      res.status(404).json({ error: 'Challenge not found' });
+      return;
+    }
+
+    if (target.status === 'active') {
+      res.json({ activated: id, deactivated: null, message: 'Already active' });
+      return;
+    }
+
+    // Deactivate any currently active challenge (move it back to completed)
+    const deactivated = await db.update(challenges)
+      .set({ status: 'completed' })
+      .where(eq(challenges.status, 'active'))
+      .returning();
+
+    // Activate the target challenge with today's date
+    await db.update(challenges)
+      .set({
+        status: 'active',
+        challengeDate: todayStr,
+        queuePosition: null,
+      })
+      .where(eq(challenges.id, id));
+
+    res.json({
+      activated: id,
+      deactivated: deactivated.length > 0 ? deactivated[0].id : null,
+    });
+  } catch (error) {
+    console.error('Force activate error:', error);
+    res.status(500).json({ error: 'Failed to activate challenge' });
   }
 });
 

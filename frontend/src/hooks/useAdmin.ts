@@ -143,6 +143,18 @@ export function usePromoteNext() {
   });
 }
 
+export function useForceActivate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => adminApi.forceActivate(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'history'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'stats'] });
+    },
+  });
+}
+
 export function useTodayStats() {
   return useQuery({
     queryKey: ['admin', 'stats', 'today'],
