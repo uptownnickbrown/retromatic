@@ -458,7 +458,7 @@ async function executeSubmitChallenge(
 
 // ─── Main agent loop ─────────────────────────────────────────
 
-export async function runAgentBuilder(prompt: string, res: SSEResponse): Promise<void> {
+export async function runAgentBuilder(prompt: string, res: SSEResponse): Promise<number | null> {
   const client = getClient();
 
   const systemPrompt = `You are an expert baseball challenge builder for the Sandlot daily game.
@@ -535,7 +535,7 @@ DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dod
             send({ type: 'success', challengeId: submitResult.challengeId, theme: args.theme });
             res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
             res.end();
-            return;
+            return submitResult.challengeId;
           }
           result = JSON.stringify(submitResult);
           send({ type: 'error_recoverable', message: (submitResult as { error: string }).error });
@@ -571,4 +571,5 @@ DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dod
 
   res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
   res.end();
+  return null;
 }
