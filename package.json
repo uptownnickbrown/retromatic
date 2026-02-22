@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": "22"
   },
   "scripts": {
-    "build": "cd frontend && npm ci && npm run build && cd ../backend && npm ci && npm run build",
+    "build": "cd frontend && npm ci --include=dev && npm run build && cd ../backend && npm ci --include=dev && npm run build",
     "start": "cd backend && node dist/index.js",
     "db:push": "cd backend && npm run db:push",
     "prepare": "husky || true",
