@@ -13,6 +13,19 @@ import { Loader2, FlaskConical, Home } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
 
+const POSITION_NAMES: Record<string, string> = {
+  C: 'Catcher',
+  '1B': '1st Base',
+  '2B': '2nd Base',
+  SS: 'Shortstop',
+  '3B': '3rd Base',
+  OF: 'Outfield',
+  UTIL: 'Utility',
+  SP: 'Starting Pitcher',
+  RP: 'Relief Pitcher',
+  P: 'Pitcher',
+};
+
 export function Game() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -199,23 +212,23 @@ export function Game() {
         />
       </div>
 
-      {/* Round info + Timer */}
+      {/* Position + Round info + Timer */}
       {game.phase === 'picking' && game.currentRound && (
-        <div className="flex items-center justify-between px-4 py-3 gap-3">
-          <div className="flex-shrink-0">
-            <h2 className="font-editorial font-bold text-navy text-xl leading-tight">
-              Round {game.currentRound.roundNumber}
-            </h2>
+        <div className="px-4 pt-2 pb-1">
+          <h2 className="font-editorial font-bold text-navy text-2xl text-center">
+            {POSITION_NAMES[game.currentRound.position] ?? game.currentRound.position}
+          </h2>
+          <div className="flex items-center justify-between mt-1">
             <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted">
-              {game.currentRound.position}
+              Round {game.currentRound.roundNumber} of {game.totalRounds}
             </span>
-          </div>
-          <div className="flex-1 max-w-[180px]">
-            <Timer
-              timeLeft={timer.timeLeft}
-              progress={timer.progress}
-              isUrgent={timer.isUrgent}
-            />
+            <div className="w-[180px]">
+              <Timer
+                timeLeft={timer.timeLeft}
+                progress={timer.progress}
+                isUrgent={timer.isUrgent}
+              />
+            </div>
           </div>
         </div>
       )}
