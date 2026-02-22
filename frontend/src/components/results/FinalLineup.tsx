@@ -65,7 +65,10 @@ export function FinalLineup({ picks }: FinalLineupProps) {
                 {pick.year}
               </span>
               {isSandlotLegend ? (
-                <WaxSeal score={score} size="sm" />
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-[8px] font-bold text-gold uppercase tracking-wider">Legend</span>
+                  <WaxSeal score={score} size="sm" />
+                </div>
               ) : (
                 <span className={cn(
                   'font-mono text-xs font-bold min-w-[32px] text-right',

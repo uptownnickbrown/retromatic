@@ -93,7 +93,7 @@ export function Results() {
           <div className="flex items-center gap-4 px-4 py-3">
             <div className="flex-1">
               <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted mb-1">
-                Final Score
+                Sandlot Score
               </p>
               <p className="font-editorial font-bold text-3xl text-navy leading-none">
                 {totalScore.toFixed(1)}
