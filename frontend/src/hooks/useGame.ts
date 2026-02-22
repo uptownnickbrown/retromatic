@@ -157,7 +157,7 @@ export function useGame() {
     }
   }, []);
 
-  // Synchronous pick: compute Legend Score locally, build reveal data, save to localStorage
+  // Synchronous pick: compute Sandlot Score locally, build reveal data, save to localStorage
   const submitPick = useCallback((playerRecordId: number, year: number, wasTimeout = false) => {
     if (submittingRef.current) return;
 
@@ -181,7 +181,7 @@ export function useGame() {
 
       if (!selectedPlayer || !selectedYearOption) return prev;
 
-      // Compute Legend Score client-side
+      // Compute Sandlot Score client-side
       const legendScore = calculateSandlotScore(selectedYearOption.zScorePosition);
 
       // Build reveal data

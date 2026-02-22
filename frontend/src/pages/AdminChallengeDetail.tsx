@@ -681,7 +681,7 @@ function PlayerCard({
                   {ys.team ? getTeamNickname(ys.team) : '—'}
                 </span>
 
-                {/* Legend Score */}
+                {/* Sandlot Score */}
                 <span className={cn(
                   'font-mono text-xs font-bold tabular-nums',
                   ys.legendScore >= 9.5 ? 'text-gold'
