@@ -128,7 +128,7 @@ function CommunityPicks({
               name={player.name}
               portraitUrl={player.portraitUrl}
               position=""
-              size="sm"
+              size="md"
               className="flex-shrink-0 mt-0.5"
             />
             <div className="flex-1 min-w-0">
@@ -227,7 +227,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
             <PlayerPortrait
               name={reveal.playerName}
               portraitUrl={reveal.portraitUrl}
-              size="lg"
+              size="xl"
               className="flex-shrink-0"
             />
             <h3 className={cn(

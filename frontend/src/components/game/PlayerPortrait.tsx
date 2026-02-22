@@ -4,7 +4,7 @@ interface PlayerPortraitProps {
   name: string;
   portraitUrl: string | null;
   position?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   className?: string;
 }
 
@@ -13,6 +13,7 @@ const sizeMap = {
   md: 'w-14 h-[70px]',
   lg: 'w-20 h-24',
   xl: 'w-24 h-28',
+  '2xl': 'w-32 h-[152px]',
 };
 
 export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: PlayerPortraitProps) {
@@ -54,7 +55,10 @@ export function PlayerPortrait({ name, portraitUrl, size = 'md', className }: Pl
         className,
       )}
     >
-      <span className="font-editorial font-black text-3xl text-navy/15 select-none leading-none">
+      <span className={cn(
+        'font-editorial font-black text-navy/15 select-none leading-none',
+        size === '2xl' ? 'text-5xl' : 'text-3xl',
+      )}>
         {initials}
       </span>
     </div>
