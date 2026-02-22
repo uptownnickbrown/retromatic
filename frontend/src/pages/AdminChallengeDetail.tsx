@@ -36,6 +36,7 @@ import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { StatusBadge } from '../components/admin/StatusBadge';
 import { cn } from '../lib/utils';
+import { getTeamNickname } from '../lib/teams';
 import type { AdminRound, AdminRoundOption } from '../lib/adminApi';
 
 function formatDateLong(dateStr: string): string {
@@ -676,8 +677,8 @@ function PlayerCard({
                 </span>
 
                 {/* Team */}
-                <span className="font-mono text-[10px] text-muted w-8 flex-shrink-0">
-                  {ys.team || '—'}
+                <span className="font-mono text-[10px] text-muted w-20 flex-shrink-0 truncate">
+                  {ys.team ? getTeamNickname(ys.team) : '—'}
                 </span>
 
                 {/* Legend Score */}

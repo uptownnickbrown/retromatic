@@ -140,26 +140,26 @@ export interface ResultsData {
   communityStats?: RoundCommunityStats[];
 }
 
-// Legend Score helpers — 3-tier system
-export function getLegendScoreColor(score: number): string {
+// Sandlot Score helpers — 3-tier system
+export function getSandlotScoreColor(score: number): string {
   if (score >= 9.5) return 'text-gold';
   if (score >= 6.0) return 'text-navy';
   return 'text-muted';
 }
 
-export function getLegendScoreBg(score: number): string {
+export function getSandlotScoreBg(score: number): string {
   if (score >= 9.5) return 'bg-gold/20 border-gold/50';
   if (score >= 6.0) return 'bg-navy/10 border-navy/30';
   return 'bg-muted/10 border-muted/30';
 }
 
-export function getLegendScoreLabel(score: number): string {
-  if (score >= 9.5) return 'LEGENDARY';
+export function getSandlotScoreLabel(score: number): string {
+  if (score >= 9.5) return 'SANDLOT LEGEND';
   if (score >= 6.0) return 'GREAT';
   return 'AVERAGE';
 }
 
-export function getLegendScoreTier(score: number): string {
+export function getSandlotScoreTier(score: number): string {
   if (score >= 9.5) return 'tier-legendary';
   if (score >= 6.0) return 'tier-great';
   return 'tier-average';

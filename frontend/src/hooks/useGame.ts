@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import type { Challenge, RoundData, RoundCommunityStats, RevealData, PickSummary, PickSubmission, CompleteResponse, ResultsData, ResultsPick, PerfectLineupPick } from '../types';
-import { calculateLegendScore } from '../lib/legendScore';
+import { calculateSandlotScore } from '../lib/sandlotScore';
 import { saveGame, loadSavedGame, clearSavedGame } from '../lib/gameStorage';
 import * as api from '../lib/api';
 import * as adminApi from '../lib/adminApi';
@@ -182,7 +182,7 @@ export function useGame() {
       if (!selectedPlayer || !selectedYearOption) return prev;
 
       // Compute Legend Score client-side
-      const legendScore = calculateLegendScore(selectedYearOption.zScorePosition);
+      const legendScore = calculateSandlotScore(selectedYearOption.zScorePosition);
 
       // Build reveal data
       const blurb = selectedPlayer.blurbs[String(year)] || '';
@@ -318,7 +318,7 @@ export function useGame() {
         };
         for (const player of round.players) {
           for (const yo of player.yearOptions) {
-            const ls = calculateLegendScore(yo.zScorePosition);
+            const ls = calculateSandlotScore(yo.zScorePosition);
             if (ls > bestScore) {
               bestScore = ls;
               bestPick = {

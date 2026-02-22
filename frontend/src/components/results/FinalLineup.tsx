@@ -28,7 +28,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
       <div className="ink-divider mb-3" />
       {sortedPicks.map((pick, i) => {
         const score = safeNum(pick.legendScore);
-        const isLegendary = score >= 9.5;
+        const isSandlotLegend = score >= 9.5;
         const isExpanded = expandedIndex === i;
 
         return (
@@ -64,7 +64,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
               <span className="font-mono text-xs text-muted mr-1">
                 {pick.year}
               </span>
-              {isLegendary ? (
+              {isSandlotLegend ? (
                 <WaxSeal score={score} size="sm" />
               ) : (
                 <span className={cn(

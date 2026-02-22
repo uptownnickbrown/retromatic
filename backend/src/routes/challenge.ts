@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pickStats, players } from '../db/schema.js';
 import { eq, and, sql, desc, inArray } from 'drizzle-orm';
-import { calculateLegendScore } from '../services/legendScore.js';
-import { calculatePerfectLineup, calculateSessionPercentile } from '../services/legendScore.js';
+import { calculateSandlotScore } from '../services/sandlotScore.js';
+import { calculatePerfectLineup, calculateSessionPercentile } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
 import { getTodayET } from '../lib/date.js';
 
@@ -242,7 +242,7 @@ router.post('/:id/complete', async (req, res) => {
       .where(inArray(players.id, playerRecordIds));
 
     const playerScoreMap = new Map(
-      playerRecords.map(r => [r.id, calculateLegendScore(toNum(r.zScorePosition))])
+      playerRecords.map(r => [r.id, calculateSandlotScore(toNum(r.zScorePosition))])
     );
 
     // Batch insert picks (onConflictDoNothing for idempotency)

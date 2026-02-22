@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { players, challengeRounds, roundOptions } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
-import { calculateLegendScore } from './legendScore.js';
+import { calculateSandlotScore } from './sandlotScore.js';
 
 // Lazy-load OpenAI client
 let openai: OpenAI | null = null;
@@ -63,7 +63,7 @@ async function getCareerContext(playerId: string): Promise<CareerSeason[]> {
   const career = seasons.map(s => ({
     year: s.year,
     team: s.team ?? 'unknown',
-    legendScore: calculateLegendScore(Number(s.zScorePosition)),
+    legendScore: calculateSandlotScore(Number(s.zScorePosition)),
     stats: s.stats as Record<string, number>,
   }));
 
@@ -319,7 +319,7 @@ export async function generateBlurbsForOption(optionId: number): Promise<{
       continue;
     }
 
-    const legendScore = calculateLegendScore(Number(playerRecord.zScorePosition));
+    const legendScore = calculateSandlotScore(Number(playerRecord.zScorePosition));
     const careerContext = buildCareerContext(year, career);
 
     try {
@@ -406,7 +406,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
   const blurbResults = new Map<number, Record<string, string>>(); // optionId -> { year: blurb }
 
   const tasks = allTasks.map((task) => async () => {
-    const legendScore = calculateLegendScore(Number(task.playerRecord.zScorePosition));
+    const legendScore = calculateSandlotScore(Number(task.playerRecord.zScorePosition));
     const careerContext = buildCareerContext(task.year, task.career);
 
     try {

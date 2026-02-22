@@ -9,7 +9,7 @@
 import { db } from '../db/index.js';
 import { challengeRounds, roundOptions, players, pickStats, gameSessions } from '../db/schema.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
-import { calculateLegendScore, calculateSessionPercentile } from './legendScore.js';
+import { calculateSandlotScore, calculateSessionPercentile } from './sandlotScore.js';
 
 const SIMULATED_COMPLETIONS = 20;
 const PRESEED_TOKEN_PREFIX = 'preseed-';
@@ -86,7 +86,7 @@ export async function preseedStatsForChallenge(challengeId: number): Promise<{
             roundId: round.id,
             playerDbId: record.id,
             year,
-            legendScore: calculateLegendScore(Number(record.zScorePosition)),
+            legendScore: calculateSandlotScore(Number(record.zScorePosition)),
           });
         }
       }

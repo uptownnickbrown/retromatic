@@ -3,7 +3,7 @@ import { players, challengeRounds, roundOptions, gameSessions } from '../db/sche
 import { eq, and, sql } from 'drizzle-orm';
 import { toNum } from '../lib/numeric.js';
 
-// Legend Score: maps position-adjusted Z-score to a 1.0-10.0 scale
+// Sandlot Score: maps position-adjusted Z-score to a 1.0-10.0 scale
 // Calibrated against actual distribution:
 //   P50 (z=0) → ~2.7   P75 (z=3) → ~5.2   P90 (z=6) → ~7.7   P99 (z=10) → 10.0
 const MIN_Z = -2;
@@ -11,15 +11,15 @@ const MAX_Z = 10;
 const MIN_SCORE = 1.0;
 const MAX_SCORE = 10.0;
 
-export function calculateLegendScore(zScorePosition: number): number {
+export function calculateSandlotScore(zScorePosition: number): number {
   const clamped = Math.max(MIN_Z, Math.min(MAX_Z, zScorePosition));
   const normalized = (clamped - MIN_Z) / (MAX_Z - MIN_Z);
   const score = MIN_SCORE + normalized * (MAX_SCORE - MIN_SCORE);
   return Math.round(score * 10) / 10; // One decimal place
 }
 
-export function getLegendScoreLabel(score: number): string {
-  if (score >= 9.5) return 'Legendary';
+export function getSandlotScoreLabel(score: number): string {
+  if (score >= 9.5) return 'Sandlot Legend';
   if (score >= 8.5) return 'Elite';
   if (score >= 7.0) return 'All-Star';
   if (score >= 5.0) return 'Solid';
@@ -27,7 +27,7 @@ export function getLegendScoreLabel(score: number): string {
   return 'Below Average';
 }
 
-export function getLegendScoreColor(score: number): string {
+export function getSandlotScoreColor(score: number): string {
   if (score >= 9.0) return 'gold';
   if (score >= 7.0) return 'green';
   if (score >= 5.0) return 'neutral';
@@ -83,7 +83,7 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
           .limit(1);
 
         if (playerRecord) {
-          const legendScore = calculateLegendScore(toNum(playerRecord.zScorePosition));
+          const legendScore = calculateSandlotScore(toNum(playerRecord.zScorePosition));
           if (legendScore > bestScore) {
             bestScore = legendScore;
             bestPick = {

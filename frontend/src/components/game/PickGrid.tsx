@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
+import { getTeamNickname } from '../../lib/teams';
 import type { PlayerOption } from '../../types';
 import { PlayerPortrait } from './PlayerPortrait';
 
@@ -112,7 +113,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
                     className="year-tab text-sm w-full"
                   >
                     <span className="font-mono font-bold">{yo.year}</span>
-                    <span className="text-muted ml-1.5 text-xs">{yo.team}</span>
+                    <span className="text-muted ml-1.5 text-xs">{getTeamNickname(yo.team)}</span>
                   </motion.button>
                 ))}
               </div>
