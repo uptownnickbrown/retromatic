@@ -432,67 +432,120 @@ def assign_pitcher_positions(df: pd.DataFrame, sp_gs_threshold=10, rp_relief_thr
     return df_exploded
 
 
+def filter_by_position_ip(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply position-specific minimum IP floors after position assignment.
+    SP >= 80 IP, RP >= 30 IP, P >= 30 IP.
+    """
+    before = len(df)
+    sp_mask = (df['POS'] == 'SP') & (df['IP'] < 80)
+    rp_mask = (df['POS'] == 'RP') & (df['IP'] < 30)
+    p_mask = (df['POS'] == 'P') & (df['IP'] < 30)
+
+    removed = sp_mask | rp_mask | p_mask
+    df = df[~removed].copy()
+
+    sp_removed = sp_mask.sum()
+    rp_removed = rp_mask.sum()
+    p_removed = p_mask.sum()
+    print(f"  Position IP filter: removed {sp_removed} SP (<80 IP), {rp_removed} RP (<30 IP), {p_removed} P (<30 IP)")
+    print(f"  Pitcher rows: {before} -> {len(df)}")
+    return df
+
+
 def compute_pitching_zscores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute overall and position-relative Z-scores for pitching stats.
+
+    Uses a counting-based formula that naturally weights by innings:
+      Total = W_Z + SV_Z + SO_Z + ER_saved_Z + BR_saved_Z
+
+    Where:
+      ER_saved = IP * (pool_mean_ERA - player_ERA) / 9  (earned runs saved vs average)
+      BR_saved = IP * (pool_mean_WHIP - player_WHIP)    (baserunners saved vs average)
+
+    ERA and WHIP rate z-scores are still computed for percentile display bars,
+    but they are NOT part of the composite Total.
     """
-    df['W_LOG'] = np.log(df['W'] + 0.001)
-    stats_for_z = ['W_LOG', 'SV', 'SO', 'ERA', 'WHIP', 'IP']
-
-    for col in stats_for_z:
-        z_col = f"{col}_Z"
+    # --- Overall z-scores (across all pitchers) ---
+    counting_stats = ['W', 'SV', 'SO']
+    for col in counting_stats:
         try:
-            df[z_col] = zscore(df[col].fillna(0))
-        except:
-            df[z_col] = 0
+            df[f'{col}_Z'] = zscore(df[col].fillna(0))
+        except Exception:
+            df[f'{col}_Z'] = 0
 
-    # Invert ERA and WHIP (lower is better)
-    df['ERA_Z'] = df['ERA_Z'] * -1.0
-    df['WHIP_Z'] = df['WHIP_Z'] * -1.0
+    # ERA/WHIP rate z-scores (for display percentile bars only)
+    for col in ['ERA', 'WHIP']:
+        try:
+            df[f'{col}_Z'] = zscore(df[col].fillna(0)) * -1.0  # lower is better
+        except Exception:
+            df[f'{col}_Z'] = 0
 
-    # Weighted sum for overall Z
+    # ER_saved and BR_saved using overall pool means
+    overall_mean_era = df['ERA'].mean()
+    overall_mean_whip = df['WHIP'].mean()
+    df['ER_saved'] = df['IP'] * (overall_mean_era - df['ERA']) / 9.0
+    df['BR_saved'] = df['IP'] * (overall_mean_whip - df['WHIP'])
+
+    for col in ['ER_saved', 'BR_saved']:
+        try:
+            df[f'{col}_Z'] = zscore(df[col].fillna(0))
+        except Exception:
+            df[f'{col}_Z'] = 0
+
+    # Overall composite
     df['Total_Z'] = (
-        0.7 * (df['W_LOG_Z'] + df['SV_Z'])
-        + df['SO_Z']
-        + 1.0 * df['IP_Z']
-        + 2.0 * df['ERA_Z']
-        + 2.0 * df['WHIP_Z']
+        df['W_Z'] + df['SV_Z'] + df['SO_Z']
+        + df['ER_saved_Z'] + df['BR_saved_Z']
     )
 
-    # Position-relative Z-scores
-    if len(df['POS'].unique()) > 1:
-        for col in stats_for_z:
-            try:
-                pos_z = df.groupby('POS')[col].transform(lambda s: zscore(s.fillna(0)))
-                df[f"{col}_POS_Z"] = pos_z
-            except:
-                df[f"{col}_POS_Z"] = df[f"{col}_Z"]
-    else:
-        for col in stats_for_z:
-            df[f"{col}_POS_Z"] = df[f"{col}_Z"]
+    # --- Position-relative z-scores ---
+    def pos_zscore(group):
+        try:
+            return zscore(group.fillna(0))
+        except Exception:
+            return pd.Series(0, index=group.index)
 
-    # Invert again for position z-scores
-    df['ERA_POS_Z'] = df['ERA_POS_Z'] * -1.0
-    df['WHIP_POS_Z'] = df['WHIP_POS_Z'] * -1.0
+    # Counting stats: position z-scores
+    for col in counting_stats:
+        df[f'{col}_POS_Z'] = df.groupby('POS')[col].transform(pos_zscore)
 
+    # ERA/WHIP rate z-scores by position (for display only)
+    for col in ['ERA', 'WHIP']:
+        df[f'{col}_POS_Z'] = df.groupby('POS')[col].transform(pos_zscore) * -1.0
+
+    # ER_saved and BR_saved by position (using position-specific pool means)
+    pos_mean_era = df.groupby('POS')['ERA'].transform('mean')
+    pos_mean_whip = df.groupby('POS')['WHIP'].transform('mean')
+    df['ER_saved_POS'] = df['IP'] * (pos_mean_era - df['ERA']) / 9.0
+    df['BR_saved_POS'] = df['IP'] * (pos_mean_whip - df['WHIP'])
+
+    for col in ['ER_saved_POS', 'BR_saved_POS']:
+        df[f'{col}_Z'] = df.groupby('POS')[col].transform(pos_zscore)
+
+    # Position composite: use OVERALL W_Z and SV_Z (not position-specific) because
+    # SPs rarely save and RPs rarely win — position-specific z-scores for these
+    # cross-position stats have near-zero variance, creating extreme outliers.
+    # SO, ER_saved, BR_saved use position-specific z-scores as intended.
     df['Total_POS_Z'] = (
-        0.7 * (df['W_LOG_POS_Z'] + df['SV_POS_Z'])
-        + df['SO_POS_Z'] + df['IP_POS_Z']
-        + 2.0 * df['ERA_POS_Z'] + 2.0 * df['WHIP_POS_Z']
+        df['W_Z'] + df['SV_Z'] + df['SO_POS_Z']
+        + df['ER_saved_POS_Z'] + df['BR_saved_POS_Z']
     )
 
     # Fix P z-scores: compare against ALL pitchers (overall z), not tiny P pool
     p_mask = df['POS'] == 'P'
     if p_mask.any():
-        for col in stats_for_z:
+        for col in counting_stats:
             df.loc[p_mask, f'{col}_POS_Z'] = df.loc[p_mask, f'{col}_Z']
-        # Re-invert ERA/WHIP for P rows (the _Z versions are already inverted above)
-        df.loc[p_mask, 'ERA_POS_Z'] = df.loc[p_mask, 'ERA_Z']
-        df.loc[p_mask, 'WHIP_POS_Z'] = df.loc[p_mask, 'WHIP_Z']
+        for col in ['ERA', 'WHIP']:
+            df.loc[p_mask, f'{col}_POS_Z'] = df.loc[p_mask, f'{col}_Z']
+        df.loc[p_mask, 'ER_saved_POS_Z'] = df.loc[p_mask, 'ER_saved_Z']
+        df.loc[p_mask, 'BR_saved_POS_Z'] = df.loc[p_mask, 'BR_saved_Z']
         df.loc[p_mask, 'Total_POS_Z'] = (
-            0.7 * (df.loc[p_mask, 'W_LOG_Z'] + df.loc[p_mask, 'SV_Z'])
-            + df.loc[p_mask, 'SO_Z'] + df.loc[p_mask, 'IP_Z']
-            + 2.0 * df.loc[p_mask, 'ERA_Z'] + 2.0 * df.loc[p_mask, 'WHIP_Z']
+            df.loc[p_mask, 'W_Z'] + df.loc[p_mask, 'SV_Z']
+            + df.loc[p_mask, 'SO_Z']
+            + df.loc[p_mask, 'ER_saved_Z'] + df.loc[p_mask, 'BR_saved_Z']
         )
         print(f"  Fixed {p_mask.sum()} P rows to use overall z-scores")
 
@@ -506,6 +559,7 @@ def main_pitching_pipeline(data_dir: str):
     df = load_pitching_data(data_dir)
     df = filter_pitching(df)
     df = assign_pitcher_positions(df)
+    df = filter_by_position_ip(df)
     df = compute_pitching_zscores(df)
     return df
 
@@ -623,10 +677,13 @@ def prepare_player_data(batting_df, pitching_df):
             'ER': int(record.get('ER', 0) or 0),
         }
 
-        # Category z-scores — position-relative for accurate percentile bars
+        # Category z-scores for percentile bars
+        # W and SV use overall z-scores (position pools have near-zero variance
+        # for cross-position stats — SPs rarely save, RPs rarely win)
+        # K, ERA, WHIP use position-relative z-scores
         category_zscores = {
-            'W': float(record.get('W_LOG_POS_Z', 0) or 0),
-            'SV': float(record.get('SV_POS_Z', 0) or 0),
+            'W': float(record.get('W_Z', 0) or 0),
+            'SV': float(record.get('SV_Z', 0) or 0),
             'K': float(record.get('SO_POS_Z', 0) or 0),
             'ERA': float(record.get('ERA_POS_Z', 0) or 0),
             'WHIP': float(record.get('WHIP_POS_Z', 0) or 0),
