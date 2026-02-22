@@ -1,38 +1,71 @@
 import type { ResultsPick } from '../types';
 import { safeNum } from './numeric';
+import { getTeamFullName } from './teams';
 
-const WIDTH = 1200;
-const HEIGHT = 630;
-const BG_COLOR = '#F9F7F1';
+const W = 1200;
+const H = 630;
+
+// Palette
+const PAPER = '#F9F7F1';
+const BONE = '#EBE7DF';
 const NAVY = '#0A1E2F';
 const MUTED = '#546E7A';
 const GOLD = '#C9A84C';
-const RED = '#D32F2F';
 
-function getScoreEmoji(score: number): string {
-  if (score >= 9.5) return '\u{1F7E1}'; // gold
-  if (score >= 6.0) return '\u{26AA}';  // white
-  return '\u{26AB}';                     // black
-}
-
-function getTierColor(score: number): string {
+function tierColor(score: number): string {
   if (score >= 9.5) return GOLD;
-  if (score >= 7.0) return NAVY;
+  if (score >= 6.0) return NAVY;
   return MUTED;
 }
 
-async function loadFont(): Promise<void> {
-  try {
-    const font = new FontFace(
-      'Space Mono',
-      "url(https://fonts.gstatic.com/s/spacemono/v13/i7dPIFZifjKcF5UAWdDRYEF8RQ.woff2)",
-      { weight: '700' },
-    );
-    const loaded = await font.load();
-    document.fonts.add(loaded);
-  } catch {
-    // Font loading failed; canvas will fall back to monospace
-  }
+function tierDot(score: number): string {
+  if (score >= 9.5) return GOLD;
+  if (score >= 6.0) return BONE;
+  return NAVY;
+}
+
+function tierDotStroke(score: number): string {
+  if (score >= 9.5) return '#B8952F';
+  if (score >= 6.0) return `${NAVY}30`;
+  return `${NAVY}60`;
+}
+
+async function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function drawInkDivider(ctx: CanvasRenderingContext2D, y: number, x1: number, x2: number) {
+  const g = ctx.createLinearGradient(x1, y, x2, y);
+  g.addColorStop(0, 'transparent');
+  g.addColorStop(0.12, `${NAVY}25`);
+  g.addColorStop(0.88, `${NAVY}25`);
+  g.addColorStop(1, 'transparent');
+  ctx.strokeStyle = g;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x2, y);
+  ctx.stroke();
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
 
 export async function generateShareImage(opts: {
@@ -41,109 +74,228 @@ export async function generateShareImage(opts: {
   picks: ResultsPick[];
   date: string;
 }): Promise<Blob> {
-  await loadFont();
-
   const canvas = document.createElement('canvas');
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
+  canvas.width = W;
+  canvas.height = H;
   const ctx = canvas.getContext('2d')!;
 
   // Background
-  ctx.fillStyle = BG_COLOR;
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, W, H);
 
-  // Subtle border
-  ctx.strokeStyle = `${NAVY}20`;
+  // Double border (newspaper feel)
+  ctx.strokeStyle = `${NAVY}18`;
   ctx.lineWidth = 2;
-  ctx.strokeRect(20, 20, WIDTH - 40, HEIGHT - 40);
-
-  // Inner border
-  ctx.strokeStyle = `${NAVY}10`;
+  ctx.strokeRect(16, 16, W - 32, H - 32);
+  ctx.strokeStyle = `${NAVY}0A`;
   ctx.lineWidth = 1;
-  ctx.strokeRect(28, 28, WIDTH - 56, HEIGHT - 56);
+  ctx.strokeRect(22, 22, W - 44, H - 44);
 
-  // Masthead
-  ctx.fillStyle = NAVY;
-  ctx.font = '700 56px "Playfair Display", Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('SANDLOT', WIDTH / 2, 100);
+  // ─── LEFT COLUMN: Best pick feature ───
+  const bestPick = [...opts.picks].sort((a, b) => safeNum(b.legendScore) - safeNum(a.legendScore))[0];
+  const bestScore = safeNum(bestPick?.legendScore);
+  const hasPortrait = bestPick?.portraitUrl;
 
-  // Divider
-  const divY = 120;
-  const gradient = ctx.createLinearGradient(200, divY, WIDTH - 200, divY);
-  gradient.addColorStop(0, 'transparent');
-  gradient.addColorStop(0.15, `${NAVY}33`);
-  gradient.addColorStop(0.85, `${NAVY}33`);
-  gradient.addColorStop(1, 'transparent');
-  ctx.strokeStyle = gradient;
+  // Portrait card
+  const cardX = 55;
+  const cardY = 70;
+  const cardW = 260;
+  const cardH = 340;
+
+  // Card background
+  roundRect(ctx, cardX, cardY, cardW, cardH, 4);
+  ctx.fillStyle = BONE;
+  ctx.fill();
+  ctx.strokeStyle = `${NAVY}15`;
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(200, divY);
-  ctx.lineTo(WIDTH - 200, divY);
   ctx.stroke();
 
-  // Date
+  // Inner card border
+  roundRect(ctx, cardX + 4, cardY + 4, cardW - 8, cardH - 8, 2);
+  ctx.strokeStyle = `${NAVY}08`;
+  ctx.stroke();
+
+  // Load and draw portrait
+  let portraitImg: HTMLImageElement | null = null;
+  if (hasPortrait) {
+    portraitImg = await loadImage(bestPick.portraitUrl!);
+  }
+
+  const portraitX = cardX + 30;
+  const portraitY = cardY + 25;
+  const portraitW = 200;
+  const portraitH = 200;
+
+  if (portraitImg) {
+    // Clip to rounded rectangle
+    ctx.save();
+    roundRect(ctx, portraitX, portraitY, portraitW, portraitH, 3);
+    ctx.clip();
+    // Draw covering the area, cropped from top
+    const scale = Math.max(portraitW / portraitImg.width, portraitH / portraitImg.height);
+    const sw = portraitImg.width * scale;
+    const sh = portraitImg.height * scale;
+    ctx.drawImage(portraitImg, portraitX - (sw - portraitW) / 2, portraitY, sw, sh);
+    ctx.restore();
+
+    // Portrait border
+    roundRect(ctx, portraitX, portraitY, portraitW, portraitH, 3);
+    ctx.strokeStyle = `${NAVY}15`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  } else {
+    // Placeholder
+    roundRect(ctx, portraitX, portraitY, portraitW, portraitH, 3);
+    ctx.fillStyle = `${NAVY}06`;
+    ctx.fill();
+    ctx.strokeStyle = `${NAVY}12`;
+    ctx.stroke();
+    if (bestPick) {
+      ctx.fillStyle = `${NAVY}20`;
+      ctx.font = '900 64px "Playfair Display", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const initials = bestPick.playerName.split(' ').map(w => w[0]).join('').slice(0, 2);
+      ctx.fillText(initials, portraitX + portraitW / 2, portraitY + portraitH / 2);
+    }
+  }
+
+  // "BEST PICK" label
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = MUTED;
+  ctx.font = '700 10px "Space Mono", monospace';
+  ctx.letterSpacing = '3px';
+  ctx.fillText('B E S T   P I C K', cardX + cardW / 2, portraitY + portraitH + 22);
+  ctx.letterSpacing = '0px';
+
+  // Player name
+  if (bestPick) {
+    ctx.fillStyle = NAVY;
+    ctx.font = '900 22px "Playfair Display", Georgia, serif';
+    ctx.fillText(bestPick.playerName, cardX + cardW / 2, portraitY + portraitH + 48);
+
+    // Year + Team
+    ctx.fillStyle = MUTED;
+    ctx.font = '700 13px "Space Mono", monospace';
+    ctx.fillText(
+      `${bestPick.year} · ${getTeamFullName(bestPick.team)}`,
+      cardX + cardW / 2,
+      portraitY + portraitH + 67,
+    );
+
+    // Score pill
+    const pillW = 70;
+    const pillH = 28;
+    const pillX = cardX + cardW / 2 - pillW / 2;
+    const pillY = portraitY + portraitH + 78;
+    roundRect(ctx, pillX, pillY, pillW, pillH, 14);
+    ctx.fillStyle = tierColor(bestScore);
+    ctx.fill();
+    ctx.fillStyle = '#FFF';
+    ctx.font = '700 15px "Space Mono", monospace';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(bestScore.toFixed(1), cardX + cardW / 2, pillY + pillH / 2);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // ─── RIGHT COLUMN: Masthead + stats ───
+  const rx = 420; // right column start
+  const rCenter = (rx + W - 50) / 2;
+
+  // SANDLOT masthead
+  ctx.fillStyle = NAVY;
+  ctx.font = '900 64px "Playfair Display", Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('SANDLOT', rCenter, 120);
+
+  drawInkDivider(ctx, 138, rx + 40, W - 90);
+
+  // Date + theme line
+  ctx.fillStyle = MUTED;
+  ctx.font = '700 15px "Space Mono", monospace';
+  ctx.fillText(opts.date, rCenter, 162);
+
+  // ─── Score section ───
+  // Big score number
+  ctx.fillStyle = NAVY;
+  ctx.font = '900 90px "Playfair Display", Georgia, serif';
+  ctx.fillText(opts.totalScore.toFixed(1), rCenter, 270);
+
+  // "/100" below
   ctx.fillStyle = MUTED;
   ctx.font = '700 18px "Space Mono", monospace';
-  ctx.fillText(opts.date, WIDTH / 2, 150);
+  ctx.fillText('/ 100', rCenter, 296);
 
-  // Score badge (large circle)
-  const badgeCX = WIDTH / 2;
-  const badgeCY = 280;
-  const badgeR = 85;
-  const avgScore = opts.totalScore / 10;
-  const badgeColor = getTierColor(avgScore);
+  // ─── Score dots row (replaces emoji) ───
+  const dotR = 10;
+  const dotGap = 28;
+  const dotsY = 336;
+  const dotsStartX = rCenter - ((opts.picks.length - 1) * dotGap) / 2;
 
-  // Badge circle
-  ctx.beginPath();
-  ctx.arc(badgeCX, badgeCY, badgeR, 0, Math.PI * 2);
-  ctx.fillStyle = badgeColor;
-  ctx.fill();
+  for (let i = 0; i < opts.picks.length; i++) {
+    const score = safeNum(opts.picks[i].legendScore);
+    const cx = dotsStartX + i * dotGap;
 
-  // Badge score text
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '700 52px "Space Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(opts.totalScore.toFixed(1), badgeCX, badgeCY - 4);
+    ctx.beginPath();
+    ctx.arc(cx, dotsY, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = tierDot(score);
+    ctx.fill();
+    ctx.strokeStyle = tierDotStroke(score);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 
-  // Badge label
-  ctx.font = '700 12px "Space Mono", monospace';
-  ctx.fillText('/100', badgeCX, badgeCY + 30);
-  ctx.textBaseline = 'alphabetic';
+  // Dot legend
+  ctx.fillStyle = `${MUTED}80`;
+  ctx.font = '400 10px "Space Mono", monospace';
+  ctx.fillText('each dot = one pick', rCenter, dotsY + 26);
 
-  // Emoji grid
-  const emojis = opts.picks.map(p => getScoreEmoji(safeNum(p.legendScore)));
-  const emojiStr = emojis.join(' ');
-  ctx.font = '32px serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(emojiStr, WIDTH / 2, 410);
-
-  // "Sandlot Score: XX.X/100"
-  ctx.fillStyle = NAVY;
-  ctx.font = '700 22px "Space Mono", monospace';
-  ctx.fillText(`Sandlot Score: ${opts.totalScore.toFixed(1)}/100`, WIDTH / 2, 460);
-
-  // Legend count
+  // ─── Legend count + Percentile ───
   const legendCount = opts.picks.filter(p => safeNum(p.legendScore) >= 9.5).length;
-  let nextY = 495;
+  let statY = 398;
+
   if (legendCount > 0) {
     ctx.fillStyle = GOLD;
     ctx.font = '700 20px "Space Mono", monospace';
-    ctx.fillText(`\u{2B50} ${legendCount}\u00D7 Sandlot Legend`, WIDTH / 2, nextY);
-    nextY += 35;
+    ctx.fillText(`${legendCount}\u00D7 Sandlot Legend`, rCenter, statY);
+    statY += 36;
   }
 
   // Percentile
   const pctRank = Math.max(1, 100 - Math.round(opts.percentile));
-  ctx.fillStyle = RED;
-  ctx.font = '700 24px "Space Mono", monospace';
-  ctx.fillText(`Top ${pctRank}%`, WIDTH / 2, nextY);
+  ctx.fillStyle = NAVY;
+  ctx.font = '900 36px "Playfair Display", Georgia, serif';
+  ctx.fillText(`Top ${pctRank}%`, rCenter, statY + 6);
 
-  // Footer
+  // ─── Lineup mini-grid (10 positions across bottom) ───
+  const gridY = 480;
+  const gridGap = 62;
+  const gridStartX = rCenter - (9 * gridGap) / 2;
+
+  ctx.font = '700 10px "Space Mono", monospace';
+  for (let i = 0; i < opts.picks.length; i++) {
+    const pick = opts.picks[i];
+    const gx = gridStartX + i * gridGap;
+    const score = safeNum(pick.legendScore);
+
+    // Position label
+    ctx.fillStyle = `${MUTED}90`;
+    ctx.fillText(pick.position, gx, gridY);
+
+    // Score
+    ctx.fillStyle = tierColor(score);
+    ctx.font = '700 14px "Space Mono", monospace';
+    ctx.fillText(score.toFixed(1), gx, gridY + 18);
+    ctx.font = '700 10px "Space Mono", monospace';
+  }
+
+  drawInkDivider(ctx, gridY + 32, rx + 20, W - 70);
+
+  // ─── Footer ───
   ctx.fillStyle = MUTED;
-  ctx.font = '700 16px "Space Mono", monospace';
-  ctx.fillText('playsandlot.com', WIDTH / 2, HEIGHT - 45);
+  ctx.font = '700 14px "Space Mono", monospace';
+  ctx.fillText('playsandlot.com', rCenter, H - 42);
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
