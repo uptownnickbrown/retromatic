@@ -140,6 +140,20 @@ export interface ResultsData {
   communityStats?: RoundCommunityStats[];
 }
 
+export interface HomeData {
+  today: { id: number; date: string; theme: string | null; totalRounds: number } | null;
+  session: { id: string; status: string; totalLegendScore?: number; percentile?: number } | null;
+  yesterday: { id: number; date: string; theme: string | null } | null;
+  tomorrow: { theme: string | null } | null;
+}
+
+export interface RecapData {
+  challenge: { id: number; date: string; theme: string | null };
+  communityLineup: { picks: ResultsPick[]; totalScore: number };
+  perfectLineup: PerfectLineup;
+  totalParticipants: number;
+}
+
 // Sandlot Score helpers — 3-tier system
 export function getSandlotScoreColor(score: number): string {
   if (score >= 9.5) return 'text-gold';

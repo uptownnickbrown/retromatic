@@ -14,6 +14,8 @@ interface HeadToHeadProps {
   perfectPicks: PerfectLineupPick[];
   yourTotal: number;
   perfectTotal: number;
+  leftLabel?: string;
+  rightLabel?: string;
 }
 
 const POSITION_LABELS: Record<string, string> = {
@@ -22,7 +24,7 @@ const POSITION_LABELS: Record<string, string> = {
   SP: 'Starting Pitcher', RP: 'Relief Pitcher', P: 'Pitcher',
 };
 
-export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: HeadToHeadProps) {
+export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal, leftLabel = 'Your Lineup', rightLabel = 'Perfect' }: HeadToHeadProps) {
   // Auto-expand one random row on mount
   const randomInitialRow = useMemo(
     () => picks.length > 0 ? picks[Math.floor(Math.random() * picks.length)].roundNumber : null,
@@ -51,8 +53,8 @@ export function HeadToHead({ picks, perfectPicks, yourTotal, perfectTotal }: Hea
           <span className="font-editorial font-black text-4xl text-navy">{perfectTotal.toFixed(1)}</span>
         </div>
         <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">Your Lineup</p>
-          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">Perfect</p>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">{leftLabel}</p>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted">{rightLabel}</p>
         </div>
         <p className="text-center font-mono text-xs text-muted">
           <span className="font-bold text-navy">{pctOfPerfect}%</span> of perfect
