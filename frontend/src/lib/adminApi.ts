@@ -218,6 +218,10 @@ export async function promoteNext(): Promise<{ activated: number | null; complet
   return adminFetch('/admin/promote-next', { method: 'POST' });
 }
 
+export async function forceActivate(challengeId: number): Promise<{ activated: number; deactivated: number | null }> {
+  return adminFetch(`/admin/challenges/${challengeId}/activate`, { method: 'POST' });
+}
+
 export async function startPlaytest(challengeId: number): Promise<FullGameData> {
   return adminFetch(`/admin/challenges/${challengeId}/playtest`, { method: 'POST' });
 }

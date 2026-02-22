@@ -15,6 +15,8 @@ import {
   Trash2,
   Sparkles,
   BarChart3,
+  Zap,
+  Play,
 } from 'lucide-react';
 import {
   useAdminPipeline,
@@ -24,6 +26,8 @@ import {
   useReorderQueue,
   useDeleteChallenge,
   useBakeChallenge,
+  usePromoteNext,
+  useForceActivate,
 } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
@@ -51,6 +55,8 @@ export function AdminDashboard() {
   const reorderMutation = useReorderQueue();
   const deleteMutation = useDeleteChallenge();
   const bakeMutation = useBakeChallenge();
+  const promoteMutation = usePromoteNext();
+  const forceActivateMutation = useForceActivate();
   const [agentOpen, setAgentOpen] = useState(false);
 
   // Bake-all SSE state
@@ -278,10 +284,37 @@ export function AdminDashboard() {
         <PaperCard noPadding className="mb-8 overflow-hidden">
           <div className="px-4 py-3 flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
-            <span className="font-mono text-xs text-navy/70">
+            <span className="font-mono text-xs text-navy/70 flex-1">
               Games auto-promote at midnight ET. Drag to reorder the queue.
             </span>
+            <button
+              onClick={() => {
+                if (window.confirm('Activate the next queued challenge now? This will complete the current active challenge (if any).')) {
+                  promoteMutation.mutate();
+                }
+              }}
+              disabled={promoteMutation.isPending || grouped.queued.length === 0}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
+                promoteMutation.isPending
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
+                  : 'bg-navy/5 border-navy/15 text-navy/60 hover:bg-navy/10 hover:text-navy disabled:opacity-40',
+              )}
+            >
+              {promoteMutation.isPending ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /> Promoting...</>
+              ) : (
+                <><Play className="w-3 h-3" /> Promote Next</>
+              )}
+            </button>
           </div>
+          {promoteMutation.isSuccess && (
+            <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/20 font-mono text-xs text-emerald-700">
+              {promoteMutation.data.activated
+                ? `Activated challenge #${promoteMutation.data.activated}`
+                : 'No queued challenges to activate'}
+            </div>
+          )}
         </PaperCard>
       </motion.div>
 
@@ -345,6 +378,14 @@ export function AdminDashboard() {
                   onRemove={(e) => handleRemoveFromQueue(challenge.id, e)}
                   onBake={(e) => { e.stopPropagation(); bakeMutation.mutate(challenge.id); }}
                   isBaking={bakeMutation.isPending && bakeMutation.variables === challenge.id}
+                  onActivate={(e) => {
+                    e.stopPropagation();
+                    const theme = challenge.theme ? ` ("${challenge.theme}")` : '';
+                    if (window.confirm(`Activate challenge #${challenge.id}${theme} right now? This will deactivate the current active challenge.`)) {
+                      forceActivateMutation.mutate(challenge.id);
+                    }
+                  }}
+                  isActivating={forceActivateMutation.isPending && forceActivateMutation.variables === challenge.id}
                   onDragEnd={handleReorderEnd}
                 />
               ))}
@@ -386,6 +427,8 @@ function QueueItem({
   onRemove,
   onBake,
   isBaking,
+  onActivate,
+  isActivating,
   onDragEnd,
 }: {
   challenge: PipelineChallenge;
@@ -394,6 +437,8 @@ function QueueItem({
   onRemove: (e: React.MouseEvent) => void;
   onBake: (e: React.MouseEvent) => void;
   isBaking: boolean;
+  onActivate: (e: React.MouseEvent) => void;
+  isActivating: boolean;
   onDragEnd: () => void;
 }) {
   const isComplete = challenge.health.blurbsReady && challenge.health.portraitsReady;
@@ -450,6 +495,20 @@ function QueueItem({
             }
           </button>
         )}
+
+        {/* Activate now */}
+        <button
+          onClick={onActivate}
+          disabled={isActivating}
+          className="p-1.5 rounded text-emerald-600/50 hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors
+                     opacity-0 group-hover:opacity-100 disabled:opacity-100 flex-shrink-0"
+          title="Activate now"
+        >
+          {isActivating
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <Zap className="w-3.5 h-3.5" />
+          }
+        </button>
 
         {/* Detail link */}
         <button
