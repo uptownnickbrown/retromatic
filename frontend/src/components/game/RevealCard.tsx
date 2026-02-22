@@ -267,7 +267,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.8 }}
-              className="bg-[#E8E4D9] rounded p-4 mb-4 border border-navy/10"
+              className="bg-bone rounded p-4 mb-4 border border-navy/10"
             >
               <motion.div
                 initial={{ scale: 0 }}
@@ -283,7 +283,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
               >
                 <SandlotScoreBadge score={reveal.legendScore} size="lg" animate />
               </motion.div>
-              <p className="font-mono text-[13px] leading-relaxed text-left" style={{ color: '#37474F', letterSpacing: '-0.02em' }}>
+              <p className="font-mono text-[13px] leading-relaxed text-left text-navy/80 tracking-tight">
                 {renderBlurb(reveal.blurb)}
               </p>
             </motion.div>
