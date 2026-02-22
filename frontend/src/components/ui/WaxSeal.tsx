@@ -17,7 +17,7 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
   if (score < 9.5) return null;
 
   return (
-    <div className={cn('relative inline-flex items-center justify-center', className)}>
+    <div className={cn('relative inline-block', className)}>
       <img
         src="/wax-seal.png"
         alt="Legendary"
@@ -28,7 +28,7 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
       />
       <span
         className={cn(
-          'absolute font-editorial font-black text-white leading-none translate-y-[0.1em] drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
+          'absolute inset-0 flex items-center justify-center font-editorial font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
           size === 'sm' && 'text-[10px]',
           size === 'md' && 'text-sm',
           size === 'lg' && 'text-2xl',
