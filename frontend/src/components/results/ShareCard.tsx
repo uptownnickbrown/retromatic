@@ -61,7 +61,7 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
       '',
       `Sandlot Score: ${safeNum(totalScore).toFixed(1)}/100`,
       ...(legendCount > 0 ? [`\u{2B50} ${legendCount}x Sandlot Legend`] : []),
-      `Top ${Math.max(1, 100 - Math.round(safeNum(percentile)))}%`,
+      `Better than ${Math.max(1, Math.round(safeNum(percentile)))}% of drafts`,
       '',
       'sandlot.uptownnickbrown.com',
     ];
