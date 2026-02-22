@@ -59,6 +59,18 @@ async function migrate() {
       console.log(`[migrate] ✓ Queued ${drafts.length} draft challenges`);
     }
 
+    // Update portrait URLs from .png to .webp (portrait optimization)
+    const portraits = await sql`
+      UPDATE round_options
+      SET portrait_url = REGEXP_REPLACE(portrait_url, '\.png', '.webp')
+      WHERE portrait_url LIKE '%.png%'
+    `;
+    if (portraits.count > 0) {
+      console.log(`[migrate] ✓ Updated ${portraits.count} portrait URLs (.png → .webp)`);
+    } else {
+      console.log('[migrate] ✓ portrait URLs already webp (no changes)');
+    }
+
     console.log('[migrate] Done.');
   } catch (err) {
     console.error('[migrate] FAILED:', (err as Error).message || err);

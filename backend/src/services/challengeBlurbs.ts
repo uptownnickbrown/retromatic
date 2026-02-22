@@ -156,19 +156,30 @@ RULES:
 - No hedging ("arguably", "perhaps"). Be definitive.
 - Write ONLY the blurb text, no quotes or attribution.
 
+FORMATTING:
+- Use **bold** for key stats (e.g. **33 homers**, **.306 average**, **2.36 ERA**). Bold 2-4 stats per blurb.
+- Use *italic* sparingly for emphasis on colorful phrases or narrative beats (e.g. *that* kind of season).
+- Avoid em dashes (—). Use commas, periods, colons, or semicolons instead. Rewrite sentences rather than reaching for a dash.
+
 EXAMPLES:
 
 [LEGENDARY batter — Mike Trout, 2017 LAA, Legend Score 9.2]
-Look, a "down year" for Trout still means .306/.442/.629 with 33 homers in just 114 games. A calf injury robbed us of what could have been another MVP campaign — he was on pace for 47 dingers. Even hobbled, he posted a 185 OPS+ that would be the best season of most careers. The man is simply unfair. You could argue this is the most impressive "disappointing" season in modern baseball history.
+Look, a "down year" for Trout still means **.306/.442/.629** with **33 homers** in just 114 games. A calf injury robbed us of what could have been another MVP campaign; he was on pace for 47 dingers. Even hobbled, he posted a **185 OPS+** that would be the best season of most careers. The man is simply unfair. You could argue this is the most impressive "disappointing" season in modern baseball history.
 
 [LEGENDARY pitcher — Greg Maddux, 1993 ATL, Legend Score 9.5]
-Maddux's first year in Atlanta after leaving the Cubs was an absolute masterclass — 20 wins, a 2.36 ERA, and just 52 walks in 267 innings. This was the beginning of the most dominant four-year pitching stretch of the modern era, winning his second consecutive Cy Young. He painted corners like Rembrandt and made hitters look foolish doing it. The Braves got the best pitcher on the planet as a free agent, and he somehow exceeded expectations.
+Maddux's first year in Atlanta after leaving the Cubs was an absolute masterclass: **20 wins**, a **2.36 ERA**, and just **52 walks** in 267 innings. This was the beginning of the most dominant four-year pitching stretch of the modern era, winning his second consecutive Cy Young. He painted corners like Rembrandt and made hitters look foolish doing it. The Braves got the best pitcher on the planet as a free agent, and he somehow exceeded expectations.
 
 [AVERAGE batter — Derek Jeter, 2010 NYA, Legend Score 4.8]
-Father Time started whispering to The Captain in 2010. A .270 average and 10 homers from your 36-year-old shortstop isn't embarrassing, but this was a far cry from the Jeter who once hit .349. The Yankees still made the ALCS, but Jeter's declining range at short was becoming impossible to ignore. A quiet bridge year before his famous contract drama. The mystique was still there, but the bat speed wasn't.
+Father Time started whispering to The Captain in 2010. A **.270 average** and **10 homers** from your 36-year-old shortstop isn't embarrassing, but this was a far cry from the Jeter who once hit .349. The Yankees still made the ALCS, but Jeter's declining range at short was becoming impossible to ignore. A quiet bridge year before his famous contract drama. The mystique was still there, but the bat speed *wasn't*.
 
 [SOLID pitcher — Mark Buehrle, 2007 CHA, Legend Score 6.3]
-Somehow Buehrle threw a no-hitter against the Rangers in April and still only managed a 3.63 ERA for the year — that's the most Mark Buehrle stat line imaginable. He ate 201 innings with his trademark pace, working so fast that fielders barely had time to spit between pitches. A reliable workhorse who happened to have one magic night tucked into an otherwise solid season. If every starter in your rotation pitched like Buehrle, you'd win 90 games and never stress about it.`;
+Somehow Buehrle threw a no-hitter against the Rangers in April and still only managed a **3.63 ERA** for the year. That's the most Mark Buehrle stat line imaginable. He ate **201 innings** with his trademark pace, working so fast that fielders barely had time to spit between pitches. A reliable workhorse who happened to have one magic night tucked into an otherwise solid season. If every starter in your rotation pitched like Buehrle, you'd win 90 games and never stress about it.`;
+
+// Post-process blurb text: ensure em-dashes have exactly one space on each side
+function normalizeBlurb(text: string): string {
+  // Normalize em-dashes: ensure exactly one space on each side
+  return text.replace(/\s*—\s*/g, ' — ');
+}
 
 // Generate a blurb using GPT-5.2 with web search for real-time context
 async function generateBlurb(info: PlayerYearInfo): Promise<string> {
@@ -204,7 +215,7 @@ Write a 4-5 sentence blurb (80-130 words) about this player-season.`;
     });
 
     const text = response.output_text?.trim();
-    return text || getTemplateBlurb(info);
+    return text ? normalizeBlurb(text) : getTemplateBlurb(info);
   } catch (error) {
     console.error('OpenAI blurb error:', error);
     return getTemplateBlurb(info);
