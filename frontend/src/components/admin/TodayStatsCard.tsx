@@ -74,32 +74,36 @@ export function TodayStatsCard() {
             <span className="font-mono text-[9px] text-muted uppercase tracking-wider block mb-2">
               Score Distribution
             </span>
-            <div className="flex items-end gap-1 h-12">
+            <div className="flex items-end gap-px h-16">
               {scoreDistribution.map((count, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                <div key={i} className="flex-1 min-w-0">
                   <div
                     className={cn(
-                      'w-full rounded-sm transition-all',
-                      count > 0 ? 'bg-navy/20' : 'bg-navy/5',
+                      'w-full transition-all',
+                      count > 0 ? 'bg-navy/60' : 'bg-navy/8',
                     )}
-                    style={{ height: `${Math.max(2, (count / maxBucket) * 40)}px` }}
+                    style={{ height: `${Math.max(1, (count / maxBucket) * 56)}px` }}
                   />
-                  <span className="font-mono text-[7px] text-muted/60">{i * 10}</span>
                 </div>
               ))}
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="font-mono text-[7px] text-muted/60">0</span>
+              <span className="font-mono text-[7px] text-muted/60">50</span>
+              <span className="font-mono text-[7px] text-muted/60">100</span>
             </div>
           </div>
         )}
 
-        {/* Per-round most picked — rich player cards */}
+        {/* Per-round most picked */}
         {roundStats && roundStats.length > 0 && (
           <div className="px-5 py-4">
             <span className="font-mono text-[9px] text-muted uppercase tracking-wider block mb-3">
               Most Picked Per Round
             </span>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               {roundStats.map((rs) => (
-                <MostPickedCard key={rs.roundNumber} round={rs} />
+                <MostPickedRow key={rs.roundNumber} round={rs} />
               ))}
             </div>
           </div>
@@ -109,49 +113,44 @@ export function TodayStatsCard() {
   );
 }
 
-function MostPickedCard({ round }: {
+function MostPickedRow({ round }: {
   round: {
     roundNumber: number;
     position: string;
-    mostPicked: { playerName: string; pickCount: number; portraitUrl: string | null; yearOptions: number[] } | null;
+    mostPicked: { playerName: string; pickCount: number; portraitUrl: string | null; selectedYear: number; team: string | null } | null;
   };
 }) {
   const { position, mostPicked } = round;
-  if (!mostPicked) {
-    return (
-      <div className="text-center">
-        <span className="font-mono text-[9px] text-muted font-bold block">{position}</span>
-        <span className="font-mono text-[8px] text-muted/40">—</span>
-      </div>
-    );
-  }
-
-  const lastName = mostPicked.playerName.split(' ').pop() ?? mostPicked.playerName;
 
   return (
-    <div className="flex flex-col items-center text-center gap-1">
+    <div className="flex items-center gap-2.5 py-1">
+      {/* Position badge */}
+      <span className="font-mono text-[10px] font-bold text-navy/40 w-6 shrink-0 text-right">
+        {position}
+      </span>
       {/* Portrait */}
-      {mostPicked.portraitUrl ? (
+      {mostPicked?.portraitUrl ? (
         <img
           src={mostPicked.portraitUrl}
           alt={mostPicked.playerName}
-          className="w-9 h-9 rounded-full object-cover border border-navy/10"
+          className="w-10 h-10 rounded-full object-cover border border-navy/10 shrink-0"
         />
       ) : (
-        <div className="w-9 h-9 rounded-full bg-navy/8 flex items-center justify-center">
-          <span className="font-editorial text-[10px] text-navy/30">{position}</span>
-        </div>
+        <div className="w-10 h-10 rounded-full bg-navy/6 shrink-0" />
       )}
-      {/* Name */}
-      <span className="font-mono text-[8px] text-navy font-bold leading-tight truncate w-full">
-        {lastName}
-      </span>
-      {/* Years */}
-      <span className="font-mono text-[7px] text-muted/60 leading-tight">
-        {mostPicked.yearOptions.length > 0
-          ? mostPicked.yearOptions.join(', ')
-          : '—'}
-      </span>
+      {/* Info */}
+      {mostPicked ? (
+        <div className="min-w-0">
+          <span className="font-editorial font-bold text-sm text-navy block truncate leading-tight">
+            {mostPicked.playerName}
+          </span>
+          <span className="font-mono text-[11px] text-muted leading-tight">
+            {mostPicked.selectedYear}{mostPicked.team ? ` ${mostPicked.team}` : ''}
+          </span>
+        </div>
+      ) : (
+        <span className="font-mono text-xs text-muted/40">—</span>
+      )}
     </div>
   );
 }

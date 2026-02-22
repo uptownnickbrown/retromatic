@@ -208,9 +208,10 @@ export function AdminChallengeDetail() {
               ready={health?.portraitsReady}
             />
             <HealthMetric
-              value={health ? String(health.preseedStats) : '—'}
-              label="Stats"
-              ready={health?.preseedReady}
+              value={health ? String(health.drafts.total) : '—'}
+              label="Drafts"
+              ready={health?.draftsReady}
+              sublabel={health ? `${health.drafts.preseed} preseed · ${health.drafts.real} real` : undefined}
             />
             <HealthMetric
               value={
@@ -422,10 +423,12 @@ function HealthMetric({
   value,
   label,
   ready,
+  sublabel,
 }: {
   value: string;
   label: string;
   ready?: boolean;
+  sublabel?: string;
 }) {
   return (
     <div className="px-5 py-4 text-center">
@@ -441,6 +444,11 @@ function HealthMetric({
       <span className="font-mono text-[10px] text-muted uppercase tracking-wider">
         {label}
       </span>
+      {sublabel && (
+        <span className="font-mono text-[9px] text-muted/60 block mt-0.5">
+          {sublabel}
+        </span>
+      )}
     </div>
   );
 }
