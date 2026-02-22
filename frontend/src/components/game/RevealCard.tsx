@@ -124,17 +124,16 @@ function CommunityPicks({
         const isChosenPlayer = player.name === chosenPlayerName;
 
         return (
-          <div key={pi} className="flex gap-2 items-start">
+          <div key={pi} className="flex gap-3 items-start">
             <PlayerPortrait
               name={player.name}
               portraitUrl={player.portraitUrl}
-              position=""
               size="md"
               className="flex-shrink-0 mt-0.5"
             />
             <div className="flex-1 min-w-0">
               <p className={cn(
-                'text-xs font-editorial font-bold truncate leading-tight mb-1',
+                'text-sm font-editorial font-bold truncate leading-tight',
                 isChosenPlayer ? 'text-navy' : 'text-navy/60',
               )}>
                 {player.name}
@@ -144,9 +143,12 @@ function CommunityPicks({
                 const pct = pctMap.get(yo.playerRecordId)?.get(yo.year) ?? 0;
                 const isChosenYearRow = isChosenPlayer && yo.year === chosenYear;
                 return (
-                  <div key={yo.year} className="flex items-center gap-1.5 mb-0.5">
-                    <span className="font-mono text-[10px] text-muted w-8 flex-shrink-0">
-                      {yo.year}
+                  <div key={yo.year} className="flex items-center gap-1.5 mt-0.5">
+                    <span className={cn(
+                      'font-mono text-[10px] flex-shrink-0 truncate leading-tight',
+                      isChosenYearRow ? 'text-navy font-bold' : 'text-muted',
+                    )} style={{ maxWidth: '55%' }}>
+                      {yo.year} {getTeamFullName(yo.team)}
                     </span>
                     <div className="flex-1 h-2.5 bg-navy/8 rounded overflow-hidden">
                       <motion.div
@@ -160,7 +162,7 @@ function CommunityPicks({
                       />
                     </div>
                     <span className={cn(
-                      'text-[10px] font-mono font-bold w-8 text-right tabular-nums',
+                      'text-[10px] font-mono font-bold w-8 text-right tabular-nums flex-shrink-0',
                       isChosenYearRow ? 'text-red' : 'text-muted',
                     )}>
                       {pct}%
