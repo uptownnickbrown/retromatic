@@ -76,7 +76,7 @@ export function Home() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 200, damping: 18 }}
-        className="text-center mb-8 w-full"
+        className="text-center mb-5 w-full"
       >
         <h1 className="font-editorial font-black text-6xl text-navy tracking-tight leading-none">
           SANDLOT
@@ -175,15 +175,10 @@ export function Home() {
               How to Play
             </p>
             <p className="text-sm text-navy/80 font-mono leading-relaxed">
-              Each round: 3 players, 3 seasons each. Pick the best fantasy season.
-              <br />10 rounds. 10 positions. 30 seconds per pick.
-              <br />Same daily challenge for everyone.
+              10 rounds: 3 players at each position, 3 seasons to pick from. Choose the best fantasy season. Same daily challenge for everyone.
             </p>
             <p className="text-sm text-navy/80 font-mono leading-relaxed mt-2">
-              Sandlot Score rates each pick's fantasy impact from 1.0 to 10.0.
-            </p>
-            <p className="text-sm text-navy/60 font-mono leading-relaxed mt-1">
-              Hit 9.5+ to unearth a Sandlot Legend.
+              <strong className="text-navy">Sandlot Score</strong> rates each pick's fantasy season impact from 1.0 to 10.0. Hit 9.5+ to unearth a Sandlot Legend.
             </p>
           </PaperCard>
         </motion.div>
@@ -213,7 +208,7 @@ export function Home() {
                 onClick={() => navigate(`/recap/${yesterday.id}`)}
                 className="flex items-center gap-1 text-sm font-mono text-navy/60 hover:text-navy transition-colors flex-shrink-0 ml-3 py-1"
               >
-                Community recap
+                Recap
                 <ChevronRight size={14} />
               </button>
             </div>

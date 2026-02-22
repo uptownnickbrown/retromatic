@@ -29,7 +29,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
   });
 
   return (
-    <div className="paper-card torn-edge py-5 px-3 space-y-0.5">
+    <div className="paper-card py-5 px-3 space-y-0.5">
       <h3 className="font-editorial text-sm font-bold uppercase tracking-wider text-navy mb-3 text-center">
         Lineup Card
       </h3>
@@ -57,7 +57,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
                 name={pick.playerName}
                 portraitUrl={pick.portraitUrl ?? null}
                 position={pick.position}
-                size="xl"
+                size="lg"
                 className="flex-shrink-0"
               />
               <span className={cn(

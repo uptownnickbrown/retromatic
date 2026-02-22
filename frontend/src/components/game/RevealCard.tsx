@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import type { RevealData, RevealRoundPlayer } from '../../types';
@@ -124,13 +125,22 @@ function CommunityPicks({
         const isChosenPlayer = player.name === chosenPlayerName;
 
         return (
-          <div key={pi} className="flex gap-3 items-start">
-            <PlayerPortrait
-              name={player.name}
-              portraitUrl={player.portraitUrl}
-              size="md"
-              className="flex-shrink-0 mt-0.5"
-            />
+          <div key={pi} className="flex gap-3 items-stretch">
+            <div className="flex-shrink-0 w-14 self-stretch rounded overflow-hidden border border-navy/15 bg-paper shadow-[1px_1px_0px_rgba(10,30,47,0.1)]">
+              {player.portraitUrl ? (
+                <img
+                  src={player.portraitUrl}
+                  alt={player.name}
+                  className="w-full h-full object-cover object-top"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-bone">
+                  <span className="font-editorial font-black text-2xl text-navy/20 select-none leading-none">
+                    {player.name.split(' ').map(w => w[0]).filter(Boolean).join('').toUpperCase().slice(0, 2)}
+                  </span>
+                </div>
+              )}
+            </div>
             <div className="flex-1 min-w-0">
               <p className={cn(
                 'text-sm font-editorial font-bold truncate leading-tight',
@@ -208,7 +218,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
       transition={{ type: 'spring', stiffness: 200, damping: 20 }}
       className="w-full px-3"
     >
-      {isSandlotLegend && <TickerTapeConfetti />}
+      {isSandlotLegend && createPortal(<TickerTapeConfetti />, document.body)}
 
       <PaperCard
         className={cn(isSandlotLegend && 'ring-2 ring-gold/30')}
@@ -235,12 +245,19 @@ export function RevealCard({ reveal }: RevealCardProps) {
               size="xl"
               className="flex-shrink-0"
             />
-            <h3 className={cn(
-              'font-editorial font-black text-2xl leading-tight text-navy',
-              isSandlotLegend && 'text-gold',
-            )}>
-              {reveal.playerName}
-            </h3>
+            <div>
+              <h3 className={cn(
+                'font-editorial font-black text-2xl leading-tight text-navy',
+                isSandlotLegend && 'text-gold',
+              )}>
+                {reveal.playerName}
+              </h3>
+              {isSandlotLegend && (
+                <p className="font-mono text-xs font-bold uppercase tracking-wider text-gold mt-0.5">
+                  Sandlot Legend
+                </p>
+              )}
+            </div>
           </motion.div>
 
           {/* Stat box score — 5-column newspaper line */}
@@ -277,10 +294,10 @@ export function RevealCard({ reveal }: RevealCardProps) {
                 transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
                 className="float-right flex items-center justify-center"
                 style={{
-                  width: 120,
-                  height: 120,
+                  width: 96,
+                  height: 96,
                   shapeOutside: 'circle(50%)',
-                  shapeMargin: '12px',
+                  shapeMargin: '10px',
                 }}
               >
                 <SandlotScoreBadge score={reveal.legendScore} size="lg" animate />

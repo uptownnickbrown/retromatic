@@ -9,8 +9,8 @@ interface WaxSealProps {
 
 const sizes = {
   sm: 'w-10 h-10',
-  md: 'w-16 h-16',
-  lg: 'w-[120px] h-[120px]',
+  md: 'w-12 h-12',
+  lg: 'w-20 h-20',
 };
 
 export function WaxSeal({ score, size = 'md', animate = false, className }: WaxSealProps) {
@@ -19,7 +19,7 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
   return (
     <div className={cn('relative inline-block', className)}>
       <img
-        src="/wax-seal.png"
+        src="/wax-seal.webp"
         alt="Sandlot Legend"
         className={cn(
           sizes[size],
@@ -30,8 +30,8 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
         className={cn(
           'absolute inset-0 flex items-center justify-center font-editorial font-black text-white leading-none pb-[0.25em] drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
           size === 'sm' && 'text-[10px]',
-          size === 'md' && 'text-sm',
-          size === 'lg' && 'text-2xl',
+          size === 'md' && 'text-xs',
+          size === 'lg' && 'text-xl',
         )}
       >
         {score.toFixed(1)}

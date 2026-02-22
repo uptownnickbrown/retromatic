@@ -37,8 +37,8 @@ export function SandlotScoreBadge({ score: rawScore, size = 'md', animate = fals
     const isHot = score >= 8.0;
     const sizeClasses = {
       sm: 'w-10 h-10 text-xs',
-      md: 'w-14 h-14 text-lg',
-      lg: 'w-24 h-24 text-3xl',
+      md: 'w-12 h-12 text-base',
+      lg: 'w-20 h-20 text-2xl',
     };
 
     const content = (
@@ -89,8 +89,8 @@ export function SandlotScoreBadge({ score: rawScore, size = 'md', animate = fals
   // Average: light circle badge (paper fill, thin navy border)
   const avgSizeClasses = {
     sm: 'w-10 h-10 text-xs',
-    md: 'w-14 h-14 text-lg',
-    lg: 'w-24 h-24 text-3xl',
+    md: 'w-12 h-12 text-base',
+    lg: 'w-20 h-20 text-2xl',
   };
 
   const content = (

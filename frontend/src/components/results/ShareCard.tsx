@@ -14,9 +14,9 @@ interface ShareCardProps {
 }
 
 function getScoreEmoji(score: number): string {
-  if (score >= 9.5) return '\u{1F7E1}';
-  if (score >= 6.0) return '\u{26AA}';
-  return '\u{26AB}';
+  if (score >= 9.5) return '\u{1F3C6}';  // 🏆 trophy
+  if (score >= 6.0) return '\u{26BE}';   // ⚾ baseball
+  return '\u{1F95C}';                    // 🥜 peanut
 }
 
 type Tab = 'image' | 'text';
@@ -60,7 +60,7 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
       grid,
       '',
       `Sandlot Score: ${safeNum(totalScore).toFixed(1)}/100`,
-      ...(legendCount > 0 ? [`\u{2B50} ${legendCount}x Sandlot Legend`] : []),
+      ...(legendCount > 0 ? [`\u{1F3C6} ${legendCount} Sandlot Legend${legendCount > 1 ? 's' : ''}`] : []),
       `Better than ${Math.max(1, Math.round(safeNum(percentile)))}% of drafts`,
       '',
       'sandlot.uptownnickbrown.com',
@@ -197,26 +197,25 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
               {/* Actions */}
               <div className="px-4 pb-4 flex gap-2">
                 {tab === 'image' ? (
-                  <>
+                  typeof navigator.share === 'function' ? (
+                    <button
+                      onClick={handleShare}
+                      disabled={!imageUrl}
+                      className="flex-1 btn-ticket flex items-center justify-center gap-2 disabled:opacity-40"
+                    >
+                      <Share2 size={15} />
+                      Share
+                    </button>
+                  ) : (
                     <button
                       onClick={handleDownload}
                       disabled={!imageUrl}
-                      className="flex-1 btn-section flex items-center justify-center gap-2 disabled:opacity-40"
+                      className="flex-1 btn-ticket flex items-center justify-center gap-2 disabled:opacity-40"
                     >
                       <Download size={15} />
                       Save
                     </button>
-                    {typeof navigator.share === 'function' && (
-                      <button
-                        onClick={handleShare}
-                        disabled={!imageUrl}
-                        className="flex-1 btn-ticket flex items-center justify-center gap-2 disabled:opacity-40"
-                      >
-                        <Share2 size={15} />
-                        Share
-                      </button>
-                    )}
-                  </>
+                  )
                 ) : (
                   <>
                     <button
