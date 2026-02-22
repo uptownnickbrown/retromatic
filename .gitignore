@@ -72,6 +72,9 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Portraits (generated artifacts, served from Railway volume)
+frontend/public/portraits/
+
 # Portrait test output
 backend/portrait-test/
 
