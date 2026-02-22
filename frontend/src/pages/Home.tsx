@@ -82,8 +82,8 @@ export function Home() {
           SANDLOT
         </h1>
         <div className="ink-divider my-2" />
-        <p className="font-mono text-xs text-muted uppercase tracking-[0.2em]">
-          Daily Baseball Draft
+        <p className="font-mono text-sm text-muted uppercase tracking-[0.2em]">
+          Daily Fantasy Baseball Draft
         </p>
       </motion.div>
 
@@ -101,18 +101,18 @@ export function Home() {
             </div>
           ) : !today ? (
             <div className="text-center py-6">
-              <p className="text-muted text-sm font-mono">No challenge today.</p>
-              <p className="text-muted/60 text-xs font-mono mt-1">Check back tomorrow!</p>
+              <p className="text-muted text-base font-mono">No challenge today.</p>
+              <p className="text-muted/60 text-sm font-mono mt-1">Check back tomorrow!</p>
             </div>
           ) : isCompleted && session ? (
             <>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
+                  <p className="font-mono text-xs font-bold uppercase tracking-wider text-muted">
                     Today's Result
                   </p>
                   {today.theme && (
-                    <p className="text-sm text-navy font-editorial italic mt-1">"{today.theme}"</p>
+                    <p className="text-base text-navy font-editorial italic mt-1">"{today.theme}"</p>
                   )}
                 </div>
                 <SandlotScoreBadge score={safeNum(session.totalLegendScore) / 10} size="md" showLabel />
@@ -120,9 +120,9 @@ export function Home() {
 
               {session.percentile != null && (
                 <div className="bg-bone rounded p-3 mb-4 border border-navy/8">
-                  <p className="text-center text-sm font-mono text-navy">
+                  <p className="text-center text-base font-mono text-navy">
                     You scored better than{' '}
-                    <span className="font-editorial font-bold text-lg">
+                    <span className="font-editorial font-bold text-2xl">
                       {Math.round(safeNum(session.percentile, 50))}%
                     </span>{' '}
                     of players
@@ -142,11 +142,11 @@ export function Home() {
           ) : (
             <>
               <div className="text-center mb-4">
-                <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted mb-2">
+                <p className="font-mono text-xs font-bold uppercase tracking-wider text-muted mb-2">
                   {isInProgress ? 'Game In Progress' : "Today's Challenge"}
                 </p>
                 {today.theme && (
-                  <p className="text-lg text-navy font-editorial italic mt-1">"{today.theme}"</p>
+                  <p className="text-xl text-navy font-editorial italic mt-1">"{today.theme}"</p>
                 )}
               </div>
 
@@ -171,15 +171,19 @@ export function Home() {
           className="w-full mb-4"
         >
           <PaperCard>
-            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted mb-2">
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted mb-2">
               How to Play
             </p>
-            <p className="text-xs text-navy/80 font-mono leading-relaxed">
-              A daily fantasy baseball draft through history. Each round, choose from 3 legendary
-              players — and 3 of their seasons — to fill a roster position. 10 rounds, 10 positions.
+            <p className="text-sm text-navy/80 font-mono leading-relaxed">
+              Each round: 3 players, 3 seasons each. Pick the best fantasy season.
+              <br />10 rounds. 10 positions. 30 seconds per pick.
+              <br />Same daily challenge for everyone.
             </p>
-            <p className="text-xs text-navy/60 font-mono leading-relaxed mt-2">
-              Maximize your Sandlot Score (1.0–10.0). Score 9.5+ to unearth a Sandlot Legend.
+            <p className="text-sm text-navy/80 font-mono leading-relaxed mt-2">
+              Sandlot Score rates each pick's fantasy impact from 1.0 to 10.0.
+            </p>
+            <p className="text-sm text-navy/60 font-mono leading-relaxed mt-1">
+              Hit 9.5+ to unearth a Sandlot Legend.
             </p>
           </PaperCard>
         </motion.div>
@@ -196,18 +200,18 @@ export function Home() {
           <PaperCard>
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
-                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+                <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
                   Yesterday
                 </p>
                 {yesterday.theme && (
-                  <p className="text-sm text-navy font-editorial italic mt-1 truncate">
+                  <p className="text-base text-navy font-editorial italic mt-1 truncate">
                     "{yesterday.theme}"
                   </p>
                 )}
               </div>
               <button
                 onClick={() => navigate(`/recap/${yesterday.id}`)}
-                className="flex items-center gap-1 text-xs font-mono text-navy/60 hover:text-navy transition-colors flex-shrink-0 ml-3 py-1"
+                className="flex items-center gap-1 text-sm font-mono text-navy/60 hover:text-navy transition-colors flex-shrink-0 ml-3 py-1"
               >
                 Community recap
                 <ChevronRight size={14} />
@@ -225,10 +229,10 @@ export function Home() {
           transition={{ delay: 0.45 }}
           className="w-full mb-4 text-center"
         >
-          <p className="font-mono text-xs text-muted/70">
+          <p className="font-mono text-sm text-navy/50">
             Come back tomorrow for{' '}
             {tomorrow.theme ? (
-              <span className="font-editorial italic text-navy/60">"{tomorrow.theme}"</span>
+              <span className="font-editorial italic text-base text-navy/70">"{tomorrow.theme}"</span>
             ) : (
               'a new challenge'
             )}
@@ -256,18 +260,18 @@ export function Home() {
               <p className="font-editorial font-bold text-lg text-gold leading-tight">
                 {milestone}-day streak!
               </p>
-              <p className="font-mono text-xs text-navy/60 mt-0.5">
+              <p className="font-mono text-sm text-navy/60 mt-0.5">
                 {MILESTONE_TEXT[milestone]}
               </p>
             </motion.div>
           )}
           <div className="flex items-center gap-2 text-navy/50">
-            <Flame size={16} className={currentStreak >= 7 ? 'text-gold' : 'text-navy/40'} />
-            <span className="text-sm font-editorial italic">
+            <Flame size={18} className={currentStreak >= 7 ? 'text-gold' : 'text-navy/40'} />
+            <span className="text-base font-editorial italic">
               {currentStreak} day streak
             </span>
             {(streakData?.longest ?? 0) > currentStreak && (
-              <span className="text-xs font-mono text-muted ml-1">
+              <span className="text-sm font-mono text-muted ml-1">
                 (best: {streakData?.longest})
               </span>
             )}

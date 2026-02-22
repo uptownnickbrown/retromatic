@@ -143,14 +143,22 @@ function CommunityPicks({
                 const pct = pctMap.get(yo.playerRecordId)?.get(yo.year) ?? 0;
                 const isChosenYearRow = isChosenPlayer && yo.year === chosenYear;
                 return (
-                  <div key={yo.year} className="flex items-center gap-1.5 mt-0.5">
-                    <span className={cn(
-                      'font-mono text-[10px] flex-shrink-0 truncate leading-tight',
-                      isChosenYearRow ? 'text-navy font-bold' : 'text-muted',
-                    )} style={{ maxWidth: '55%' }}>
-                      {yo.year} {getTeamFullName(yo.team)}
-                    </span>
-                    <div className="flex-1 h-2.5 bg-navy/8 rounded overflow-hidden">
+                  <div key={yo.year} className="mt-1">
+                    <div className="flex items-center justify-between">
+                      <span className={cn(
+                        'font-mono text-[10px] truncate leading-tight',
+                        isChosenYearRow ? 'text-navy font-bold' : 'text-muted',
+                      )}>
+                        {yo.year} {getTeamFullName(yo.team)}
+                      </span>
+                      <span className={cn(
+                        'text-[10px] font-mono font-bold tabular-nums flex-shrink-0 ml-2',
+                        isChosenYearRow ? 'text-red' : 'text-muted',
+                      )}>
+                        {pct}%
+                      </span>
+                    </div>
+                    <div className="h-2.5 bg-navy/8 rounded overflow-hidden mt-0.5">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${(pct / maxPct) * 100}%` }}
@@ -161,12 +169,6 @@ function CommunityPicks({
                         )}
                       />
                     </div>
-                    <span className={cn(
-                      'text-[10px] font-mono font-bold w-8 text-right tabular-nums flex-shrink-0',
-                      isChosenYearRow ? 'text-red' : 'text-muted',
-                    )}>
-                      {pct}%
-                    </span>
                   </div>
                 );
               })}

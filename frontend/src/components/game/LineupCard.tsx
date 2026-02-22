@@ -22,12 +22,13 @@ export function LineupCard({ totalRounds, currentRound, picks, positions, totalS
       {/* Compact header — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 text-left"
+        className="w-full flex items-center px-3 py-2 text-left"
       >
+        <div className="flex-1" />
         <span className="font-mono text-xs font-bold uppercase tracking-wider text-navy">
           Round {currentRound}/{totalRounds}
         </span>
-        <div className="flex items-center gap-3">
+        <div className="flex-1 flex items-center justify-end gap-3">
           <span className="font-mono text-sm text-muted">
             Score: <span className="font-bold text-navy">{totalScore.toFixed(1)}</span>
           </span>
