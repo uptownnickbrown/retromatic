@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
-import { Share2, Copy, Check, X } from 'lucide-react';
+import { Share2, Copy, Check, X, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ResultsPick } from '../../types';
 import { safeNum } from '../../lib/numeric';
+import { generateShareImage } from '../../lib/shareImage';
 import { VintageButton } from '../ui/VintageButton';
 
 interface ShareCardProps {
@@ -21,6 +22,7 @@ function getScoreEmoji(score: number): string {
 export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const generateShareText = useCallback(() => {
     const grid = picks.map(p => getScoreEmoji(safeNum(p.legendScore))).join('');
@@ -46,16 +48,46 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
     setTimeout(() => setCopied(false), 2000);
   }, [generateShareText]);
 
-  const handleNativeShare = useCallback(async () => {
-    const text = generateShareText();
-    if (navigator.share) {
-      try {
-        await navigator.share({ text });
-      } catch {
-        // User cancelled
-      }
+  const handleDownloadImage = useCallback(async () => {
+    setGenerating(true);
+    try {
+      const blob = await generateShareImage({ totalScore, percentile, picks, date });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sandlot-${date}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Share image generation failed:', err);
+    } finally {
+      setGenerating(false);
     }
-  }, [generateShareText]);
+  }, [totalScore, percentile, picks, date]);
+
+  const handleNativeShare = useCallback(async () => {
+    if (!navigator.share) return;
+    try {
+      // Try sharing with image file first
+      const blob = await generateShareImage({ totalScore, percentile, picks, date });
+      const file = new File([blob], `sandlot-${date}.png`, { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          text: generateShareText(),
+          files: [file],
+        });
+        return;
+      }
+    } catch {
+      // Image share failed or was cancelled — fall through
+    }
+    // Fallback: text-only share
+    try {
+      await navigator.share({ text: generateShareText() });
+    } catch {
+      // User cancelled
+    }
+  }, [generateShareText, totalScore, percentile, picks, date]);
 
   return (
     <>
@@ -100,18 +132,18 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
               </p>
 
               {/* Preview box */}
-              <pre className="bg-[#ECE9E0] rounded p-3 mb-4 text-sm font-mono text-navy whitespace-pre-wrap leading-relaxed border border-navy/8">
+              <pre className="bg-bone rounded p-3 mb-4 text-sm font-mono text-navy whitespace-pre-wrap leading-relaxed border border-navy/8">
                 {generateShareText()}
               </pre>
 
               {/* Action buttons */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 mb-2">
                 <button
                   onClick={handleCopy}
                   className="flex-1 btn-section flex items-center justify-center gap-2"
                 >
                   {copied ? <Check size={16} /> : <Copy size={16} />}
-                  {copied ? 'Copied!' : 'Copy'}
+                  {copied ? 'Copied!' : 'Copy Text'}
                 </button>
                 {typeof navigator.share === 'function' && (
                   <button
@@ -123,6 +155,14 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
                   </button>
                 )}
               </div>
+              <button
+                onClick={handleDownloadImage}
+                disabled={generating}
+                className="w-full btn-section flex items-center justify-center gap-2"
+              >
+                <Download size={16} />
+                {generating ? 'Generating...' : 'Download Image'}
+              </button>
             </motion.div>
           </motion.div>
         )}
