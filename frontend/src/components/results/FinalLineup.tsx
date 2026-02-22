@@ -4,7 +4,6 @@ import { cn } from '../../lib/utils';
 import { POSITIONS } from '../../types';
 import type { ResultsPick } from '../../types';
 import { safeNum } from '../../lib/numeric';
-import { WaxSeal } from '../ui/WaxSeal';
 import { PlayerPortrait } from '../game/PlayerPortrait';
 import { zToPercentile, getDisplayStats } from '../../lib/statBenchmark';
 import { renderBlurb } from '../../lib/renderBlurb';
@@ -14,15 +13,24 @@ interface FinalLineupProps {
 }
 
 export function FinalLineup({ picks }: FinalLineupProps) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
-
   const sortedPicks = [...picks].sort(
     (a, b) => POSITIONS.indexOf(a.position as typeof POSITIONS[number]) - POSITIONS.indexOf(b.position as typeof POSITIONS[number])
   );
 
+  // Pre-expand the best pick so users discover the expand interaction
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(() => {
+    let bestIdx = 0;
+    let bestScore = -1;
+    for (let i = 0; i < sortedPicks.length; i++) {
+      const s = safeNum(sortedPicks[i].legendScore);
+      if (s > bestScore) { bestScore = s; bestIdx = i; }
+    }
+    return sortedPicks[bestIdx]?.categoryZscores ? bestIdx : null;
+  });
+
   return (
     <div className="paper-card torn-edge py-5 px-3 space-y-0.5">
-      <h3 className="font-editorial text-xs font-bold uppercase tracking-wider text-navy mb-3 text-center">
+      <h3 className="font-editorial text-sm font-bold uppercase tracking-wider text-navy mb-3 text-center">
         Lineup Card
       </h3>
       <div className="ink-divider mb-3" />
@@ -39,8 +47,9 @@ export function FinalLineup({ picks }: FinalLineupProps) {
               transition={{ delay: i * 0.05 }}
               onClick={() => setExpandedIndex(isExpanded ? null : i)}
               className={cn(
-                'w-full flex items-center gap-2 py-2 px-1 text-left',
-                'hover:bg-navy/3 transition-colors rounded',
+                'w-full flex items-center gap-2.5 py-2.5 px-1.5 text-left',
+                'transition-colors rounded',
+                isSandlotLegend ? 'bg-gold/8 hover:bg-gold/12' : 'hover:bg-navy/3',
                 pick.wasTimeout && 'opacity-40',
               )}
             >
@@ -48,35 +57,36 @@ export function FinalLineup({ picks }: FinalLineupProps) {
                 name={pick.playerName}
                 portraitUrl={pick.portraitUrl ?? null}
                 position={pick.position}
-                size="md"
+                size="xl"
                 className="flex-shrink-0"
               />
-              <span className="font-mono text-[10px] font-bold text-muted w-7 text-center flex-shrink-0">
+              <span className={cn(
+                'font-mono text-xs font-bold w-8 text-center flex-shrink-0',
+                isSandlotLegend ? 'text-gold' : 'text-muted',
+              )}>
                 {pick.position}
               </span>
               <span className={cn(
-                'flex-1 text-sm truncate',
-                pick.wasTimeout ? 'font-mono text-muted line-through' : 'font-editorial italic text-navy text-base',
+                'flex-1 truncate',
+                pick.wasTimeout
+                  ? 'font-mono text-sm text-muted line-through'
+                  : 'font-editorial italic text-navy text-lg',
               )}>
                 {pick.playerName}
                 {pick.wasTimeout && ' (auto)'}
               </span>
-              <span className="font-mono text-xs text-muted mr-1">
+              <span className={cn(
+                'font-mono text-sm flex-shrink-0',
+                isSandlotLegend ? 'text-gold/70' : 'text-muted',
+              )}>
                 {pick.year}
               </span>
-              {isSandlotLegend ? (
-                <div className="flex items-center gap-1">
-                  <span className="font-mono text-[8px] font-bold text-gold uppercase tracking-wider">Legend</span>
-                  <WaxSeal score={score} size="sm" />
-                </div>
-              ) : (
-                <span className={cn(
-                  'font-mono text-xs font-bold min-w-[32px] text-right',
-                  score >= 6.0 ? 'text-navy' : 'text-muted',
-                )}>
-                  {score.toFixed(1)}
-                </span>
-              )}
+              <span className={cn(
+                'font-mono text-sm font-bold min-w-[36px] text-right flex-shrink-0',
+                isSandlotLegend ? 'text-gold' : score >= 6.0 ? 'text-navy' : 'text-muted',
+              )}>
+                {score.toFixed(1)}
+              </span>
             </motion.button>
 
             {/* Expanded detail */}
@@ -106,7 +116,7 @@ function ExpandedPickStats({ pick }: { pick: ResultsPick }) {
   const categoryZscores = pick.categoryZscores ?? {};
 
   return (
-    <div className="bg-bone/50 px-2 pb-3 pt-1 ml-11">
+    <div className="bg-bone/50 px-2 pb-3 pt-1 ml-14">
       {/* Stats grid with percentile bars */}
       <div className="border border-navy/10 rounded overflow-hidden mb-2">
         <div className="grid grid-cols-5 divide-x divide-navy/10 bg-paper">
