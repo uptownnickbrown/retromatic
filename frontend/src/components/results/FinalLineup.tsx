@@ -48,7 +48,7 @@ export function FinalLineup({ picks }: FinalLineupProps) {
                 name={pick.playerName}
                 portraitUrl={pick.portraitUrl ?? null}
                 position={pick.position}
-                size="sm"
+                size="md"
                 className="flex-shrink-0"
               />
               <span className="font-mono text-[10px] font-bold text-muted w-7 text-center flex-shrink-0">
@@ -103,7 +103,7 @@ function ExpandedPickStats({ pick }: { pick: ResultsPick }) {
   const categoryZscores = pick.categoryZscores ?? {};
 
   return (
-    <div className="bg-bone/50 px-2 pb-3 pt-1 ml-9">
+    <div className="bg-bone/50 px-2 pb-3 pt-1 ml-11">
       {/* Stats grid with percentile bars */}
       <div className="border border-navy/10 rounded overflow-hidden mb-2">
         <div className="grid grid-cols-5 divide-x divide-navy/10 bg-paper">
