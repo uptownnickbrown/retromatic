@@ -92,12 +92,15 @@ export interface DetailedHealth {
   portraits: { present: number; missing: number; total: number };
   portraitsReady: boolean;
   legendScoreRange: { min: number; max: number } | null;
+  preseedStats: number;
+  preseedReady: boolean;
 }
 
 export interface YearScore {
   year: number;
   zScorePosition: number;
   legendScore: number;
+  team: string;
 }
 
 export interface AdminRoundOption {

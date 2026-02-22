@@ -539,6 +539,7 @@ router.get('/challenges/:id', async (req, res) => {
     }
 
     const zScoreMap = new Map<string, number>();
+    const teamMap = new Map<string, string>();
     if (playerYearPairs.length > 0) {
       const whereClauses = playerYearPairs.map(
         p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
@@ -548,10 +549,12 @@ router.get('/challenges/:id', async (req, res) => {
         playerId: players.playerId,
         year: players.year,
         zScorePosition: players.zScorePosition,
+        team: players.team,
       }).from(players).where(combined);
 
       for (const r of records) {
         zScoreMap.set(`${r.playerId}-${r.year}`, toNum(r.zScorePosition));
+        teamMap.set(`${r.playerId}-${r.year}`, r.team ?? '');
       }
     }
 
@@ -564,6 +567,7 @@ router.get('/challenges/:id', async (req, res) => {
           year,
           zScorePosition: zScoreMap.get(`${opt.playerId}-${year}`) ?? 0,
           legendScore: calculateLegendScore(zScoreMap.get(`${opt.playerId}-${year}`) ?? 0),
+          team: teamMap.get(`${opt.playerId}-${year}`) ?? '',
         })),
       })),
     }));
@@ -640,6 +644,16 @@ router.get('/challenges/:id/health', async (req, res) => {
       }
     }
 
+    // Count preseeded pick stats
+    let preseedTotal = 0;
+    if (roundIds.length > 0) {
+      const [statsCount] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(pickStats)
+        .where(inArray(pickStats.roundId, roundIds));
+      preseedTotal = statsCount?.count ?? 0;
+    }
+
     res.json({
       challengeId: id,
       status: challenge.status,
@@ -653,6 +667,8 @@ router.get('/challenges/:id/health', async (req, res) => {
       portraits: { present: portraitsPresent, missing: portraitsMissing, total: totalPlayerSlots },
       portraitsReady: portraitsMissing === 0 && portraitsPresent > 0,
       legendScoreRange: minLegendScore !== null ? { min: minLegendScore, max: maxLegendScore } : null,
+      preseedStats: preseedTotal,
+      preseedReady: preseedTotal > 0,
     });
   } catch (error) {
     console.error('Health check error:', error);
