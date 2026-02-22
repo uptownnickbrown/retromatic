@@ -63,7 +63,7 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
       ...(legendCount > 0 ? [`\u{2B50} ${legendCount}x Sandlot Legend`] : []),
       `Top ${Math.max(1, 100 - Math.round(safeNum(percentile)))}%`,
       '',
-      'playsandlot.com',
+      'sandlot.uptownnickbrown.com',
     ];
     return lines.join('\n');
   }, [totalScore, percentile, picks, date]);
