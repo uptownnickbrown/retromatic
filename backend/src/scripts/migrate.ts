@@ -4,14 +4,20 @@
  * Each migration is idempotent (uses IF NOT EXISTS / IF EXISTS).
  */
 import postgres from 'postgres';
-import dotenv from 'dotenv';
 
-dotenv.config();
-
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://retromatic:retromatic_dev@localhost:5432/retromatic';
+function getDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    const relevant = Object.keys(process.env).filter(k => k.includes('DATABASE') || k.includes('PG') || k.includes('RAILWAY'));
+    console.error('[migrate] FATAL: DATABASE_URL is not set. Related env vars:', relevant.join(', ') || '(none)');
+    process.exitCode = 1;
+    throw new Error('DATABASE_URL is required');
+  }
+  return url;
+}
 
 async function migrate() {
-  const sql = postgres(DATABASE_URL);
+  const sql = postgres(getDatabaseUrl());
 
   try {
     console.log('[migrate] Running migrations...');
