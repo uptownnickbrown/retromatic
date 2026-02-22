@@ -54,7 +54,7 @@ export function Results() {
   const { session, picks, perfectLineup, totalParticipants } = data;
   const totalScore = safeNum(session.totalLegendScore);
   const percentile = safeNum(session.percentile, 50);
-  const percentileRank = Math.max(1, 100 - Math.round(percentile));
+  const percentileRank = Math.max(1, Math.round(percentile));
 
   return (
     <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 py-4 safe-bottom">
