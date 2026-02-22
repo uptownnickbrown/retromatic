@@ -85,7 +85,7 @@ describe('Results page', () => {
     renderResults();
 
     // Wait for async data to load
-    expect(await screen.findByText('Final Score')).toBeInTheDocument();
+    expect(await screen.findByText('Sandlot Score')).toBeInTheDocument();
     // Score appears in both the badge and the text display
     expect(screen.getAllByText('65.3').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('/100')).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe('Results page', () => {
     renderResults();
 
     // Should still render without crashing even with string values
-    expect(await screen.findByText('Final Score')).toBeInTheDocument();
+    expect(await screen.findByText('Sandlot Score')).toBeInTheDocument();
     expect(screen.getAllByText('65.3').length).toBeGreaterThanOrEqual(1);
   });
 

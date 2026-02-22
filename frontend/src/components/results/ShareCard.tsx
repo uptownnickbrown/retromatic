@@ -24,12 +24,14 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
 
   const generateShareText = useCallback(() => {
     const grid = picks.map(p => getScoreEmoji(safeNum(p.legendScore))).join('');
+    const legendCount = picks.filter(p => safeNum(p.legendScore) >= 9.5).length;
     const lines = [
       `\u{26BE} Sandlot ${date}`,
       '',
       grid,
       '',
       `Sandlot Score: ${safeNum(totalScore).toFixed(1)}/100`,
+      ...(legendCount > 0 ? [`\u{2B50} ${legendCount}x Sandlot Legend`] : []),
       `Top ${Math.max(1, 100 - Math.round(safeNum(percentile)))}%`,
       '',
       'playsandlot.com',

@@ -116,6 +116,10 @@ export function Home() {
                 <br />
                 same slate for everyone. Chase the Sandlot Score.
               </p>
+              <p className="text-center font-mono text-[10px] text-muted/60 mt-2 leading-relaxed">
+                The Sandlot Score (1–10) measures how dominant a player-season was at their position.
+                Hit 9.5+ to earn Sandlot Legend status.
+              </p>
             </>
           )}
         </PaperCard>
