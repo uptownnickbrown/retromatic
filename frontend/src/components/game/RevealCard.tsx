@@ -218,7 +218,9 @@ export function RevealCard({ reveal }: RevealCardProps) {
       transition={{ type: 'spring', stiffness: 200, damping: 20 }}
       className="w-full px-3"
     >
-      {isSandlotLegend && createPortal(<TickerTapeConfetti />, document.body)}
+      {/* Confetti disabled for now */}
+      {/* eslint-disable-next-line no-constant-binary-expression */}
+      {false && isSandlotLegend && createPortal(<TickerTapeConfetti />, document.body)}
 
       <PaperCard
         className={cn(isSandlotLegend && 'ring-2 ring-gold/30')}
