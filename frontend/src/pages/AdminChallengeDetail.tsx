@@ -190,7 +190,7 @@ export function AdminChallengeDetail() {
         className="mb-6"
       >
         <PaperCard noPadding>
-          <div className="grid grid-cols-4 divide-x divide-navy/8">
+          <div className="grid grid-cols-5 divide-x divide-navy/8">
             <HealthMetric
               value={health ? `${health.rounds}/${health.roundsExpected}` : '—'}
               label="Rounds"
@@ -205,6 +205,11 @@ export function AdminChallengeDetail() {
               value={health ? `${health.portraits.present}/${health.portraits.total}` : '—'}
               label="Portraits"
               ready={health?.portraitsReady}
+            />
+            <HealthMetric
+              value={health ? String(health.preseedStats) : '—'}
+              label="Stats"
+              ready={health?.preseedReady}
             />
             <HealthMetric
               value={
@@ -597,7 +602,7 @@ function PlayerCard({
       <div className="flex items-start gap-3 mb-3">
         {/* Portrait + regen button */}
         <div className="flex-shrink-0 relative group">
-          <div className="w-16 h-[76px] bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center">
+          <div className="w-28 h-36 bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center">
             {option.portraitUrl ? (
               <img
                 src={option.portraitUrl}
@@ -608,7 +613,7 @@ function PlayerCard({
               <img
                 src="/player.svg"
                 alt=""
-                className="w-10 h-12 opacity-15"
+                className="w-14 h-16 opacity-15"
               />
             )}
           </div>
@@ -631,10 +636,7 @@ function PlayerCard({
             {option.playerName}
           </h4>
           <p className="font-mono text-[9px] text-muted mt-0.5">
-            ID: {option.playerId}
-          </p>
-          <p className="font-mono text-[9px] text-muted">
-            Slot {option.playerSlot}
+            ID: {option.playerId} · Slot {option.playerSlot}
           </p>
           {/* Regen all blurbs button */}
           <button
@@ -671,6 +673,11 @@ function PlayerCard({
                 {/* Year */}
                 <span className="font-mono text-xs font-bold text-navy w-10 flex-shrink-0">
                   {ys.year}
+                </span>
+
+                {/* Team */}
+                <span className="font-mono text-[10px] text-muted w-8 flex-shrink-0">
+                  {ys.team || '—'}
                 </span>
 
                 {/* Legend Score */}
