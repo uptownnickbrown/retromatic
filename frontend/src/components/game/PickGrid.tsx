@@ -66,7 +66,7 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
             name={player.name}
             portraitUrl={player.portraitUrl}
             position={position}
-            size={isFocused ? 'xl' : 'lg'}
+            size={isFocused ? '2xl' : 'xl'}
             className="mb-2"
           />
 
