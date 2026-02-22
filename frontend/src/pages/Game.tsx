@@ -212,23 +212,18 @@ export function Game() {
         />
       </div>
 
-      {/* Position + Round info + Timer */}
+      {/* Position + Timer — single clean row */}
       {game.phase === 'picking' && game.currentRound && (
-        <div className="px-4 pt-2 pb-1">
-          <h2 className="font-editorial font-bold text-navy text-2xl text-center">
+        <div className="px-4 pt-2 pb-1 flex items-center justify-between">
+          <h2 className="font-editorial font-bold text-navy text-xl">
             {POSITION_NAMES[game.currentRound.position] ?? game.currentRound.position}
           </h2>
-          <div className="flex items-center justify-between mt-1">
-            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted">
-              Round {game.currentRound.roundNumber} of {game.totalRounds}
-            </span>
-            <div className="w-[180px]">
-              <Timer
-                timeLeft={timer.timeLeft}
-                progress={timer.progress}
-                isUrgent={timer.isUrgent}
-              />
-            </div>
+          <div className="w-[180px]">
+            <Timer
+              timeLeft={timer.timeLeft}
+              progress={timer.progress}
+              isUrgent={timer.isUrgent}
+            />
           </div>
         </div>
       )}

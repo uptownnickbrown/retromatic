@@ -21,7 +21,7 @@ export function PostmarkDate({ date, className }: PostmarkDateProps) {
       style={{ transform: `rotate(${rotation}deg)` }}
     >
       <img
-        src="/postmark.png"
+        src="/postmark.webp"
         alt=""
         className="w-36 h-auto opacity-80"
         style={{ mixBlendMode: 'multiply' }}
