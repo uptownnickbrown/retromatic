@@ -504,7 +504,7 @@ router.get('/challenges', async (req, res) => {
   }
 });
 
-// Get challenge details (enriched with z-scores for Legend Score display)
+// Get challenge details (enriched with z-scores for Sandlot Score display)
 router.get('/challenges/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -625,7 +625,7 @@ router.get('/challenges/:id/health', async (req, res) => {
       }
     }
 
-    // Compute Legend Score range
+    // Compute Sandlot Score range
     let minLegendScore: number | null = null;
     let maxLegendScore: number | null = null;
 

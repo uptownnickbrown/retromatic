@@ -157,7 +157,7 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
             'font-mono text-sm font-bold mt-0.5',
             yourScore >= 9.5 ? 'text-gold' : yourScore >= 6.0 ? 'text-navy' : 'text-muted',
           )}>
-            LS: {yourScore.toFixed(1)}
+            SS: {yourScore.toFixed(1)}
           </p>
         </div>
         <div className="text-center">
@@ -170,7 +170,7 @@ function ExpandedMatchup({ pick, perfect, isMatch }: {
             'font-mono text-sm font-bold mt-0.5',
             perfectScore >= 9.5 ? 'text-gold' : 'text-navy',
           )}>
-            LS: {perfectScore.toFixed(1)}
+            SS: {perfectScore.toFixed(1)}
           </p>
         </div>
       </div>

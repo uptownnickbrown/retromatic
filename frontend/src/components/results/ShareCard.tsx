@@ -29,7 +29,7 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
       '',
       grid,
       '',
-      `Legend Score: ${safeNum(totalScore).toFixed(1)}/100`,
+      `Sandlot Score: ${safeNum(totalScore).toFixed(1)}/100`,
       `Top ${Math.max(1, 100 - Math.round(safeNum(percentile)))}%`,
       '',
       'playsandlot.com',

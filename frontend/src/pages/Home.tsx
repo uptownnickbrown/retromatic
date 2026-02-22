@@ -114,7 +114,7 @@ export function Home() {
                 <br />
                 A daily fantasy draft through baseball history —
                 <br />
-                same slate for everyone. Chase the Legend Score.
+                same slate for everyone. Chase the Sandlot Score.
               </p>
             </>
           )}

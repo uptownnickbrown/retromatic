@@ -234,7 +234,7 @@ describe('useGame', () => {
   });
 
   describe('submitPick', () => {
-    it('computes correct Legend Score and builds reveal data', async () => {
+    it('computes correct Sandlot Score and builds reveal data', async () => {
       const { result } = await loadToPickingPhase();
 
       act(() => {

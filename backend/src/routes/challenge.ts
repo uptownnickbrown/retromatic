@@ -232,7 +232,7 @@ router.post('/:id/complete', async (req, res) => {
       }
     }
 
-    // Fetch all player records to re-compute Legend Scores server-side
+    // Fetch all player records to re-compute Sandlot Scores server-side
     const playerRecordIds = picks.map(p => p.playerRecordId);
     const playerRecords = await db.select({
       id: players.id,

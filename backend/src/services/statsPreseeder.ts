@@ -1,7 +1,7 @@
 /**
  * Pre-seeds synthetic rosters for a challenge to avoid the cold-start problem.
  * Generates ~20 coherent full rosters (complete game sessions with 10 picks each),
- * biased towards higher Legend Score options. These synthetic sessions provide:
+ * biased towards higher Sandlot Score options. These synthetic sessions provide:
  *   1. Realistic "X% picked this" community stats on day one
  *   2. Percentile rankings for the first real users to complete the challenge
  */
@@ -23,7 +23,7 @@ interface PickOption {
 
 /**
  * Weighted random sampling: pick one option from a round's choices,
- * biased towards higher Legend Scores (weight = score^2).
+ * biased towards higher Sandlot Scores (weight = score^2).
  */
 function samplePick(options: PickOption[]): PickOption {
   const weights = options.map(o => Math.pow(Math.max(o.legendScore, 1.0), 2));

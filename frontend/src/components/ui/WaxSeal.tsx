@@ -20,7 +20,7 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
     <div className={cn('relative inline-block', className)}>
       <img
         src="/wax-seal.png"
-        alt="Legendary"
+        alt="Sandlot Legend"
         className={cn(
           sizes[size],
           animate && 'wax-seal-stamp',

@@ -37,8 +37,8 @@ interface CareerSeason {
 // Cache career data per playerId to avoid redundant queries
 const careerCache = new Map<string, CareerSeason[]>();
 
-function getLegendLabel(score: number): string {
-  if (score >= 9.5) return 'LEGENDARY';
+function getSandlotLabel(score: number): string {
+  if (score >= 9.5) return 'SANDLOT LEGEND';
   if (score >= 8.5) return 'ELITE';
   if (score >= 7.0) return 'ALL-STAR';
   if (score >= 5.0) return 'SOLID';
@@ -92,9 +92,9 @@ function buildCareerContext(targetYear: number, career: CareerSeason[]): string 
   // Best and worst seasons
   const best = career.reduce((a, b) => a.legendScore > b.legendScore ? a : b);
   const worst = career.reduce((a, b) => a.legendScore < b.legendScore ? a : b);
-  lines.push(`Best season: ${best.year} (${best.team}) — Legend Score ${best.legendScore.toFixed(1)} ${getLegendLabel(best.legendScore)}`);
+  lines.push(`Best season: ${best.year} (${best.team}) — Sandlot Score ${best.legendScore.toFixed(1)} ${getSandlotLabel(best.legendScore)}`);
   if (worst.year !== best.year) {
-    lines.push(`Worst season: ${worst.year} (${worst.team}) — Legend Score ${worst.legendScore.toFixed(1)} ${getLegendLabel(worst.legendScore)}`);
+    lines.push(`Worst season: ${worst.year} (${worst.team}) — Sandlot Score ${worst.legendScore.toFixed(1)} ${getSandlotLabel(worst.legendScore)}`);
   }
 
   // Is this their peak?
@@ -113,11 +113,11 @@ function buildCareerContext(targetYear: number, career: CareerSeason[]): string 
   // Previous and next year context
   if (targetIdx > 0) {
     const prev = career[targetIdx - 1];
-    lines.push(`Previous year: ${prev.year} (${prev.team}) — Legend Score ${prev.legendScore.toFixed(1)}`);
+    lines.push(`Previous year: ${prev.year} (${prev.team}) — Sandlot Score ${prev.legendScore.toFixed(1)}`);
   }
   if (targetIdx >= 0 && targetIdx < career.length - 1) {
     const next = career[targetIdx + 1];
-    lines.push(`Following year: ${next.year} (${next.team}) — Legend Score ${next.legendScore.toFixed(1)}`);
+    lines.push(`Following year: ${next.year} (${next.team}) — Sandlot Score ${next.legendScore.toFixed(1)}`);
   }
 
   // Team change detection
@@ -137,7 +137,7 @@ function buildCareerContext(targetYear: number, career: CareerSeason[]): string 
     while (streakEnd < career.length - 1 && career[streakEnd + 1].legendScore >= 7.0) streakEnd++;
     const streakLen = streakEnd - streakStart + 1;
     if (streakLen >= 3) {
-      lines.push(`Elite streak: ${streakLen} consecutive seasons with Legend Score 7.0+ (${career[streakStart].year}-${career[streakEnd].year})`);
+      lines.push(`Elite streak: ${streakLen} consecutive seasons with Sandlot Score 7.0+ (${career[streakStart].year}-${career[streakEnd].year})`);
     }
   }
 
@@ -152,7 +152,7 @@ RULES:
 - Include 2+ specific stats woven naturally into the narrative
 - Put this season in career context — is this a peak, a down year, a bounce-back, a swan song?
 - Draw on your knowledge of baseball history — awards, MVP races, injuries, trades, team storylines. Our stats tell the numbers; you bring the story.
-- Match tone to tier: Legendary = awe, Elite = respect, Solid = appreciation, Average/Bench = honest but not cruel
+- Match tone to tier: Sandlot Legend = awe, Elite = respect, Solid = appreciation, Average/Bench = honest but not cruel
 - No hedging ("arguably", "perhaps"). Be definitive.
 - Write ONLY the blurb text, no quotes or attribution.
 
@@ -163,16 +163,16 @@ FORMATTING:
 
 EXAMPLES:
 
-[LEGENDARY batter — Mike Trout, 2017 LAA, Legend Score 9.2]
+[SANDLOT LEGEND batter — Mike Trout, 2017 LAA, Sandlot Score 9.2]
 Look, a "down year" for Trout still means **.306/.442/.629** with **33 homers** in just 114 games. A calf injury robbed us of what could have been another MVP campaign; he was on pace for 47 dingers. Even hobbled, he posted a **185 OPS+** that would be the best season of most careers. The man is simply unfair. You could argue this is the most impressive "disappointing" season in modern baseball history.
 
-[LEGENDARY pitcher — Greg Maddux, 1993 ATL, Legend Score 9.5]
+[SANDLOT LEGEND pitcher — Greg Maddux, 1993 ATL, Sandlot Score 9.5]
 Maddux's first year in Atlanta after leaving the Cubs was an absolute masterclass: **20 wins**, a **2.36 ERA**, and just **52 walks** in 267 innings. This was the beginning of the most dominant four-year pitching stretch of the modern era, winning his second consecutive Cy Young. He painted corners like Rembrandt and made hitters look foolish doing it. The Braves got the best pitcher on the planet as a free agent, and he somehow exceeded expectations.
 
-[AVERAGE batter — Derek Jeter, 2010 NYA, Legend Score 4.8]
+[AVERAGE batter — Derek Jeter, 2010 NYA, Sandlot Score 4.8]
 Father Time started whispering to The Captain in 2010. A **.270 average** and **10 homers** from your 36-year-old shortstop isn't embarrassing, but this was a far cry from the Jeter who once hit .349. The Yankees still made the ALCS, but Jeter's declining range at short was becoming impossible to ignore. A quiet bridge year before his famous contract drama. The mystique was still there, but the bat speed *wasn't*.
 
-[SOLID pitcher — Mark Buehrle, 2007 CHA, Legend Score 6.3]
+[SOLID pitcher — Mark Buehrle, 2007 CHA, Sandlot Score 6.3]
 Somehow Buehrle threw a no-hitter against the Rangers in April and still only managed a **3.63 ERA** for the year. That's the most Mark Buehrle stat line imaginable. He ate **201 innings** with his trademark pace, working so fast that fielders barely had time to spit between pitches. A reliable workhorse who happened to have one magic night tucked into an otherwise solid season. If every starter in your rotation pitched like Buehrle, you'd win 90 games and never stress about it.`;
 
 // Post-process blurb text: ensure em-dashes have exactly one space on each side
@@ -195,7 +195,7 @@ Year: ${info.year}
 Team: ${info.team}
 Position: ${info.position}
 Player type: ${info.playerType}
-Legend Score: ${info.legendScore.toFixed(1)}/10.0 (${info.legendLabel})
+Sandlot Score: ${info.legendScore.toFixed(1)}/10.0 (${info.legendLabel})
 
 Season stats: ${statsStr}
 
@@ -331,13 +331,13 @@ export async function generateBlurbsForOption(optionId: number): Promise<{
         playerType: playerRecord.playerType,
         stats: playerRecord.stats as Record<string, number>,
         legendScore,
-        legendLabel: getLegendLabel(legendScore),
+        legendLabel: getSandlotLabel(legendScore),
         careerContext,
       });
 
       newBlurbs[String(year)] = blurb;
       generated++;
-      console.log(`  ✓ ${option.playerName} ${year} (${legendScore.toFixed(1)} ${getLegendLabel(legendScore)})`);
+      console.log(`  ✓ ${option.playerName} ${year} (${legendScore.toFixed(1)} ${getSandlotLabel(legendScore)})`);
     } catch (err) {
       console.error(`  ✗ Failed: ${option.playerName} ${year}:`, err);
       failed++;
@@ -418,7 +418,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
         playerType: task.playerRecord.playerType,
         stats: task.playerRecord.stats as Record<string, number>,
         legendScore,
-        legendLabel: getLegendLabel(legendScore),
+        legendLabel: getSandlotLabel(legendScore),
         careerContext,
       });
 
@@ -426,7 +426,7 @@ export async function generateBlurbsForChallenge(challengeId: number): Promise<{
       if (!blurbResults.has(optionId)) blurbResults.set(optionId, {});
       blurbResults.get(optionId)![String(task.year)] = blurb;
       generated++;
-      console.log(`  ✓ ${(task.option as any).playerName} ${task.year} (${legendScore.toFixed(1)} ${getLegendLabel(legendScore)})`);
+      console.log(`  ✓ ${(task.option as any).playerName} ${task.year} (${legendScore.toFixed(1)} ${getSandlotLabel(legendScore)})`);
     } catch (err) {
       console.error(`  ✗ Failed: ${(task.option as any).playerName} ${task.year}:`, err);
       failed++;
