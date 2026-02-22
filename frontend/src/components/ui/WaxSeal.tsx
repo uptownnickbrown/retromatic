@@ -28,7 +28,7 @@ export function WaxSeal({ score, size = 'md', animate = false, className }: WaxS
       />
       <span
         className={cn(
-          'absolute inset-0 flex items-center justify-center font-editorial font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
+          'absolute inset-0 flex items-center justify-center font-editorial font-black text-white leading-none pb-[0.25em] drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)]',
           size === 'sm' && 'text-[10px]',
           size === 'md' && 'text-sm',
           size === 'lg' && 'text-2xl',

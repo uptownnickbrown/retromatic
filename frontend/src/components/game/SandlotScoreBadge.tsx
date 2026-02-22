@@ -58,7 +58,7 @@ export function SandlotScoreBadge({ score: rawScore, size = 'md', animate = fals
               : 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)',
           }}
         >
-          <span className="absolute inset-0 flex items-center justify-center leading-none">{score.toFixed(1)}</span>
+          <span className="absolute inset-0 flex items-center justify-center leading-none pb-[0.25em]">{score.toFixed(1)}</span>
         </div>
         {showLabel && (
           <span className={cn(
@@ -102,7 +102,7 @@ export function SandlotScoreBadge({ score: rawScore, size = 'md', animate = fals
           avgSizeClasses[size],
         )}
       >
-        <span className="absolute inset-0 flex items-center justify-center leading-none">{score.toFixed(1)}</span>
+        <span className="absolute inset-0 flex items-center justify-center leading-none pb-[0.25em]">{score.toFixed(1)}</span>
       </div>
       {showLabel && (
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
