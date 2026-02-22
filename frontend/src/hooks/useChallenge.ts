@@ -18,6 +18,23 @@ export function useChallengeResults(challengeId: number | null) {
   });
 }
 
+export function useHomeData() {
+  return useQuery({
+    queryKey: ['home'],
+    queryFn: api.getHomeData,
+    staleTime: 60_000,
+  });
+}
+
+export function useRecap(challengeId: number | null) {
+  return useQuery({
+    queryKey: ['recap', challengeId],
+    queryFn: () => api.getRecapData(challengeId!),
+    enabled: !!challengeId,
+    staleTime: 30_000,
+  });
+}
+
 export function useStreak() {
   return useQuery({
     queryKey: ['streak'],

@@ -7,6 +7,7 @@ import { safeNum } from '../lib/numeric';
 import { SandlotScoreBadge } from '../components/game/SandlotScoreBadge';
 import { FinalLineup } from '../components/results/FinalLineup';
 import { HeadToHead } from '../components/results/HeadToHead';
+import { RotoComparison } from '../components/results/RotoComparison';
 import { ShareCard } from '../components/results/ShareCard';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
@@ -161,6 +162,22 @@ export function Results() {
           perfectPicks={perfectLineup.picks}
           yourTotal={totalScore}
           perfectTotal={safeNum(perfectLineup.totalScore)}
+        />
+      </motion.div>
+
+      {/* Roto: Season-Long Head to Head */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: isPlaytest ? 0.4 : 0.5 }}
+        className="mb-4"
+      >
+        <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
+          Roto Matchup
+        </h3>
+        <RotoComparison
+          leftPicks={picks}
+          rightPicks={perfectLineup.picks}
         />
       </motion.div>
 

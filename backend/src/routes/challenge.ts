@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pickStats, players } from '../db/schema.js';
-import { eq, and, sql, desc, inArray } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, inArray } from 'drizzle-orm';
 import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { calculatePerfectLineup, calculateSessionPercentile } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
@@ -13,6 +13,97 @@ const router = Router();
 function getGuestToken(req: any): string {
   return req.headers['x-guest-token'] as string || '';
 }
+
+// GET /api/challenge/home - Bundled home page data (today + session + yesterday + tomorrow)
+router.get('/home', async (req, res) => {
+  try {
+    const guestToken = getGuestToken(req);
+
+    // Today's active challenge
+    const [todayChallenge] = await db.select()
+      .from(challenges)
+      .where(eq(challenges.status, 'active'))
+      .limit(1);
+
+    let today = null;
+    let session = null;
+
+    if (todayChallenge) {
+      today = {
+        id: todayChallenge.id,
+        date: todayChallenge.challengeDate,
+        theme: todayChallenge.theme,
+        totalRounds: 10,
+      };
+
+      // Session lookup (same logic as /today)
+      if (guestToken) {
+        const [existingSession] = await db.select()
+          .from(gameSessions)
+          .where(and(
+            eq(gameSessions.challengeId, todayChallenge.id),
+            eq(gameSessions.guestToken, guestToken)
+          ))
+          .limit(1);
+
+        if (existingSession) {
+          if (existingSession.status === 'completed') {
+            session = {
+              id: existingSession.id,
+              status: 'completed' as const,
+              totalLegendScore: toNum(existingSession.totalLegendScore),
+              percentile: toNum(existingSession.percentile, 50),
+            };
+          } else {
+            session = {
+              id: existingSession.id,
+              status: 'in_progress' as const,
+            };
+          }
+        }
+      }
+    }
+
+    // Yesterday: most recent completed challenge
+    const [yesterdayChallenge] = await db.select({
+      id: challenges.id,
+      date: challenges.challengeDate,
+      theme: challenges.theme,
+    })
+      .from(challenges)
+      .where(eq(challenges.status, 'completed'))
+      .orderBy(desc(challenges.challengeDate))
+      .limit(1);
+
+    // Tomorrow: next scheduled challenge (by queue position, then id)
+    const [tomorrowChallenge] = await db.select({
+      theme: challenges.theme,
+    })
+      .from(challenges)
+      .where(eq(challenges.status, 'scheduled'))
+      .orderBy(
+        sql`${challenges.queuePosition} ASC NULLS LAST`,
+        asc(challenges.id),
+      )
+      .limit(1);
+
+    res.json({
+      today,
+      session,
+      yesterday: yesterdayChallenge ? {
+        id: yesterdayChallenge.id,
+        date: yesterdayChallenge.date,
+        theme: yesterdayChallenge.theme,
+      } : null,
+      tomorrow: tomorrowChallenge ? {
+        theme: tomorrowChallenge.theme,
+      } : null,
+    });
+  } catch (error) {
+    console.error('Error fetching home data:', error);
+    res.status(500).json({ error: 'Failed to fetch home data' });
+  }
+});
 
 // GET /api/challenge/today - Get today's active challenge + user's session
 router.get('/today', async (req, res) => {
@@ -397,6 +488,139 @@ router.get('/:id/results', async (req, res) => {
   } catch (error) {
     console.error('Error fetching results:', error);
     res.status(500).json({ error: 'Failed to fetch results' });
+  }
+});
+
+// GET /api/challenge/:id/recap - Community most-drafted lineup vs perfect lineup (public)
+router.get('/:id/recap', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    if (isNaN(challengeId)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
+
+    // Get the challenge
+    const [challenge] = await db.select({
+      id: challenges.id,
+      date: challenges.challengeDate,
+      theme: challenges.theme,
+    })
+      .from(challenges)
+      .where(eq(challenges.id, challengeId))
+      .limit(1);
+
+    if (!challenge) {
+      res.status(404).json({ error: 'Challenge not found' });
+      return;
+    }
+
+    // Get all rounds for this challenge
+    const rounds = await db.select()
+      .from(challengeRounds)
+      .where(eq(challengeRounds.challengeId, challengeId))
+      .orderBy(challengeRounds.roundNumber);
+
+    if (rounds.length === 0) {
+      res.status(404).json({ error: 'No rounds found' });
+      return;
+    }
+
+    const roundIds = rounds.map(r => r.id);
+
+    // Get all pick_stats for these rounds
+    const allStats = await db.select()
+      .from(pickStats)
+      .where(inArray(pickStats.roundId, roundIds));
+
+    // For each round, find the most-picked (playerId, selectedYear)
+    const communityPicks = [];
+    for (const round of rounds) {
+      const roundStatEntries = allStats.filter(s => s.roundId === round.id);
+
+      if (roundStatEntries.length === 0) continue;
+
+      // Find the option with the highest pick count
+      const best = roundStatEntries.reduce((a, b) => a.pickCount > b.pickCount ? a : b);
+
+      // Get the player record for this pick
+      const [playerRecord] = await db.select({
+        id: players.id,
+        playerId: players.playerId,
+        nameFirst: players.nameFirst,
+        nameLast: players.nameLast,
+        year: players.year,
+        team: players.team,
+        stats: players.stats,
+        categoryZscores: players.categoryZscores,
+        playerType: players.playerType,
+        zScorePosition: players.zScorePosition,
+      })
+        .from(players)
+        .where(eq(players.id, best.playerId))
+        .limit(1);
+
+      if (!playerRecord) continue;
+
+      // Get portrait and blurb from round_options
+      const [option] = await db.select({
+        portraitUrl: roundOptions.portraitUrl,
+        blurbs: roundOptions.blurbs,
+      })
+        .from(roundOptions)
+        .where(and(
+          eq(roundOptions.roundId, round.id),
+          eq(roundOptions.playerId, playerRecord.playerId),
+        ))
+        .limit(1);
+
+      const blurbs = (option?.blurbs ?? {}) as Record<string, string>;
+      const legendScore = calculateSandlotScore(toNum(playerRecord.zScorePosition));
+
+      communityPicks.push({
+        roundNumber: round.roundNumber,
+        position: round.position,
+        playerName: `${playerRecord.nameFirst ?? ''} ${playerRecord.nameLast ?? ''}`.trim(),
+        year: best.selectedYear,
+        team: playerRecord.team ?? '',
+        legendScore,
+        stats: (playerRecord.stats ?? {}) as Record<string, number>,
+        categoryZscores: (playerRecord.categoryZscores ?? {}) as Record<string, number>,
+        playerType: (playerRecord.playerType ?? 'batter') as 'batter' | 'pitcher',
+        wasTimeout: false,
+        portraitUrl: option?.portraitUrl ?? null,
+        blurb: blurbs[String(best.selectedYear)] ?? undefined,
+      });
+    }
+
+    const communityTotal = Math.round(
+      communityPicks.reduce((sum, p) => sum + p.legendScore, 0) * 10
+    ) / 10;
+
+    // Perfect lineup
+    const perfectLineup = await calculatePerfectLineup(challengeId);
+
+    // Total participants
+    const [countResult] = await db.select({ count: sql<number>`count(*)` })
+      .from(gameSessions)
+      .where(and(eq(gameSessions.challengeId, challengeId), eq(gameSessions.status, 'completed')));
+
+    res.json({
+      challenge: {
+        id: challenge.id,
+        date: challenge.date,
+        theme: challenge.theme,
+      },
+      communityLineup: {
+        picks: communityPicks,
+        totalScore: communityTotal,
+      },
+      perfectLineup,
+      totalParticipants: toNum(countResult?.count),
+    });
+  } catch (error) {
+    console.error('Error fetching recap:', error);
+    res.status(500).json({ error: 'Failed to fetch recap' });
   }
 });
 
