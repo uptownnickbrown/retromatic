@@ -46,23 +46,32 @@ export async function promoteNextChallenge(): Promise<{
     return { activated: null, completed: completedCount };
   }
 
-  // Activate it with today's date
-  try {
-    await db.update(challenges)
-      .set({
-        status: 'active',
-        challengeDate: todayStr,
-        queuePosition: null,
-      })
-      .where(eq(challenges.id, nextChallenge.id));
-  } catch (err: any) {
-    // Unique constraint on challengeDate — today already has a challenge
-    if (err?.code === '23505') {
-      console.log(`[Scheduler] Date ${todayStr} already taken, skipping promotion`);
-      return { activated: null, completed: completedCount };
-    }
-    throw err;
-  }
+  // Activate it with today's date.
+  // The target may already own a future date (e.g. "2026-04-14"), and another
+  // challenge may already hold today's date. Swap dates to avoid unique-constraint
+  // violations: give the old date-holder the target's original date (or a
+  // placeholder), then assign today's date to the target.
+  const oldDate = nextChallenge.challengeDate;
+
+  // Clear the target's date first (temp placeholder) to free the slot for the swap
+  const tempDate = `promoting-${nextChallenge.id}`;
+  await db.update(challenges)
+    .set({ challengeDate: tempDate })
+    .where(eq(challenges.id, nextChallenge.id));
+
+  // If another challenge holds today's date, give it the target's old date
+  await db.update(challenges)
+    .set({ challengeDate: oldDate })
+    .where(sql`${challenges.challengeDate} = ${todayStr} AND ${challenges.id} != ${nextChallenge.id}`);
+
+  // Now assign today's date to the target
+  await db.update(challenges)
+    .set({
+      status: 'active',
+      challengeDate: todayStr,
+      queuePosition: null,
+    })
+    .where(eq(challenges.id, nextChallenge.id));
 
   return { activated: nextChallenge.id, completed: completedCount };
 }
