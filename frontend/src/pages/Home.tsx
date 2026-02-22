@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { BarChart3, Flame, ChevronRight } from 'lucide-react';
@@ -6,6 +7,53 @@ import { SandlotScoreBadge } from '../components/game/SandlotScoreBadge';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { safeNum } from '../lib/numeric';
+
+const MILESTONES = [3, 7, 14, 30, 50, 100] as const;
+const MILESTONE_TEXT: Record<number, string> = {
+  3: 'Hot start!',
+  7: 'Full week!',
+  14: 'Two weeks strong!',
+  30: 'Monthly legend!',
+  50: 'Hall of Fame streak!',
+  100: 'Hall of Fame streak!',
+};
+const CELEBRATED_KEY = 'sandlot_last_celebrated_milestone';
+
+function getStreakMilestone(streak: number): number | null {
+  for (let i = MILESTONES.length - 1; i >= 0; i--) {
+    if (streak >= MILESTONES[i]) return MILESTONES[i];
+  }
+  return null;
+}
+
+function useStreakMilestone(streak: number) {
+  // Determine if there's a new milestone to celebrate
+  const hit = streak > 0 ? getStreakMilestone(streak) : null;
+  const lastCelebrated = parseInt(localStorage.getItem(CELEBRATED_KEY) ?? '0', 10);
+
+  // Use state initializer to claim the milestone exactly once per mount
+  const [celebratedMilestone] = useState<number | null>(() => {
+    if (hit !== null && hit > lastCelebrated) {
+      localStorage.setItem(CELEBRATED_KEY, String(hit));
+      return hit;
+    }
+    return null;
+  });
+
+  const [dismissed, setDismissed] = useState(false);
+
+  // Auto-dismiss after 4 seconds — triggered via setTimeout in render (safe since it only fires once)
+  const [timerStarted] = useState(() => {
+    if (celebratedMilestone !== null) {
+      setTimeout(() => setDismissed(true), 4000);
+    }
+    return true;
+  });
+  void timerStarted; // suppress unused
+
+  const showCelebration = celebratedMilestone !== null && !dismissed;
+  return { showCelebration, milestone: celebratedMilestone };
+}
 
 export function Home() {
   const navigate = useNavigate();
@@ -18,6 +66,8 @@ export function Home() {
   const tomorrow = data?.tomorrow;
   const isCompleted = session?.status === 'completed';
   const isInProgress = session?.status === 'in_progress';
+  const currentStreak = streakData?.current ?? 0;
+  const { showCelebration, milestone } = useStreakMilestone(currentStreak);
 
   return (
     <div className="flex-1 flex flex-col items-center max-w-lg mx-auto w-full px-3 py-5">
@@ -187,22 +237,41 @@ export function Home() {
       )}
 
       {/* Streak */}
-      {streakData && streakData.current > 0 && (
+      {currentStreak > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="flex items-center gap-2 text-navy/50"
+          className="flex flex-col items-center gap-2"
         >
-          <Flame size={16} className="text-navy/40" />
-          <span className="text-sm font-editorial italic">
-            {streakData.current} day streak
-          </span>
-          {streakData.longest > streakData.current && (
-            <span className="text-xs font-mono text-muted ml-1">
-              (best: {streakData.longest})
-            </span>
+          {/* Milestone celebration */}
+          {showCelebration && milestone && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+              className="bg-gold/10 border border-gold/30 rounded px-4 py-2 text-center"
+            >
+              <p className="font-editorial font-bold text-lg text-gold leading-tight">
+                {milestone}-day streak!
+              </p>
+              <p className="font-mono text-xs text-navy/60 mt-0.5">
+                {MILESTONE_TEXT[milestone]}
+              </p>
+            </motion.div>
           )}
+          <div className="flex items-center gap-2 text-navy/50">
+            <Flame size={16} className={currentStreak >= 7 ? 'text-gold' : 'text-navy/40'} />
+            <span className="text-sm font-editorial italic">
+              {currentStreak} day streak
+            </span>
+            {(streakData?.longest ?? 0) > currentStreak && (
+              <span className="text-xs font-mono text-muted ml-1">
+                (best: {streakData?.longest})
+              </span>
+            )}
+          </div>
         </motion.div>
       )}
     </div>
