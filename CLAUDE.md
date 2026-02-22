@@ -10,13 +10,13 @@ This file provides guidance to Claude Code when working with this repository.
 1. All 10 rounds of data loaded upfront at game start (single API call)
 2. Each round shows 3 players × 3 year options = 9 choices for one roster position
 3. 30-second timer per pick (auto-random on timeout)
-4. After picking: instant client-side reveal with Legend Score, AI blurb, community pick % (no server round-trip)
+4. After picking: instant client-side reveal with Sandlot Score, AI blurb, community pick % (no server round-trip)
 5. 10 rounds total (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P — order randomized daily)
 6. Game state saved to localStorage after each pick (crash recovery)
 7. Final results: all picks submitted in one batch, server re-validates scores
 
-### Legend Score
-Position-adjusted Z-score mapped to a 1.0-10.0 scale. This is the game's signature metric — measures how good a player-year was relative to others at that position.
+### Sandlot Score
+Position-adjusted Z-score mapped to a 1.0-10.0 scale. This is the game's signature metric — measures how good a player-year was relative to others at that position. Scores ≥ 9.5 earn "Sandlot Legend" status.
 
 ## Commands
 
@@ -52,13 +52,13 @@ cd backend && npm run lint && npx tsc --noEmit && npm test
 
 ### Key Directories
 - `frontend/src/pages/` — Home, Game, Results, AdminLogin, AdminDashboard, AdminChallengeDetail
-- `frontend/src/components/game/` — PickGrid, Timer, LineupCard, RevealCard, LegendScoreBadge, PlayerPortrait
+- `frontend/src/components/game/` — PickGrid, Timer, LineupCard, RevealCard, SandlotScoreBadge, PlayerPortrait
 - `frontend/src/components/admin/` — AdminGuard, StatusBadge, HealthIndicators
 - `frontend/src/components/ui/` — PaperCard, VintageButton (shared design system)
 - `frontend/src/hooks/` — useGame (state machine), useTimer, useChallenge, useAdmin (admin mutations)
-- `frontend/src/lib/` — api.ts (game API client), adminApi.ts (admin API client), legendScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
+- `frontend/src/lib/` — api.ts (game API client), adminApi.ts (admin API client), sandlotScore.ts (client-side scoring), gameStorage.ts (localStorage), utils.ts (helpers)
 - `backend/src/routes/` — challenge.ts, admin.ts
-- `backend/src/services/` — legendScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts, portraitGenerator.ts, statsPreseeder.ts
+- `backend/src/services/` — sandlotScore.ts, challengeGenerator.ts, challengeBlurbs.ts, dailyScheduler.ts, portraitGenerator.ts, statsPreseeder.ts
 - `backend/src/db/` — Drizzle schema and connection
 - `data-preprocessing/` — Jupyter notebook, Python preprocessing scripts
 - `data-pipeline/` — PostgreSQL data ingestion
@@ -69,7 +69,7 @@ cd backend && npm run lint && npx tsc --noEmit && npm test
 - `challenge_rounds` — 10 rounds per challenge, each with a position
 - `round_options` — 3 players per round, each with 3 year options, portrait URL, AI blurbs
 - `game_sessions` — user game state (current round, total score, completion)
-- `user_picks` — individual pick records with Legend Score
+- `user_picks` — individual pick records with Sandlot Score
 - `pick_stats` — aggregated pick counts for "X% picked this"
 
 ### API Routes
@@ -87,7 +87,7 @@ cd backend && npm run lint && npx tsc --noEmit && npm test
 - `POST /api/admin/challenges/schedule` — assign dates to challenges `{challengeIds, startDate}`
 - `GET /api/admin/challenges/pipeline` — all challenges with health summaries (blurbs/portraits/rounds status)
 - `GET /api/admin/challenges` — list all challenges
-- `GET /api/admin/challenges/:id` — challenge detail with rounds, players, z-scores, Legend Scores
+- `GET /api/admin/challenges/:id` — challenge detail with rounds, players, z-scores, Sandlot Scores
 - `GET /api/admin/challenges/:id/health` — detailed health check (blurb/portrait/score counts)
 - `PATCH /api/admin/challenges/:id` — update status, theme, date, position order
 - `DELETE /api/admin/challenges/:id` — delete a challenge
@@ -102,7 +102,7 @@ cd backend && npm run lint && npx tsc --noEmit && npm test
 ```
 LOADING → PICKING (30s timer, client-side) → REVEALING (5s) → next round or SUBMITTING_FINAL → COMPLETE
 ```
-Picks are computed client-side (Legend Score from z-scores). Game state saved to localStorage after each pick. Single batch submission at game end.
+Picks are computed client-side (Sandlot Score from z-scores). Game state saved to localStorage after each pick. Single batch submission at game end.
 
 ### Routing
 - `/` — Home (daily challenge launcher)
@@ -117,7 +117,7 @@ The admin dashboard at `/admin` provides:
 - **Calendar strip**: 14-day view with green/amber/empty dots showing challenge coverage
 - **Pipeline view**: challenges grouped by Active / Upcoming / Draft with health indicators
 - **Generation**: single challenge, 25-themed batch, or activate today's challenge
-- **Challenge detail page**: per-round breakdown of players, Legend Scores, blurb previews, portrait thumbnails
+- **Challenge detail page**: per-round breakdown of players, Sandlot Scores, blurb previews, portrait thumbnails
 - **Action buttons**: Generate Blurbs, Generate Portraits, Preseed Stats, Schedule, Playtest, Delete
 - **Playtest mode**: plays any challenge in-browser with a yellow "Playtest Mode" banner, no real session created, returns to admin detail on completion
 
@@ -183,5 +183,5 @@ Nixpacks prunes devDependencies after the build phase. Never use devDependency t
 
 - **Mobile-first**: All UI optimized for phone screens (375px viewport). Touch targets 44px+.
 - **Fun over depth**: Quick 5-minute daily game, not a complex fantasy simulator
-- **Legend Score is the star**: The branded 1-10 metric should feel satisfying and shareable
+- **Sandlot Score is the star**: The branded 1-10 metric should feel satisfying and shareable
 - **Daily challenge = social glue**: Same slate for everyone enables comparison and conversation
