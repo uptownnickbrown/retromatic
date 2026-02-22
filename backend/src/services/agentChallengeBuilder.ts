@@ -2,8 +2,10 @@ import OpenAI from 'openai';
 import type { Response as SSEResponse } from 'express';
 import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { eq, and, desc, gte, lte, like, or, ilike } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, like, or, ilike, sql } from 'drizzle-orm';
 import { queueChallenges } from './challengeGenerator.js';
+import { calculateSandlotScore } from './sandlotScore.js';
+import { toNum } from '../lib/numeric.js';
 
 // Lazy-load OpenAI client
 let openai: OpenAI | null = null;
@@ -17,7 +19,59 @@ function getClient(): OpenAI {
 
 const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] as const;
 
+// ─── Session store for multi-turn conversations ──────────────
+
+interface AgentSession {
+  responseId: string;
+  createdAt: number;
+}
+
+const agentSessions = new Map<string, AgentSession>();
+
+// Clean up sessions older than 30 minutes
+function cleanupSessions() {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [id, session] of agentSessions) {
+    if (session.createdAt < cutoff) agentSessions.delete(id);
+  }
+}
+
 // ─── Tool definitions for OpenAI ───────────────────────────────
+
+const challengeParamsSchema = {
+  type: 'object' as const,
+  properties: {
+    theme: { type: 'string' as const, description: 'Challenge theme name (2-6 words)' },
+    rounds: {
+      type: 'array' as const,
+      description: 'The rounds you want to curate. Omit positions to auto-fill.',
+      items: {
+        type: 'object' as const,
+        properties: {
+          position: { type: 'string' as const, description: 'Position code for this round' },
+          players: {
+            type: 'array' as const,
+            description: '1-3 players for this round. If fewer than 3, the rest are auto-filled.',
+            items: {
+              type: 'object' as const,
+              properties: {
+                playerId: { type: 'string' as const, description: 'Lahman player_id' },
+                playerName: { type: 'string' as const, description: 'Display name' },
+                years: { type: 'array' as const, items: { type: 'number' as const }, description: '3 year options' },
+              },
+              required: ['playerId', 'playerName', 'years'],
+            },
+            minItems: 1,
+            maxItems: 3,
+          },
+        },
+        required: ['position', 'players'],
+      },
+      minItems: 1,
+    },
+  },
+  required: ['theme', 'rounds'],
+};
 
 const tools: OpenAI.Responses.Tool[] = [
   {
@@ -45,50 +99,24 @@ Example: searching {team:"BOS", yearMin:2015, yearMax:2019} finds players who pl
   },
   {
     type: 'function' as const,
+    name: 'preview_challenge',
+    strict: false,
+    description: `Preview the challenge for the user to review before submitting. ALWAYS call this before submit_challenge. The user will see the proposed lineup with Sandlot Scores and can approve or request changes. Same rules as submit_challenge — partial lineups are OK, missing positions will be auto-filled.`,
+    parameters: challengeParamsSchema,
+  },
+  {
+    type: 'function' as const,
     name: 'submit_challenge',
     strict: false,
-    description: `Submit the challenge. You can submit a PARTIAL challenge — any positions you don't include will be auto-filled with random eligible players from the database.
+    description: `Submit the challenge to the database. Only call this AFTER the user has approved a preview. You can submit a PARTIAL challenge — any positions you don't include will be auto-filled with random eligible players from the database.
 
 Rules for the rounds you DO include:
 - Each round needs a position and 1-3 players, each with exactly 3 year options
 - All player-years must exist in the database (only use years from search_players results)
 - No duplicate player-year combinations
 
-You do NOT need to fill all 10 positions. Focus on the players that matter for the theme and let the system fill the rest. For example, if the prompt is about Phillies and Red Sox, just include the PHI/BOS players you care about and skip positions you can't fill thematically.`,
-    parameters: {
-      type: 'object',
-      properties: {
-        theme: { type: 'string', description: 'Challenge theme name (2-6 words)' },
-        rounds: {
-          type: 'array',
-          description: 'The rounds you want to curate. Omit positions to auto-fill.',
-          items: {
-            type: 'object',
-            properties: {
-              position: { type: 'string', description: 'Position code for this round' },
-              players: {
-                type: 'array',
-                description: '1-3 players for this round. If fewer than 3, the rest are auto-filled.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    playerId: { type: 'string', description: 'Lahman player_id' },
-                    playerName: { type: 'string', description: 'Display name' },
-                    years: { type: 'array', items: { type: 'number' }, description: '3 year options' },
-                  },
-                  required: ['playerId', 'playerName', 'years'],
-                },
-                minItems: 1,
-                maxItems: 3,
-              },
-            },
-            required: ['position', 'players'],
-          },
-          minItems: 1,
-        },
-      },
-      required: ['theme', 'rounds'],
-    },
+You do NOT need to fill all 10 positions. Focus on the players that matter for the theme and let the system fill the rest.`,
+    parameters: challengeParamsSchema,
   },
 ];
 
@@ -316,11 +344,18 @@ async function getRandomEligiblePlayers(
   }));
 }
 
-async function executeSubmitChallenge(
+// ─── Shared validation + round building ─────────────────────
+
+interface ValidatedRounds {
+  finalRounds: SubmitRound[];
+  missingPositions: string[];
+  autoFilledCount: number;
+}
+
+async function validateAndBuildRounds(
   args: Record<string, unknown>,
   send: (data: Record<string, unknown>) => void,
-): Promise<{ challengeId: number } | { error: string }> {
-  const theme = String(args.theme);
+): Promise<ValidatedRounds | { error: string }> {
   const aiRounds = (args.rounds as SubmitRound[]) || [];
 
   // Validate AI-provided rounds
@@ -419,19 +454,113 @@ async function executeSubmitChallenge(
     roundsByPosition.set(round.position, round);
   }
 
-  // Assemble final rounds in position order
-  const finalRounds = POSITIONS.map(pos => roundsByPosition.get(pos)!);
+  // Assemble final rounds in shuffled position order (like other generators)
+  const shuffledPositions = shuffle([...POSITIONS]);
+  const finalRounds = shuffledPositions.map(pos => roundsByPosition.get(pos)!);
+
+  return {
+    finalRounds,
+    missingPositions: [...missingPositions],
+    autoFilledCount: missingPositions.length * 3 + partialPositions.reduce((sum, r) => sum + (3 - r.players.length), 0),
+  };
+}
+
+// ─── Preview: enrich with z-scores and Sandlot Scores ────────
+
+async function executePreviewChallenge(
+  args: Record<string, unknown>,
+  send: (data: Record<string, unknown>) => void,
+): Promise<{ preview: true } | { error: string }> {
+  const theme = String(args.theme);
+  const result = await validateAndBuildRounds(args, send);
+  if ('error' in result) return result;
+
+  // Collect all player-year pairs for z-score lookup
+  const playerYearPairs: Array<{ playerId: string; year: number }> = [];
+  for (const round of result.finalRounds) {
+    for (const p of round.players) {
+      for (const year of p.years) {
+        playerYearPairs.push({ playerId: p.playerId, year });
+      }
+    }
+  }
+
+  // Batch fetch z-scores and teams
+  const zScoreMap = new Map<string, number>();
+  const teamMap = new Map<string, string>();
+  if (playerYearPairs.length > 0) {
+    const whereClauses = playerYearPairs.map(
+      p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
+    );
+    const combined = sql.join(whereClauses, sql` OR `);
+    const records = await db.select({
+      playerId: players.playerId,
+      year: players.year,
+      zScorePosition: players.zScorePosition,
+      team: players.team,
+    }).from(players).where(combined);
+
+    for (const r of records) {
+      zScoreMap.set(`${r.playerId}-${r.year}`, toNum(r.zScorePosition));
+      teamMap.set(`${r.playerId}-${r.year}`, r.team ?? '');
+    }
+  }
+
+  // Build enriched proposal
+  const aiRounds = (args.rounds as SubmitRound[]) || [];
+  const aiPositions = new Set(aiRounds.map(r => r.position));
+
+  const proposalRounds = result.finalRounds.map(round => ({
+    position: round.position,
+    autoFilled: !aiPositions.has(round.position),
+    players: round.players.map(p => ({
+      playerId: p.playerId,
+      playerName: p.playerName,
+      years: p.years.map(year => {
+        const z = zScoreMap.get(`${p.playerId}-${year}`) ?? 0;
+        return {
+          year,
+          team: teamMap.get(`${p.playerId}-${year}`) ?? '',
+          zScore: Math.round(z * 100) / 100,
+          sandlotScore: calculateSandlotScore(z),
+        };
+      }),
+    })),
+  }));
+
+  send({
+    type: 'proposal',
+    proposal: {
+      theme,
+      rounds: proposalRounds,
+      missingPositions: result.missingPositions,
+      autoFilledCount: result.autoFilledCount,
+    },
+  });
+
+  return { preview: true };
+}
+
+// ─── Submit: write to DB ─────────────────────────────────────
+
+async function executeSubmitChallenge(
+  args: Record<string, unknown>,
+  send: (data: Record<string, unknown>) => void,
+): Promise<{ challengeId: number } | { error: string }> {
+  const theme = String(args.theme);
+  const result = await validateAndBuildRounds(args, send);
+  if ('error' in result) return result;
 
   // Insert challenge
   const [challenge] = await db.insert(challenges).values({
     challengeDate: `agent-${Date.now()}`,
-    positionOrder: finalRounds.map(r => r.position),
+    positionOrder: result.finalRounds.map(r => r.position),
     status: 'draft',
     theme,
   }).returning();
 
-  for (let i = 0; i < finalRounds.length; i++) {
-    const round = finalRounds[i];
+  for (let i = 0; i < result.finalRounds.length; i++) {
+    const round = result.finalRounds[i];
     const [dbRound] = await db.insert(challengeRounds).values({
       challengeId: challenge.id,
       roundNumber: i + 1,
@@ -458,39 +587,65 @@ async function executeSubmitChallenge(
 
 // ─── Main agent loop ─────────────────────────────────────────
 
-export async function runAgentBuilder(prompt: string, res: SSEResponse): Promise<number | null> {
-  const client = getClient();
-
-  const systemPrompt = `You are an expert baseball challenge builder for the Sandlot daily game.
+const systemPrompt = `You are an expert baseball challenge builder for the Sandlot daily game.
 
 Your job: Create a 10-round draft challenge based on the user's prompt. Each challenge has a theme, 10 positions (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P), and 3 players per position with 3 year options each.
 
 WORKFLOW:
 1. Use search_players to find players that fit the user's prompt. Search by team, era, name, position — whatever matches the theme. Each result shows the player grouped with ALL their qualifying seasons.
 2. From the results, pick the players you want to include. For each, choose exactly 3 years from their "years" array. NEVER guess years — only use years that appeared in results.
-3. Call submit_challenge with the players you curated. You do NOT need to fill all 10 positions — any positions you skip will be auto-filled with random eligible players. You can also submit 1-2 players for a position and the rest will be filled in.
+3. ALWAYS call preview_challenge first to show the user your proposed lineup. Wait for their feedback.
+4. Only call submit_challenge after the user approves the preview. If they request changes, search again and preview again.
 
 Focus on the players that make the theme interesting. Don't waste iterations trying to fill every position — the system handles that automatically.
 
 POSITIONS: Batters = C, 1B, 2B, SS, 3B, OF, UTIL. Pitchers = SP, RP, P.
 DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dodgers, SFN=Giants, SLN=Cardinals, CHN=Cubs, CHA=White Sox, etc.`;
 
+export async function runAgentBuilder(
+  prompt: string,
+  res: SSEResponse,
+  sessionId?: string,
+): Promise<number | null> {
+  const client = getClient();
+  cleanupSessions();
+
   const send = (data: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
-  send({ type: 'thinking', message: 'Starting challenge builder...' });
+  // Generate or reuse session ID
+  const sid = sessionId || `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  send({ type: 'session', sessionId: sid });
+
+  const existingSession = sessionId ? agentSessions.get(sessionId) : null;
+
+  send({ type: 'thinking', message: existingSession ? 'Continuing conversation...' : 'Starting challenge builder...' });
 
   try {
-    // Initial call
-    let response = await client.responses.create({
-      model: 'gpt-5-mini',
-      instructions: systemPrompt,
-      input: prompt,
-      tools,
-      tool_choice: 'auto',
-      max_output_tokens: 16384,
-    });
+    // Initial or continuation call
+    let response: OpenAI.Responses.Response;
+    if (existingSession) {
+      // Continue existing conversation with user's new message
+      response = await client.responses.create({
+        model: 'gpt-5-mini',
+        instructions: systemPrompt,
+        previous_response_id: existingSession.responseId,
+        input: prompt,
+        tools,
+        tool_choice: 'auto',
+        max_output_tokens: 16384,
+      });
+    } else {
+      response = await client.responses.create({
+        model: 'gpt-5-mini',
+        instructions: systemPrompt,
+        input: prompt,
+        tools,
+        tool_choice: 'auto',
+        max_output_tokens: 16384,
+      });
+    }
 
     let iterations = 0;
     const maxIterations = 30;
@@ -529,9 +684,44 @@ DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dod
         let result: string;
         if (toolCall.name === 'search_players') {
           result = await executeFindEligiblePlayers(args);
+        } else if (toolCall.name === 'preview_challenge') {
+          const previewResult = await executePreviewChallenge(args, send);
+          if ('preview' in previewResult) {
+            // Save session for continuation
+            agentSessions.set(sid, { responseId: response.id, createdAt: Date.now() });
+            // Tell the agent the preview was sent
+            result = JSON.stringify({ success: true, message: 'Preview sent to user. Waiting for approval or feedback.' });
+            toolResults.push({
+              type: 'function_call_output',
+              call_id: toolCall.call_id,
+              output: result,
+            });
+
+            // Save updated response with tool result so we can continue later
+            const updatedResponse = await client.responses.create({
+              model: 'gpt-5-mini',
+              instructions: systemPrompt,
+              previous_response_id: response.id,
+              input: toolResults,
+              tools,
+              tool_choice: 'none',
+              max_output_tokens: 256,
+            });
+            agentSessions.set(sid, { responseId: updatedResponse.id, createdAt: Date.now() });
+
+            // Send awaiting_feedback and end the stream
+            send({ type: 'awaiting_feedback', sessionId: sid });
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+            res.end();
+            return null;
+          }
+          result = JSON.stringify(previewResult);
+          send({ type: 'error_recoverable', message: (previewResult as { error: string }).error });
         } else if (toolCall.name === 'submit_challenge') {
           const submitResult = await executeSubmitChallenge(args, send);
           if ('challengeId' in submitResult) {
+            // Clean up session
+            agentSessions.delete(sid);
             send({ type: 'success', challengeId: submitResult.challengeId, theme: args.theme });
             res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
             res.end();

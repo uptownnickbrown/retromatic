@@ -65,6 +65,7 @@ export interface PipelineChallenge {
   queuePosition: number | null;
   createdAt: string;
   publishedAt: string | null;
+  enrichmentPhase: 'blurbs' | 'portraits' | 'preseed' | null;
   health: ChallengeHealth;
 }
 
@@ -316,15 +317,67 @@ export function streamBakeAll(onEvent: (event: Record<string, unknown>) => void)
   return { abort: () => controller.abort() };
 }
 
+// --- Agent Session State (shared with AgentChatPanel) ---
+
+export interface AgentSessionState {
+  sessionId: string | null;
+  messages: AgentChatMessage[];
+  awaitingFeedback: boolean;
+  running: boolean;
+}
+
+export interface AgentChatMessage {
+  id: number;
+  type: 'user' | 'agent' | 'tool' | 'success' | 'error' | 'proposal';
+  text: string;
+  toolName?: string;
+  proposal?: ProposalData;
+}
+
+export const INITIAL_SESSION_STATE: AgentSessionState = {
+  sessionId: null,
+  messages: [],
+  awaitingFeedback: false,
+  running: false,
+};
+
 // --- Agent Builder ---
 
+export interface ProposalPlayerYear {
+  year: number;
+  team: string;
+  zScore: number;
+  sandlotScore: number;
+}
+
+export interface ProposalPlayer {
+  playerId: string;
+  playerName: string;
+  years: ProposalPlayerYear[];
+}
+
+export interface ProposalRound {
+  position: string;
+  autoFilled: boolean;
+  players: ProposalPlayer[];
+}
+
+export interface ProposalData {
+  theme: string;
+  rounds: ProposalRound[];
+  missingPositions: string[];
+  autoFilledCount: number;
+}
+
 export interface AgentEvent {
-  type: 'thinking' | 'message' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete';
+  type: 'thinking' | 'message' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session';
   message?: string;
   tool?: string;
   args?: Record<string, unknown>;
   challengeId?: number;
   theme?: string;
+  proposal?: ProposalData;
+  sessionId?: string;
 }
 
 export function streamAgentBuild(
@@ -343,6 +396,56 @@ export function streamAgentBuild(
       'x-admin-secret': secret,
     },
     body: JSON.stringify({ prompt }),
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) {
+      onEvent({ type: 'error', message: `HTTP ${res.status}` });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', message: String(err) });
+    }
+  });
+
+  return { abort: () => controller.abort() };
+}
+
+export function streamAgentContinue(
+  sessionId: string,
+  message: string,
+  onEvent: (event: AgentEvent) => void,
+): { abort: () => void } {
+  const secret = getAdminSecret();
+  if (!secret) throw new Error('Not authenticated');
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/admin/challenges/generate-agent/continue`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+    body: JSON.stringify({ sessionId, message }),
     signal: controller.signal,
   }).then(async (res) => {
     if (!res.ok || !res.body) {

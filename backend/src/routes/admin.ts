@@ -19,6 +19,9 @@ import { getAllRoundData } from './challenge.js';
 
 const router = Router();
 
+// In-memory enrichment progress tracker
+const enrichmentProgress = new Map<number, { phase: 'blurbs' | 'portraits' | 'preseed'; startedAt: number }>();
+
 // Admin auth middleware
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const secret = req.headers['x-admin-secret'];
@@ -39,15 +42,23 @@ function enrichChallengesInBackground(challengeIds: number[]) {
       const id = challengeIds[i];
       const label = `[enrich ${i + 1}/${challengeIds.length}] Challenge ${id}`;
       try {
+        enrichmentProgress.set(id, { phase: 'blurbs', startedAt: Date.now() });
         console.log(`${label}: generating blurbs...`);
         await generateBlurbsForChallenge(id);
+
+        enrichmentProgress.set(id, { phase: 'portraits', startedAt: Date.now() });
         console.log(`${label}: generating portraits...`);
         await generatePortraitsForChallenge(id);
+
+        enrichmentProgress.set(id, { phase: 'preseed', startedAt: Date.now() });
         console.log(`${label}: preseeding stats...`);
         await preseedStatsForChallenge(id);
+
         console.log(`${label}: done`);
       } catch (err) {
         console.error(`${label}: pipeline error:`, err);
+      } finally {
+        enrichmentProgress.delete(id);
       }
     }
     console.log(`Enrichment complete for ${challengeIds.length} challenges`);
@@ -163,6 +174,35 @@ router.post('/challenges/generate-agent', async (req, res) => {
 
   try {
     const challengeId = await runAgentBuilder(prompt, res);
+    if (challengeId) {
+      enrichChallengesInBackground([challengeId]);
+    }
+  } catch (error) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: String(error) })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+    res.end();
+  }
+});
+
+// AI agent builder — continue conversation (must be before :id routes)
+router.post('/challenges/generate-agent/continue', async (req, res) => {
+  const { sessionId, message } = req.body;
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId string required' });
+    return;
+  }
+  if (!message || typeof message !== 'string') {
+    res.status(400).json({ error: 'message string required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    const challengeId = await runAgentBuilder(message, res, sessionId);
     if (challengeId) {
       enrichChallengesInBackground([challengeId]);
     }
@@ -499,6 +539,7 @@ router.get('/challenges/pipeline', async (req, res) => {
 
       return {
         ...challenge,
+        enrichmentPhase: enrichmentProgress.get(challenge.id)?.phase ?? null,
         health: {
           rounds: rounds.length,
           roundsReady: rounds.length === 10,

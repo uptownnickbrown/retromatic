@@ -37,6 +37,8 @@ import { InlineThemeEditor } from '../components/admin/InlineThemeEditor';
 import { clearAdminSecret } from '../lib/adminApi';
 import { streamBakeAll } from '../lib/adminApi';
 import { AgentChatPanel } from '../components/admin/AgentChatPanel';
+import { INITIAL_SESSION_STATE } from '../lib/adminApi';
+import type { AgentSessionState } from '../lib/adminApi';
 import { cn } from '../lib/utils';
 import type { PipelineChallenge, HistoryChallenge } from '../lib/adminApi';
 
@@ -58,6 +60,7 @@ export function AdminDashboard() {
   const promoteMutation = usePromoteNext();
   const forceActivateMutation = useForceActivate();
   const [agentOpen, setAgentOpen] = useState(false);
+  const [agentSession, setAgentSession] = useState<AgentSessionState>(INITIAL_SESSION_STATE);
 
   // Bake-all SSE state
   const [bakeAllProgress, setBakeAllProgress] = useState<{
@@ -413,7 +416,12 @@ export function AdminDashboard() {
       </div>
 
       {/* AI Builder Panel */}
-      <AgentChatPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
+      <AgentChatPanel
+        open={agentOpen}
+        onClose={() => setAgentOpen(false)}
+        sessionState={agentSession}
+        onSessionStateChange={setAgentSession}
+      />
     </div>
   );
 }
@@ -477,7 +485,7 @@ function QueueItem({
 
         {/* Health */}
         <div className="flex-shrink-0">
-          <HealthIndicators health={challenge.health} compact />
+          <HealthIndicators health={challenge.health} enrichmentPhase={challenge.enrichmentPhase} compact />
         </div>
 
         {/* Bake button — only show when incomplete */}
