@@ -38,14 +38,14 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
     const sizeClasses = {
       sm: 'w-10 h-10 text-xs',
       md: 'w-14 h-14 text-lg',
-      lg: 'w-20 h-20 text-2xl',
+      lg: 'w-24 h-24 text-3xl',
     };
 
     const content = (
       <div className={cn('flex flex-col items-center gap-1.5', tier)}>
         <div
           className={cn(
-            'rounded-full flex items-center justify-center font-editorial font-bold text-paper',
+            'rounded-full relative font-editorial font-bold text-paper',
             'border-2',
             isHot
               ? 'bg-red border-red-dark'
@@ -58,7 +58,7 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
               : 'inset 0 0 0 2px #F9F7F1, 2px 2px 0px rgba(10,30,47,0.15)',
           }}
         >
-          <span className="translate-y-[0.1em] leading-none">{score.toFixed(1)}</span>
+          <span className="absolute inset-0 flex items-center justify-center leading-none">{score.toFixed(1)}</span>
         </div>
         {showLabel && (
           <span className={cn(
@@ -90,19 +90,19 @@ export function LegendScoreBadge({ score: rawScore, size = 'md', animate = false
   const avgSizeClasses = {
     sm: 'w-10 h-10 text-xs',
     md: 'w-14 h-14 text-lg',
-    lg: 'w-20 h-20 text-2xl',
+    lg: 'w-24 h-24 text-3xl',
   };
 
   const content = (
     <div className={cn('flex flex-col items-center gap-1.5', tier)}>
       <div
         className={cn(
-          'rounded-full flex items-center justify-center font-editorial font-bold text-muted',
+          'rounded-full relative font-editorial font-bold text-muted',
           'bg-paper border border-navy/20',
           avgSizeClasses[size],
         )}
       >
-        <span className="translate-y-[0.1em] leading-none">{score.toFixed(1)}</span>
+        <span className="absolute inset-0 flex items-center justify-center leading-none">{score.toFixed(1)}</span>
       </div>
       {showLabel && (
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted">

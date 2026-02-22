@@ -270,7 +270,13 @@ export function RevealCard({ reveal }: RevealCardProps) {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 260, damping: 12, delay: 0.6 }}
-                className="float-right ml-3 mb-2"
+                className="float-right flex items-center justify-center"
+                style={{
+                  width: 120,
+                  height: 120,
+                  shapeOutside: 'circle(50%)',
+                  shapeMargin: '12px',
+                }}
               >
                 <LegendScoreBadge score={reveal.legendScore} size="lg" animate />
               </motion.div>
