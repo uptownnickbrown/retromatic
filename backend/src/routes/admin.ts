@@ -56,6 +56,49 @@ router.post('/challenges/generate-themed', async (req, res) => {
   }
 });
 
+// Generate themed challenges with full pipeline (blurbs + portraits + preseed)
+// Returns immediately after generation; enrichment runs in the background.
+router.post('/challenges/generate-full', async (req, res) => {
+  try {
+    const { count = 25 } = req.body;
+    const clampedCount = Math.min(Math.max(1, count), 50);
+    const result = await generateThemedBatch(clampedCount);
+    const { challengeIds, themes } = result;
+
+    // Return immediately — enrichment happens in background
+    res.json({
+      challengeIds,
+      count: challengeIds.length,
+      themes,
+      message: `${challengeIds.length} challenges generated and scheduled. Blurbs, portraits, and preseed running in background.`,
+    });
+
+    // Background: run blurbs → portraits → preseed for each challenge sequentially
+    (async () => {
+      for (let i = 0; i < challengeIds.length; i++) {
+        const id = challengeIds[i];
+        const label = `[${i + 1}/${challengeIds.length}] Challenge ${id}`;
+        try {
+          console.log(`${label}: generating blurbs...`);
+          await generateBlurbsForChallenge(id);
+          console.log(`${label}: generating portraits...`);
+          await generatePortraitsForChallenge(id);
+          console.log(`${label}: preseeding stats...`);
+          await preseedStatsForChallenge(id);
+          console.log(`${label}: done`);
+        } catch (err) {
+          console.error(`${label}: pipeline error:`, err);
+          // Continue with next challenge — don't let one failure stop the batch
+        }
+      }
+      console.log(`Full pipeline complete for ${challengeIds.length} challenges`);
+    })();
+  } catch (error) {
+    console.error('Full pipeline generation error:', error);
+    res.status(500).json({ error: 'Failed to generate challenges' });
+  }
+});
+
 // Queue challenges (add to the auto-promote queue) — must be before :id routes
 router.post('/challenges/queue', async (req, res) => {
   try {
