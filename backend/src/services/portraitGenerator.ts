@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import sharp from 'sharp';
 import * as fs from 'fs';
 import * as path from 'path';
 import { db } from '../db/index.js';
@@ -28,18 +29,20 @@ const PORTRAITS_DIR = process.env.PORTRAIT_DIR
   );
 
 function getPortraitPath(playerId: string): string {
-  return path.join(PORTRAITS_DIR, `${playerId}.png`);
+  return path.join(PORTRAITS_DIR, `${playerId}.webp`);
 }
 
 function portraitExists(playerId: string): boolean {
   return fs.existsSync(getPortraitPath(playerId));
 }
 
-function buildPrompt(playerName: string, teamName: string, year: number): string {
-  return `Generate a stylized head-and-shoulders portrait of Major League Baseball player ${playerName} playing for the ${teamName} in ${year}.
-1. Art Style: Strictly a "hedcut" stipple portrait (like the Wall Street Journal). Use fine dots and pointillism for shading. Do NOT use heavy cross-hatching or thick black lines.
+function buildPrompt(playerName: string, teamName: string, year: number, position: string): string {
+  return `First, search the web for photos of MLB ${position} ${playerName} who played for the ${teamName} in ${year}. Use those reference photos to ensure an accurate likeness.
+
+Then generate a stylized head-and-shoulders portrait of ${playerName} (${position}, ${teamName}, ${year}).
+1. Art Style: A "hedcut" stipple portrait exactly like the Wall Street Journal illustrations. Shading is created through varying density of small ink dots. Do NOT use halftone circles, pop-art dots, cross-hatching, or thick outlines. IMPORTANT: This image will be generated at 1024px but displayed at only 200px tall — make sure all detail (dots, facial features, uniform text) remains clearly legible when shrunk to 1/5th the size.
 2. Composition: A clean head-and-shoulders silhouette against a plain, unadorned background. No background scenery, no stadium arches, no abstract lines. Just the player. Image dimensions: 480px wide by 640px tall (3:4 aspect ratio, portrait orientation).
-3. Color: Deep Midnight Navy ink (#0A1E2F) on a flat Warm Cream (#F5F0E8) background. The background must be a uniform solid color with no gradients, textures, or paper grain. High contrast, but with plenty of negative space on the face to keep it legible.
+3. Color: Deep Midnight Navy ink (#0A1E2F) on a flat Warm Cream (#FCEDCD) background. The background must be a uniform solid color with no gradients, textures, or paper grain. High contrast, with generous negative space and light areas to keep the face legible at small sizes.
 4. Vibe: Stoic, legendary, and vintage. A collected artifact.`;
 }
 
@@ -47,11 +50,12 @@ async function generatePortrait(
   playerName: string,
   teamName: string,
   year: number,
+  position: string,
 ): Promise<Buffer> {
   const client = getOpenAIClient();
   if (!client) throw new Error('OpenAI API key not configured');
 
-  const prompt = buildPrompt(playerName, teamName, year);
+  const prompt = buildPrompt(playerName, teamName, year, position);
 
   const response = await client.responses.create({
     model: 'gpt-5.2',
@@ -73,12 +77,51 @@ async function generatePortrait(
   throw new Error('No image generated in response');
 }
 
+// Target background color — warm parchment
+const CREAM_R = 0xFC, CREAM_G = 0xED, CREAM_B = 0xCD; // #FCEDCD
+// Max Euclidean distance in RGB space for a pixel to count as "background"
+const BG_THRESHOLD = 40;
+
+/** Resize to 200px height, normalize background to exact cream, convert to WebP */
+async function processImage(rawBuffer: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(rawBuffer)
+    .resize({ height: 200 })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height } = info;
+
+  // Replace near-cream pixels with exact cream, leave everything else untouched
+  for (let i = 0; i < data.length; i += 3) {
+    const dr = data[i] - CREAM_R;
+    const dg = data[i + 1] - CREAM_G;
+    const db = data[i + 2] - CREAM_B;
+    if (Math.sqrt(dr * dr + dg * dg + db * db) < BG_THRESHOLD) {
+      data[i]     = CREAM_R;
+      data[i + 1] = CREAM_G;
+      data[i + 2] = CREAM_B;
+    }
+  }
+
+  return sharp(data, { raw: { width, height, channels: 3 } })
+    .webp({ quality: 90 })
+    .toBuffer();
+}
+
+const POSITION_LABELS: Record<string, string> = {
+  SP: 'starting pitcher', RP: 'relief pitcher', P: 'pitcher',
+  C: 'catcher', '1B': 'first baseman', '2B': 'second baseman',
+  SS: 'shortstop', '3B': 'third baseman', OF: 'outfielder',
+  UTIL: 'designated hitter',
+};
+
 interface PortraitTask {
   optionId: number;
   playerId: string;
   playerName: string;
   teamName: string;
   year: number;
+  position: string;
 }
 
 // Generate (or regenerate) a portrait for a single round option
@@ -98,16 +141,24 @@ export async function generatePortraitForOption(optionId: number): Promise<{
 
   if (!option) throw new Error('Round option not found');
 
+  // Look up the round's position for prompt context
+  const [round] = await db.select({ position: challengeRounds.position })
+    .from(challengeRounds)
+    .where(eq(challengeRounds.id, option.roundId))
+    .limit(1);
+
   // Pick the best year's team for the portrait prompt
   const years = option.yearOptions as number[];
   let bestTeam = 'Unknown';
   let bestYear = years[0] ?? 2000;
   let bestZ = -Infinity;
+  let bestPosition = round?.position ?? 'player';
 
   for (const year of years) {
     const [record] = await db.select({
       team: players.team,
       zScorePosition: players.zScorePosition,
+      primaryPosition: players.primaryPosition,
     })
       .from(players)
       .where(and(
@@ -122,23 +173,28 @@ export async function generatePortraitForOption(optionId: number): Promise<{
         bestZ = z;
         bestTeam = record.team ?? 'Unknown';
         bestYear = year;
+        bestPosition = record.primaryPosition;
       }
     }
   }
 
   const teamName = getTeamName(bestTeam);
-  console.log(`  Generating portrait for ${option.playerName} (${bestYear} ${teamName})...`);
+  const posLabel = POSITION_LABELS[bestPosition] ?? bestPosition;
+  console.log(`  Generating portrait for ${option.playerName} (${posLabel}, ${bestYear} ${teamName})...`);
 
   // Generate new portrait BEFORE deleting old one — if generation fails,
   // the old file is preserved instead of leaving a broken image
-  const imageBuffer = await generatePortrait(option.playerName, teamName, bestYear);
+  const rawBuffer = await generatePortrait(option.playerName, teamName, bestYear, posLabel);
+  const imageBuffer = await processImage(rawBuffer);
 
-  // Only now replace the old file
+  // Only now replace the old file (also clean up legacy .png if present)
   const existingPath = getPortraitPath(option.playerId);
   fs.writeFileSync(existingPath, imageBuffer);
+  const legacyPng = path.join(PORTRAITS_DIR, `${option.playerId}.png`);
+  if (fs.existsSync(legacyPng)) fs.unlinkSync(legacyPng);
 
   // Update DB — append cache-buster so browsers/CDNs fetch the new image
-  const portraitUrl = `/portraits/${option.playerId}.png?v=${Date.now()}`;
+  const portraitUrl = `/portraits/${option.playerId}.webp?v=${Date.now()}`;
   await db.update(roundOptions)
     .set({ portraitUrl })
     .where(eq(roundOptions.id, optionId));
@@ -177,7 +233,7 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
         // Still update DB URL if missing
         if (!option.portraitUrl) {
           await db.update(roundOptions)
-            .set({ portraitUrl: `/portraits/${option.playerId}.png` })
+            .set({ portraitUrl: `/portraits/${option.playerId}.webp` })
             .where(eq(roundOptions.id, option.id));
         }
         skipped++;
@@ -189,11 +245,13 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
       let bestTeam = 'Unknown';
       let bestYear = years[0] ?? 2000;
       let bestZ = -Infinity;
+      let bestPosition = round.position;
 
       for (const year of years) {
         const [record] = await db.select({
           team: players.team,
           zScorePosition: players.zScorePosition,
+          primaryPosition: players.primaryPosition,
         })
           .from(players)
           .where(and(
@@ -208,6 +266,7 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
             bestZ = z;
             bestTeam = record.team ?? 'Unknown';
             bestYear = year;
+            bestPosition = record.primaryPosition;
           }
         }
       }
@@ -218,6 +277,7 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
         playerName: option.playerName,
         teamName: getTeamName(bestTeam),
         year: bestYear,
+        position: POSITION_LABELS[bestPosition] ?? bestPosition,
       });
     }
   }
@@ -228,7 +288,8 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
     tasks,
     5, // 5 concurrent — image gen is heavier than text
     async (task) => {
-      const imageBuffer = await generatePortrait(task.playerName, task.teamName, task.year);
+      const rawBuffer = await generatePortrait(task.playerName, task.teamName, task.year, task.position);
+      const imageBuffer = await processImage(rawBuffer);
 
       // Save to disk
       const filePath = getPortraitPath(task.playerId);
@@ -236,7 +297,7 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
 
       // Update DB
       await db.update(roundOptions)
-        .set({ portraitUrl: `/portraits/${task.playerId}.png` })
+        .set({ portraitUrl: `/portraits/${task.playerId}.webp` })
         .where(eq(roundOptions.id, task.optionId));
 
       console.log(`  ✓ ${task.playerName} (${task.year} ${task.teamName})`);
