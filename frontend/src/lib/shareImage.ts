@@ -19,12 +19,6 @@ function tierColor(score: number): string {
   return MUTED;
 }
 
-function tierEmoji(score: number): string {
-  if (score >= 9.5) return '\u{1F3C6}';  // 🏆
-  if (score >= 6.0) return '\u{26BE}';   // ⚾
-  return '\u{1F95C}';                    // 🥜
-}
-
 /** Sort picks into canonical position order (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P) */
 function sortByPosition(picks: ResultsPick[]): ResultsPick[] {
   return [...picks].sort(
@@ -216,11 +210,6 @@ export async function generateShareImage(opts: {
   ctx.font = '900 120px "Playfair Display", Georgia, serif';
   ctx.fillText(opts.totalScore.toFixed(1), centerX, 310);
 
-  // "/100"
-  ctx.fillStyle = MUTED;
-  ctx.font = '700 26px "Space Mono", monospace';
-  ctx.fillText('/ 100', centerX, 346);
-
   // Legend count + Percentile
   const legendCount = opts.picks.filter(p => safeNum(p.legendScore) >= 9.5).length;
   let statY = 400;
@@ -260,10 +249,6 @@ export async function generateShareImage(opts: {
     ctx.textBaseline = 'middle';
     ctx.fillText(pick.position.padEnd(4), rX, rowY + lineupRowH / 2);
 
-    // Emoji
-    ctx.font = '20px serif';
-    ctx.fillText(tierEmoji(score), rX + 60, rowY + lineupRowH / 2);
-
     // Score
     ctx.fillStyle = tierColor(score);
     ctx.font = '700 20px "Space Mono", monospace';
@@ -278,7 +263,7 @@ export async function generateShareImage(opts: {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = NAVY;
-  ctx.font = '700 22px "Space Mono", monospace';
+  ctx.font = '900 28px "Playfair Display", Georgia, serif';
   ctx.fillText('sandlot.uptownnickbrown.com', W / 2, H - 36);
 
   return new Promise((resolve, reject) => {

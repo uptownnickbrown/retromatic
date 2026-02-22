@@ -87,14 +87,17 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
     try {
       if (tab === 'image' && imageBlob) {
         const file = new File([imageBlob], `sandlot-${date}.png`, { type: 'image/png' });
-        if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ files: [file] });
-          return;
-        }
+        await navigator.share({ files: [file] });
+        return;
       }
       await navigator.share({ text: generateShareText() });
     } catch {
-      // User cancelled
+      // File sharing failed or user cancelled — try text fallback
+      try {
+        await navigator.share({ text: generateShareText() });
+      } catch {
+        // User cancelled
+      }
     }
   }, [tab, imageBlob, date, generateShareText]);
 

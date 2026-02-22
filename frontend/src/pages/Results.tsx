@@ -57,7 +57,7 @@ export function Results() {
   const percentileRank = Math.max(1, Math.round(percentile));
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 py-4 safe-bottom">
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 pt-4 pb-10 safe-bottom">
       {/* Playtest banner */}
       {isPlaytest && (
         <motion.div
