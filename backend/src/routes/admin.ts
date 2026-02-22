@@ -911,7 +911,20 @@ router.post('/challenges/:id/activate', async (req, res) => {
       .where(eq(challenges.status, 'active'))
       .returning();
 
-    // Activate the target challenge with today's date
+    // Swap dates to avoid unique constraint violations on challengeDate.
+    // 1. Move target to a temp placeholder
+    const oldDate = target.challengeDate;
+    const tempDate = `activating-${id}`;
+    await db.update(challenges)
+      .set({ challengeDate: tempDate })
+      .where(eq(challenges.id, id));
+
+    // 2. Give today's date holder (if any) the target's old date
+    await db.update(challenges)
+      .set({ challengeDate: oldDate })
+      .where(sql`${challenges.challengeDate} = ${todayStr} AND ${challenges.id} != ${id}`);
+
+    // 3. Assign today's date to the target
     await db.update(challenges)
       .set({
         status: 'active',
