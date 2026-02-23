@@ -662,7 +662,7 @@ export async function runAgentBuilder(
     }
 
     let iterations = 0;
-    const maxIterations = 30;
+    const maxIterations = 60;
 
     while (iterations < maxIterations) {
       iterations++;
