@@ -88,6 +88,19 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
     a.click();
   }, [imageUrl, date]);
 
+  const handleCopyImage = useCallback(async () => {
+    if (!imageBlob) return;
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': imageBlob }),
+      ]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: some browsers don't support clipboard image write
+    }
+  }, [imageBlob]);
+
   const handleShare = useCallback(async () => {
     if (!navigator.share) return;
     try {
@@ -205,17 +218,25 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
 
               {/* Actions */}
               <div className="px-4 pb-4 flex gap-2">
-                {tab === 'image' ? (
-                  typeof navigator.share === 'function' ? (
-                    <button
-                      onClick={handleShare}
-                      disabled={!imageUrl}
-                      className="flex-1 btn-ticket flex items-center justify-center gap-2 disabled:opacity-40"
-                    >
-                      <Share2 size={15} />
-                      Share
-                    </button>
-                  ) : (
+                <button
+                  onClick={tab === 'image' ? handleCopyImage : handleCopyText}
+                  disabled={tab === 'image' && !imageUrl}
+                  className="flex-1 btn-section flex items-center justify-center gap-2 disabled:opacity-40"
+                >
+                  {copied ? <Check size={15} /> : <Copy size={15} />}
+                  {copied ? 'Copied!' : 'Copy'}
+                </button>
+                {typeof navigator.share === 'function' ? (
+                  <button
+                    onClick={handleShare}
+                    disabled={tab === 'image' && !imageUrl}
+                    className="flex-1 btn-ticket flex items-center justify-center gap-2 disabled:opacity-40"
+                  >
+                    <Share2 size={15} />
+                    Share
+                  </button>
+                ) : (
+                  tab === 'image' && (
                     <button
                       onClick={handleDownload}
                       disabled={!imageUrl}
@@ -225,25 +246,6 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
                       Save
                     </button>
                   )
-                ) : (
-                  <>
-                    <button
-                      onClick={handleCopyText}
-                      className="flex-1 btn-section flex items-center justify-center gap-2"
-                    >
-                      {copied ? <Check size={15} /> : <Copy size={15} />}
-                      {copied ? 'Copied!' : 'Copy'}
-                    </button>
-                    {typeof navigator.share === 'function' && (
-                      <button
-                        onClick={handleShare}
-                        className="flex-1 btn-ticket flex items-center justify-center gap-2"
-                      >
-                        <Share2 size={15} />
-                        Share
-                      </button>
-                    )}
-                  </>
                 )}
               </div>
             </motion.div>

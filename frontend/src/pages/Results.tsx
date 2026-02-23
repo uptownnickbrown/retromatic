@@ -1,6 +1,7 @@
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, ArrowLeft, FlaskConical } from 'lucide-react';
+import { ArrowLeft, FlaskConical } from 'lucide-react';
+import { HomePlateIcon } from '../components/ui/HomePlateIcon';
 import { useChallengeResults } from '../hooks/useChallenge';
 import { getOrdinalSuffix } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
@@ -20,17 +21,20 @@ export function Results() {
   const [searchParams] = useSearchParams();
 
   const isPlaytest = searchParams.get('playtest') === 'true';
-  const playtestResults = (location.state as { playtestResults?: ResultsData } | null)?.playtestResults ?? null;
-  const playtestChallengeId = (location.state as { challengeId?: number } | null)?.challengeId ?? null;
+  const isReplay = searchParams.get('replay') === 'true';
+  const routerState = location.state as { playtestResults?: ResultsData; challengeId?: number } | null;
+  const playtestResults = routerState?.playtestResults ?? null;
+  const playtestChallengeId = routerState?.challengeId ?? null;
 
-  // For playtest: use router state directly; for normal: fetch from API
+  // For playtest/replay: use router state directly; for normal: fetch from API
+  const useRouterState = isPlaytest || isReplay;
   const { data: apiData, isLoading, error } = useChallengeResults(
-    isPlaytest ? null : (challengeId ? parseInt(challengeId) : null),
+    useRouterState ? null : (challengeId ? parseInt(challengeId) : null),
   );
 
-  const data = isPlaytest ? playtestResults : apiData;
+  const data = useRouterState ? playtestResults : apiData;
 
-  if (!isPlaytest && isLoading) {
+  if (!useRouterState && isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-navy border-t-transparent rounded-full animate-spin" />
@@ -57,7 +61,7 @@ export function Results() {
   const percentileRank = Math.max(1, Math.round(percentile));
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 pt-4 pb-10 safe-bottom">
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 pt-4 pb-20 safe-bottom">
       {/* Playtest banner */}
       {isPlaytest && (
         <motion.div
@@ -70,17 +74,6 @@ export function Results() {
             Playtest Results
           </span>
         </motion.div>
-      )}
-
-      {/* Home icon — only for non-playtest */}
-      {!isPlaytest && (
-        <button
-          onClick={() => navigate('/')}
-          className="self-start mb-3 p-2 -ml-1 text-navy/50 hover:text-navy transition-colors"
-          aria-label="Home"
-        >
-          <Home size={20} />
-        </button>
       )}
 
       {/* Compact header — score + badge + percentile */}
@@ -141,9 +134,12 @@ export function Results() {
         transition={{ delay: isPlaytest ? 0.2 : 0.3 }}
         className="mb-4"
       >
-        <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
-          Your Lineup
-        </h3>
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider">
+            Your Lineup
+          </h3>
+          <span className="font-mono text-[10px] text-muted">Tap to expand</span>
+        </div>
         <FinalLineup picks={picks} />
       </motion.div>
 
@@ -154,9 +150,12 @@ export function Results() {
         transition={{ delay: isPlaytest ? 0.3 : 0.4 }}
         className="mb-4"
       >
-        <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
-          Tale of the Tape
-        </h3>
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider">
+            Tale of the Tape
+          </h3>
+          <span className="font-mono text-[10px] text-muted">Tap to expand</span>
+        </div>
         <HeadToHead
           picks={picks}
           perfectPicks={perfectLineup.picks}
@@ -180,6 +179,25 @@ export function Results() {
           rightPicks={perfectLineup.picks}
         />
       </motion.div>
+
+      {/* Home — non-playtest */}
+      {!isPlaytest && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="mt-auto pt-4"
+        >
+          <VintageButton
+            variant="section"
+            onClick={() => navigate('/')}
+            className="w-full flex items-center justify-center gap-2"
+          >
+            <HomePlateIcon className="w-4 h-4" />
+            Home
+          </VintageButton>
+        </motion.div>
+      )}
 
       {/* Navigation — playtest gets back button */}
       {isPlaytest && (

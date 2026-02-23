@@ -47,11 +47,20 @@ function isPlaytestSession(sessionId: string | null): boolean {
   return !!sessionId && sessionId.startsWith('playtest-');
 }
 
+function isReplaySession(sessionId: string | null): boolean {
+  return !!sessionId && sessionId.startsWith('replay-');
+}
+
+function isVirtualSession(sessionId: string | null): boolean {
+  return isPlaytestSession(sessionId) || isReplaySession(sessionId);
+}
+
 export function useGame() {
   const [state, setState] = useState<GameState>(initialState);
   const submittingRef = useRef(false);
 
   const isPlaytest = isPlaytestSession(state.sessionId);
+  const isReplay = isReplaySession(state.sessionId);
 
   // Combined load + start: check localStorage first, then fetch from server
   const loadAndStart = useCallback(async () => {
@@ -157,6 +166,30 @@ export function useGame() {
     }
   }, []);
 
+  // Replay: load a completed challenge by ID via public API, no real session
+  const loadReplay = useCallback(async (challengeId: number) => {
+    setState(s => ({ ...s, phase: 'loading', error: null }));
+
+    try {
+      const data = await api.startReplay(challengeId);
+
+      setState(s => ({
+        ...s,
+        phase: 'picking',
+        challenge: data.challenge,
+        sessionId: data.session.id, // "replay-{id}-{timestamp}"
+        rounds: data.rounds,
+        communityStats: data.communityStats,
+        currentRoundIndex: 0,
+        picks: [],
+        pickSubmissions: [],
+      }));
+      // No localStorage save for replay
+    } catch (err) {
+      setState(s => ({ ...s, phase: 'idle', error: (err as Error).message }));
+    }
+  }, []);
+
   // Synchronous pick: compute Sandlot Score locally, build reveal data, save to localStorage
   const submitPick = useCallback((playerRecordId: number, year: number, wasTimeout = false) => {
     if (submittingRef.current) return;
@@ -230,8 +263,8 @@ export function useGame() {
       const newSubmissions = [...prev.pickSubmissions, newSubmission];
       const newRoundIndex = prev.currentRoundIndex + 1;
 
-      // Save to localStorage (skip for playtest)
-      if (prev.challenge && !isPlaytestSession(prev.sessionId)) {
+      // Save to localStorage (skip for playtest/replay)
+      if (prev.challenge && !isVirtualSession(prev.sessionId)) {
         saveGame({
           challengeId: prev.challenge.id,
           challengeDate: prev.challenge.date,
@@ -271,8 +304,8 @@ export function useGame() {
     if (!state.challenge || !state.sessionId || submittingRef.current) return;
     submittingRef.current = true;
 
-    // Playtest: skip server submission, compute results client-side
-    if (isPlaytestSession(state.sessionId)) {
+    // Playtest/Replay: skip server submission, compute results client-side
+    if (isVirtualSession(state.sessionId)) {
       const totalScore = state.picks.reduce((sum, p) => sum + p.legendScore, 0);
       const roundedTotal = Math.round(totalScore * 10) / 10;
 
@@ -282,6 +315,10 @@ export function useGame() {
         const round = state.rounds.find(r => r.roundNumber === pick.roundNumber);
         let team = '';
         let stats: Record<string, number> = {};
+        let portraitUrl: string | null = null;
+        let blurb: string | undefined;
+        let categoryZscores: Record<string, number> | undefined;
+        let playerType: 'batter' | 'pitcher' | undefined;
         if (round && submission) {
           for (const player of round.players) {
             const yo = player.yearOptions.find(
@@ -290,6 +327,10 @@ export function useGame() {
             if (yo) {
               team = yo.team;
               stats = yo.stats;
+              portraitUrl = player.portraitUrl;
+              blurb = player.blurbs?.[String(yo.year)];
+              categoryZscores = yo.categoryZscores;
+              playerType = yo.playerType;
               break;
             }
           }
@@ -303,6 +344,10 @@ export function useGame() {
           legendScore: pick.legendScore,
           stats,
           wasTimeout: submission?.wasTimeout ?? false,
+          portraitUrl,
+          blurb,
+          categoryZscores,
+          playerType,
         };
       });
 
@@ -330,6 +375,8 @@ export function useGame() {
                 team: yo.team,
                 stats: yo.stats,
                 playerType: yo.playerType,
+                blurb: player.blurbs?.[String(yo.year)],
+                categoryZscores: yo.categoryZscores,
               };
             }
           }
@@ -338,15 +385,26 @@ export function useGame() {
       });
       const perfectTotal = Math.round(perfectPicks.reduce((sum, p) => sum + p.legendScore, 0) * 10) / 10;
 
+      // Replay: fetch real percentile from server; playtest: use zeros
+      let percentile = 0;
+      let totalParticipants = 0;
+      if (isReplaySession(state.sessionId) && state.challenge) {
+        try {
+          const pctData = await api.getReplayPercentile(state.challenge.id, roundedTotal);
+          percentile = pctData.percentile;
+          totalParticipants = pctData.totalParticipants;
+        } catch { /* fall back to 0 */ }
+      }
+
       const playtestResults: ResultsData = {
         session: {
           totalLegendScore: roundedTotal,
-          percentile: 0,
+          percentile,
           completedAt: new Date().toISOString(),
         },
         picks: resultsPicks,
         perfectLineup: { picks: perfectPicks, totalScore: perfectTotal },
-        totalParticipants: 0,
+        totalParticipants,
         communityStats: state.communityStats,
       };
 
@@ -356,8 +414,8 @@ export function useGame() {
         playtestResults,
         completeResponse: {
           totalLegendScore: roundedTotal,
-          percentile: 0,
-          totalParticipants: 0,
+          percentile,
+          totalParticipants,
           communityStats: [],
           perfectLineup: { picks: perfectPicks, totalScore: perfectTotal },
         },
@@ -406,8 +464,10 @@ export function useGame() {
     error: state.error,
     isSubmitting: submittingRef,
     isPlaytest,
+    isReplay,
     loadAndStart,
     loadPlaytest,
+    loadReplay,
     submitPick,
     advanceRound,
     submitFinal,

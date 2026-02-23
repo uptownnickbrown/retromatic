@@ -155,43 +155,52 @@ export async function generateShareImage(opts: {
     }
   }
 
-  // Dynamic label: "SANDLOT LEGEND" or "BEST PICK"
+  // ─── Left card: text area below portrait ───
+  // Layout: portrait ends at portraitY+portraitH, card ends at cardY+cardH
+  // Target: score pill ~30px from card bottom, label/name/team evenly spaced above
+  const textTop = portraitY + portraitH + 12;
+  const cardBottom = cardY + cardH;
+  const pillH = 40;
+  const pillW = 96;
+  const pillY = cardBottom - 30 - pillH;
+  const textZone = pillY - textTop; // space for label + name + team
+
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
+
+  // Dynamic label: "SANDLOT LEGEND" or "BEST PICK"
+  const labelY = textTop + textZone * 0.22;
   if (bestScore >= 9.5) {
     ctx.fillStyle = GOLD;
-    ctx.font = '900 14px "Playfair Display", Georgia, serif';
+    ctx.font = '900 15px "Playfair Display", Georgia, serif';
     ctx.letterSpacing = '4px';
-    ctx.fillText('SANDLOT LEGEND', cardX + cardW / 2, portraitY + portraitH + 28);
+    ctx.fillText('SANDLOT LEGEND', cardX + cardW / 2, labelY);
   } else {
     ctx.fillStyle = MUTED;
     ctx.font = '700 14px "Space Mono", monospace';
     ctx.letterSpacing = '4px';
-    ctx.fillText('BEST PICK', cardX + cardW / 2, portraitY + portraitH + 28);
+    ctx.fillText('BEST PICK', cardX + cardW / 2, labelY);
   }
   ctx.letterSpacing = '0px';
 
   if (bestPick) {
-    // Player name — large
+    // Player name
     ctx.fillStyle = NAVY;
-    ctx.font = '900 28px "Playfair Display", Georgia, serif';
-    ctx.fillText(bestPick.playerName, cardX + cardW / 2, portraitY + portraitH + 62);
+    ctx.font = '900 30px "Playfair Display", Georgia, serif';
+    ctx.fillText(bestPick.playerName, cardX + cardW / 2, textTop + textZone * 0.55);
 
-    // Team (no year — avoid spoilers)
+    // Team
     ctx.fillStyle = MUTED;
-    ctx.font = '700 16px "Space Mono", monospace';
-    ctx.fillText(getTeamFullName(bestPick.team), cardX + cardW / 2, portraitY + portraitH + 86);
+    ctx.font = '700 17px "Space Mono", monospace';
+    ctx.fillText(getTeamFullName(bestPick.team), cardX + cardW / 2, textTop + textZone * 0.82);
 
-    // Score pill
-    const pillW = 90;
-    const pillH = 36;
+    // Score pill — near bottom of card
     const pillX = cardX + cardW / 2 - pillW / 2;
-    const pillY = portraitY + portraitH + 100;
-    roundRect(ctx, pillX, pillY, pillW, pillH, 18);
+    roundRect(ctx, pillX, pillY, pillW, pillH, 20);
     ctx.fillStyle = tierColor(bestScore);
     ctx.fill();
     ctx.fillStyle = '#FFF';
-    ctx.font = '700 20px "Space Mono", monospace';
+    ctx.font = '700 22px "Space Mono", monospace';
     ctx.textBaseline = 'middle';
     ctx.fillText(bestScore.toFixed(1), cardX + cardW / 2, pillY + pillH / 2);
     ctx.textBaseline = 'alphabetic';
@@ -209,21 +218,21 @@ export async function generateShareImage(opts: {
 
   drawInkDivider(ctx, 140, cx, 860);
 
-  // Date
-  ctx.fillStyle = MUTED;
-  ctx.font = '700 20px "Space Mono", monospace';
-  ctx.fillText(opts.date, centerX, 174);
-
   // Big score
   ctx.fillStyle = NAVY;
   ctx.font = '900 120px "Playfair Display", Georgia, serif';
-  ctx.fillText(opts.totalScore.toFixed(1), centerX, 310);
+  ctx.fillText(opts.totalScore.toFixed(1), centerX, 290);
 
   // Percentile (ordinal format)
   const pctRank = Math.max(1, Math.round(opts.percentile));
   ctx.fillStyle = NAVY;
   ctx.font = '900 48px "Playfair Display", Georgia, serif';
-  ctx.fillText(`${ordinal(pctRank)} Percentile`, centerX, 408);
+  ctx.fillText(`${ordinal(pctRank)} Percentile`, centerX, 388);
+
+  // Date — bottom center
+  ctx.fillStyle = NAVY;
+  ctx.font = '700 26px "Space Mono", monospace';
+  ctx.fillText(opts.date, centerX, H - 50);
 
   // ─── RIGHT COLUMN: Lineup ───
   const rX = 880; // left edge of lineup column
@@ -246,12 +255,12 @@ export async function generateShareImage(opts: {
       ctx.fill();
     }
 
-    // Position label
+    // Position label — right-aligned, close to score
     ctx.fillStyle = isLegend ? GOLD : `${MUTED}CC`;
     ctx.font = '700 18px "Space Mono", monospace';
     ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText(pick.position.padEnd(4), rX, rowY + lineupRowH / 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(pick.position, lineupRight - 80, rowY + lineupRowH / 2);
 
     // Score
     ctx.fillStyle = isLegend ? GOLD : tierColor(score);

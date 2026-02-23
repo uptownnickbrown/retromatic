@@ -42,7 +42,7 @@ function preseedToken(challengeId: number, index: number): string {
   return `${PRESEED_TOKEN_PREFIX}${challengeId}-${index}`;
 }
 
-export async function preseedStatsForChallenge(challengeId: number): Promise<{
+export async function preseedStatsForChallenge(challengeId: number, count?: number): Promise<{
   roundsSeeded: number;
   totalPicks: number;
   syntheticSessions: number;
@@ -130,7 +130,8 @@ export async function preseedStatsForChallenge(challengeId: number): Promise<{
 
   const rosters: Roster[] = [];
 
-  for (let i = 0; i < SIMULATED_COMPLETIONS; i++) {
+  const completions = count ?? SIMULATED_COMPLETIONS;
+  for (let i = 0; i < completions; i++) {
     const picks: PickOption[] = [];
     let totalScore = 0;
 

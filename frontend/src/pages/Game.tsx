@@ -31,6 +31,8 @@ export function Game() {
   const [searchParams] = useSearchParams();
   const playtestId = searchParams.get('playtest');
   const playtestChallengeId = playtestId ? parseInt(playtestId) : null;
+  const replayId = searchParams.get('replay');
+  const replayChallengeId = replayId ? parseInt(replayId) : null;
   const [isPaused, setIsPaused] = useState(false);
 
   const game = useGame();
@@ -51,6 +53,8 @@ export function Game() {
   useEffect(() => {
     if (playtestChallengeId) {
       game.loadPlaytest(playtestChallengeId);
+    } else if (replayChallengeId) {
+      game.loadReplay(replayChallengeId);
     } else {
       game.loadAndStart();
     }
@@ -74,8 +78,12 @@ export function Game() {
   useEffect(() => {
     if (game.phase === 'complete' && game.challenge) {
       if (game.isPlaytest) {
-        // Navigate to results page with playtest data in router state
         navigate(`/results/${game.challenge.id}?playtest=true`, {
+          replace: true,
+          state: { playtestResults: game.playtestResults, challengeId: game.challenge.id },
+        });
+      } else if (game.isReplay) {
+        navigate(`/results/${game.challenge.id}?replay=true`, {
           replace: true,
           state: { playtestResults: game.playtestResults, challengeId: game.challenge.id },
         });
@@ -83,7 +91,7 @@ export function Game() {
         navigate(`/results/${game.challenge.id}`, { replace: true });
       }
     }
-  }, [game.phase, game.challenge, game.isPlaytest, game.playtestResults, navigate]);
+  }, [game.phase, game.challenge, game.isPlaytest, game.isReplay, game.playtestResults, navigate]);
 
   const handlePick = useCallback((playerId: number, year: number) => {
     timer.stop();
@@ -229,7 +237,10 @@ export function Game() {
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col justify-center py-2">
+      <div className={cn(
+        'flex-1 flex flex-col justify-center py-2',
+        game.phase === 'revealing' && 'pb-20',
+      )}>
         <AnimatePresence mode="wait">
           {game.phase === 'picking' && game.currentRound && (
             <motion.div
@@ -258,7 +269,7 @@ export function Game() {
                 <Loader2 className="w-6 h-6 text-navy" />
               </motion.div>
               <p className="text-muted text-sm font-mono">
-                {game.isPlaytest ? 'Finishing playtest...' : 'Submitting your lineup...'}
+                {game.isPlaytest ? 'Finishing playtest...' : game.isReplay ? 'Computing your score...' : 'Submitting your lineup...'}
               </p>
             </motion.div>
           )}
@@ -278,7 +289,7 @@ export function Game() {
 
       {/* Sticky "Next Round" button — visible without scrolling */}
       {game.phase === 'revealing' && game.reveal && (
-        <div className="sticky bottom-0 px-3 pb-3 pt-2 bg-gradient-to-t from-bone via-bone/95 to-transparent">
+        <div className="sticky bottom-0 px-3 pb-6 pt-2 bg-gradient-to-t from-bone via-bone/95 to-transparent">
           <button
             onClick={handleContinue}
             className={cn(
