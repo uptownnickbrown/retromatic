@@ -50,10 +50,12 @@ export interface PickPercentage {
   playerId: number;
   year: number;
   percentage: number;
+  count?: number;
 }
 
 export interface RoundCommunityStats {
   roundId: number;
+  totalPicks?: number;
   picks: PickPercentage[];
 }
 

@@ -361,18 +361,22 @@ router.post('/:id/complete', async (req, res) => {
       `);
     }
 
-    // Calculate percentile
-    const percentile = await calculateSessionPercentile(challengeId, roundedTotal);
-
-    // Complete session
+    // Step 1: Mark session completed with score (so percentile query includes this session)
     await db.update(gameSessions)
       .set({
         currentRound: 11,
         status: 'completed',
         totalLegendScore: String(roundedTotal),
-        percentile,
         completedAt: new Date(),
       })
+      .where(eq(gameSessions.id, sessionId));
+
+    // Step 2: Calculate percentile (now includes this session in the query)
+    const percentile = await calculateSessionPercentile(challengeId, roundedTotal);
+
+    // Step 3: Store the percentile
+    await db.update(gameSessions)
+      .set({ percentile })
       .where(eq(gameSessions.id, sessionId));
 
     // Perfect lineup
@@ -698,9 +702,11 @@ export async function getAllRoundData(challengeId: number) {
     const total = roundStatEntries.reduce((sum, s) => sum + s.pickCount, 0);
     return {
       roundId,
+      totalPicks: total,
       picks: roundStatEntries.map(s => ({
         playerId: s.playerId,
         year: s.selectedYear,
+        count: s.pickCount,
         percentage: total > 0 ? Math.round((s.pickCount / total) * 100) : 0,
       })),
     };
@@ -752,9 +758,11 @@ function buildCommunityStats(roundIds: number[], allStats: Array<{ roundId: numb
     const total = entries.reduce((sum, s) => sum + s.pickCount, 0);
     return {
       roundId,
+      totalPicks: total,
       picks: entries.map(s => ({
         playerId: s.playerId,
         year: s.selectedYear,
+        count: s.pickCount,
         percentage: total > 0 ? Math.round((s.pickCount / total) * 100) : 0,
       })),
     };
