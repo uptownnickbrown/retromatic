@@ -89,8 +89,22 @@ promoteNextChallenge()
 
 startMidnightScheduler();
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Sandlot API running on port ${PORT}`);
 });
+
+// Graceful shutdown — prevents Railway from reporting SIGTERM as a crash
+function shutdown(signal: string) {
+  console.log(`${signal} received, shutting down gracefully`);
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+  // Force exit after 5s if connections don't drain
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 export default app;
