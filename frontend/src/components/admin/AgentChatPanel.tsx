@@ -4,34 +4,39 @@ import { X, Send, Loader2, Check, AlertTriangle, Search, Sparkles, ChevronDown, 
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { streamAgentBuild, streamAgentContinue } from '../../lib/adminApi';
-import { INITIAL_SESSION_STATE } from '../../lib/adminApi';
-import type { AgentEvent, ProposalData, AgentSessionState, AgentChatMessage } from '../../lib/adminApi';
+import type { AgentEvent, ProposalData, AgentSessionState, AgentChatMessage, AgentAction } from '../../lib/adminApi';
 
 interface AgentChatPanelProps {
   open: boolean;
   onClose: () => void;
-  // Lifted state for conversation persistence across panel open/close
   sessionState: AgentSessionState;
-  onSessionStateChange: (state: AgentSessionState) => void;
+  dispatch: React.Dispatch<AgentAction>;
 }
 
-export function AgentChatPanel({ open, onClose, sessionState, onSessionStateChange }: AgentChatPanelProps) {
+function formatToolCall(tool: string, args?: Record<string, unknown>): string {
+  if (tool === 'search_players') {
+    const parts: string[] = [];
+    if (args?.name) parts.push(String(args.name));
+    if (args?.team) parts.push(String(args.team));
+    if (args?.position) parts.push(String(args.position));
+    if (args?.yearMin || args?.yearMax) {
+      parts.push(`${args.yearMin || '...'}–${args.yearMax || '...'}`);
+    }
+    return parts.length > 0 ? `Searching: ${parts.join(', ')}` : 'Searching players...';
+  }
+  if (tool === 'preview_challenge') return 'Building preview...';
+  if (tool === 'submit_challenge') return 'Submitting challenge...';
+  return tool;
+}
+
+export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentChatPanelProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [input, setInput] = useState('');
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const msgIdRef = useRef(
-    sessionState.messages.length > 0
-      ? Math.max(...sessionState.messages.map(m => m.id))
-      : 0,
-  );
 
-  const { messages, running, awaitingFeedback, sessionId } = sessionState;
-
-  const updateState = useCallback((partial: Partial<AgentSessionState>) => {
-    onSessionStateChange({ ...sessionState, ...partial });
-  }, [sessionState, onSessionStateChange]);
+  const { messages, running, awaitingFeedback, sessionId, phase, startedAt } = sessionState;
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -43,99 +48,86 @@ export function AgentChatPanel({ open, onClose, sessionState, onSessionStateChan
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  const addMessage = useCallback((msg: Omit<AgentChatMessage, 'id'>) => {
-    const newMsg = { ...msg, id: ++msgIdRef.current };
-    onSessionStateChange({
-      ...sessionState,
-      messages: [...sessionState.messages, newMsg],
-    });
-  }, [sessionState, onSessionStateChange]);
-
   const handleEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case 'session':
-        updateState({ sessionId: event.sessionId || null });
+        dispatch({ type: 'SESSION', sessionId: event.sessionId || '' });
         break;
       case 'thinking':
       case 'message':
-        addMessage({ type: 'agent', text: event.message || '' });
+        dispatch({ type: 'AGENT_MESSAGE', text: event.message || '' });
         break;
       case 'tool_call':
-        addMessage({
-          type: 'tool',
-          text: `${event.tool}(${JSON.stringify(event.args).slice(0, 100)}...)`,
-          toolName: event.tool,
+        dispatch({
+          type: 'TOOL_CALL',
+          text: formatToolCall(event.tool || '', event.args),
+          toolName: event.tool || '',
+          toolArgs: event.args,
         });
         break;
       case 'proposal':
-        addMessage({
-          type: 'proposal',
+        dispatch({
+          type: 'PROPOSAL',
           text: `Proposed: "${event.proposal?.theme}"`,
-          proposal: event.proposal,
+          proposal: event.proposal!,
         });
         break;
       case 'awaiting_feedback':
-        updateState({ awaitingFeedback: true, running: false, sessionId: event.sessionId || sessionState.sessionId });
+        dispatch({ type: 'AWAITING_FEEDBACK', sessionId: event.sessionId });
         break;
       case 'success':
-        addMessage({
-          type: 'success',
+        dispatch({
+          type: 'SUCCESS',
           text: `Challenge #${event.challengeId} created! Theme: "${event.theme}"`,
         });
         qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
-        updateState({ running: false, awaitingFeedback: false, sessionId: null });
         break;
       case 'error':
-        addMessage({ type: 'error', text: event.message || 'Unknown error' });
-        updateState({ running: false });
+        dispatch({ type: 'ERROR', text: event.message || 'Unknown error' });
         break;
       case 'error_recoverable':
-        addMessage({ type: 'error', text: `Retrying: ${event.message}` });
+        dispatch({ type: 'ERROR_RECOVERABLE', text: `Retrying: ${event.message}` });
         break;
       case 'complete':
-        updateState({ running: false });
+        dispatch({ type: 'COMPLETE' });
         break;
     }
-  }, [addMessage, updateState, qc, sessionState.sessionId]);
+  }, [dispatch, qc]);
 
   const handleSubmit = useCallback(() => {
     if (!input.trim() || running) return;
     const text = input.trim();
     setInput('');
-    addMessage({ type: 'user', text });
-    updateState({ running: true, awaitingFeedback: false });
+    dispatch({ type: 'USER_MESSAGE', text });
+    dispatch({ type: 'START_RUNNING' });
 
     let stream: { abort: () => void };
     if (awaitingFeedback && sessionId) {
-      // Continue existing conversation
       stream = streamAgentContinue(sessionId, text, handleEvent);
     } else {
-      // Start new conversation
       stream = streamAgentBuild(text, handleEvent);
     }
 
     abortRef.current = stream;
-  }, [input, running, awaitingFeedback, sessionId, addMessage, updateState, handleEvent]);
+  }, [input, running, awaitingFeedback, sessionId, dispatch, handleEvent]);
 
   const handleApprove = useCallback(() => {
     if (!sessionId || running) return;
-    addMessage({ type: 'user', text: 'Approved, submit the challenge.' });
-    updateState({ running: true, awaitingFeedback: false });
+    dispatch({ type: 'USER_MESSAGE', text: 'Approved, submit the challenge.' });
+    dispatch({ type: 'START_RUNNING' });
     const stream = streamAgentContinue(sessionId, 'The user approved the preview. Call submit_challenge with the same lineup.', handleEvent);
     abortRef.current = stream;
-  }, [sessionId, running, addMessage, updateState, handleEvent]);
+  }, [sessionId, running, dispatch, handleEvent]);
 
   const handleNewChat = useCallback(() => {
     abortRef.current?.abort();
-    msgIdRef.current = 0;
-    onSessionStateChange(INITIAL_SESSION_STATE);
-  }, [onSessionStateChange]);
+    dispatch({ type: 'RESET' });
+  }, [dispatch]);
 
   const handleClose = () => {
-    // Don't clear state — just hide the panel
     if (running) {
       abortRef.current?.abort();
-      updateState({ running: false });
+      dispatch({ type: 'COMPLETE' });
     }
     onClose();
   };
@@ -212,7 +204,13 @@ export function AgentChatPanel({ open, onClose, sessionState, onSessionStateChan
               {running && (
                 <div className="flex items-center gap-2 py-2">
                   <Loader2 className="w-3.5 h-3.5 text-navy/40 animate-spin" />
-                  <span className="font-mono text-[10px] text-muted">Thinking...</span>
+                  <span className="font-mono text-[11px] text-muted">
+                    {phase === 'searching' ? 'Searching players...'
+                      : phase === 'building' ? 'Building preview...'
+                        : phase === 'submitting' ? 'Submitting challenge...'
+                          : 'Thinking...'}
+                  </span>
+                  {startedAt && <ElapsedTimer startedAt={startedAt} />}
                 </div>
               )}
             </div>
@@ -224,7 +222,7 @@ export function AgentChatPanel({ open, onClose, sessionState, onSessionStateChan
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
-                  placeholder={awaitingFeedback ? 'Suggest changes or type to approve...' : 'Describe a challenge...'}
+                  placeholder={awaitingFeedback ? 'e.g. "Swap Griffey for Bonds at OF"' : 'Describe a challenge...'}
                   disabled={running}
                   className="flex-1 px-3 py-2 font-mono text-sm bg-paper border-2 border-navy/15 rounded
                              text-navy placeholder:text-muted/40
@@ -245,6 +243,25 @@ export function AgentChatPanel({ open, onClose, sessionState, onSessionStateChan
     </AnimatePresence>
   );
 }
+
+// ─── Elapsed Timer ──────────────────────────────────────────
+
+function ElapsedTimer({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+  return (
+    <span className="font-mono text-[10px] text-muted/40 tabular-nums ml-auto">
+      {elapsed}s
+    </span>
+  );
+}
+
+// ─── Message Bubble ─────────────────────────────────────────
 
 function MessageBubble({
   message,
@@ -269,9 +286,22 @@ function MessageBubble({
 
   if (message.type === 'tool') {
     return (
-      <div className="flex items-center gap-1.5 py-0.5">
-        <Search className="w-3 h-3 text-muted/40 flex-shrink-0" />
-        <span className="font-mono text-[9px] text-muted/60 truncate">{message.text}</span>
+      <div className="flex items-start gap-2 py-1 pl-2 border-l-2 border-navy/10">
+        <Search className="w-3.5 h-3.5 text-navy/30 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <span className="font-mono text-[11px] text-navy/50">{message.text}</span>
+          {message.toolArgs && message.toolName === 'search_players' && (
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+              {Object.entries(message.toolArgs)
+                .filter(([, v]) => v != null)
+                .map(([k, v]) => (
+                  <span key={k} className="font-mono text-[10px] text-muted/60">
+                    {k}: {String(v)}
+                  </span>
+                ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -405,7 +435,7 @@ function ProposalCard({
         </div>
       )}
 
-      {/* Approve button */}
+      {/* Approve button + edit hint */}
       {isActive && (
         <div className="px-3 py-2.5 border-t border-navy/10">
           <button
@@ -416,6 +446,9 @@ function ProposalCard({
             <Check className="w-3.5 h-3.5" />
             Approve & Submit
           </button>
+          <p className="font-mono text-[10px] text-muted/50 mt-2 text-center">
+            Or type below to request changes (swap players, adjust years, etc.)
+          </p>
         </div>
       )}
     </div>

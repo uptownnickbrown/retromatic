@@ -319,19 +319,25 @@ export function streamBakeAll(onEvent: (event: Record<string, unknown>) => void)
 
 // --- Agent Session State (shared with AgentChatPanel) ---
 
-export interface AgentSessionState {
-  sessionId: string | null;
-  messages: AgentChatMessage[];
-  awaitingFeedback: boolean;
-  running: boolean;
-}
+export type AgentPhase = 'idle' | 'thinking' | 'searching' | 'building' | 'submitting';
 
 export interface AgentChatMessage {
   id: number;
   type: 'user' | 'agent' | 'tool' | 'success' | 'error' | 'proposal';
   text: string;
   toolName?: string;
+  toolArgs?: Record<string, unknown>;
   proposal?: ProposalData;
+}
+
+export interface AgentSessionState {
+  sessionId: string | null;
+  messages: AgentChatMessage[];
+  awaitingFeedback: boolean;
+  running: boolean;
+  phase: AgentPhase;
+  startedAt: number | null;
+  nextMsgId: number;
 }
 
 export const INITIAL_SESSION_STATE: AgentSessionState = {
@@ -339,7 +345,70 @@ export const INITIAL_SESSION_STATE: AgentSessionState = {
   messages: [],
   awaitingFeedback: false,
   running: false,
+  phase: 'idle',
+  startedAt: null,
+  nextMsgId: 0,
 };
+
+// --- Reducer for atomic state updates (fixes stale closure race condition) ---
+
+export type AgentAction =
+  | { type: 'SESSION'; sessionId: string }
+  | { type: 'AGENT_MESSAGE'; text: string }
+  | { type: 'TOOL_CALL'; text: string; toolName: string; toolArgs?: Record<string, unknown> }
+  | { type: 'PROPOSAL'; text: string; proposal: ProposalData }
+  | { type: 'AWAITING_FEEDBACK'; sessionId?: string }
+  | { type: 'SUCCESS'; text: string }
+  | { type: 'ERROR'; text: string }
+  | { type: 'ERROR_RECOVERABLE'; text: string }
+  | { type: 'COMPLETE' }
+  | { type: 'START_RUNNING' }
+  | { type: 'USER_MESSAGE'; text: string }
+  | { type: 'RESET' };
+
+function addMsg(state: AgentSessionState, msg: Omit<AgentChatMessage, 'id'>): AgentSessionState {
+  const id = state.nextMsgId + 1;
+  return { ...state, messages: [...state.messages, { ...msg, id }], nextMsgId: id };
+}
+
+function phaseFromTool(toolName: string): AgentPhase {
+  if (toolName === 'search_players') return 'searching';
+  if (toolName === 'preview_challenge') return 'building';
+  if (toolName === 'submit_challenge') return 'submitting';
+  return 'thinking';
+}
+
+export function agentReducer(state: AgentSessionState, action: AgentAction): AgentSessionState {
+  switch (action.type) {
+    case 'SESSION':
+      return { ...state, sessionId: action.sessionId };
+    case 'AGENT_MESSAGE':
+      return { ...addMsg(state, { type: 'agent', text: action.text }), phase: 'thinking' };
+    case 'TOOL_CALL':
+      return {
+        ...addMsg(state, { type: 'tool', text: action.text, toolName: action.toolName, toolArgs: action.toolArgs }),
+        phase: phaseFromTool(action.toolName),
+      };
+    case 'PROPOSAL':
+      return addMsg(state, { type: 'proposal', text: action.text, proposal: action.proposal });
+    case 'AWAITING_FEEDBACK':
+      return { ...state, awaitingFeedback: true, running: false, sessionId: action.sessionId || state.sessionId, phase: 'idle', startedAt: null };
+    case 'SUCCESS':
+      return { ...addMsg(state, { type: 'success', text: action.text }), running: false, awaitingFeedback: false, sessionId: null, phase: 'idle', startedAt: null };
+    case 'ERROR':
+      return { ...addMsg(state, { type: 'error', text: action.text }), running: false, phase: 'idle', startedAt: null };
+    case 'ERROR_RECOVERABLE':
+      return addMsg(state, { type: 'error', text: action.text });
+    case 'COMPLETE':
+      return { ...state, running: false, phase: 'idle', startedAt: null };
+    case 'START_RUNNING':
+      return { ...state, running: true, awaitingFeedback: false, phase: 'thinking', startedAt: Date.now() };
+    case 'USER_MESSAGE':
+      return addMsg(state, { type: 'user', text: action.text });
+    case 'RESET':
+      return { ...INITIAL_SESSION_STATE };
+  }
+}
 
 // --- Agent Builder ---
 

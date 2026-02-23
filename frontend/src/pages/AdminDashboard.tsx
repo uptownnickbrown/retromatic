@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect, startTransition } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, startTransition, useReducer } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, Reorder } from 'framer-motion';
 import {
@@ -37,8 +37,7 @@ import { InlineThemeEditor } from '../components/admin/InlineThemeEditor';
 import { clearAdminSecret } from '../lib/adminApi';
 import { streamBakeAll } from '../lib/adminApi';
 import { AgentChatPanel } from '../components/admin/AgentChatPanel';
-import { INITIAL_SESSION_STATE } from '../lib/adminApi';
-import type { AgentSessionState } from '../lib/adminApi';
+import { INITIAL_SESSION_STATE, agentReducer } from '../lib/adminApi';
 import { cn } from '../lib/utils';
 import type { PipelineChallenge, HistoryChallenge } from '../lib/adminApi';
 
@@ -60,7 +59,7 @@ export function AdminDashboard() {
   const promoteMutation = usePromoteNext();
   const forceActivateMutation = useForceActivate();
   const [agentOpen, setAgentOpen] = useState(false);
-  const [agentSession, setAgentSession] = useState<AgentSessionState>(INITIAL_SESSION_STATE);
+  const [agentSession, agentDispatch] = useReducer(agentReducer, INITIAL_SESSION_STATE);
 
   // Bake-all SSE state
   const [bakeAllProgress, setBakeAllProgress] = useState<{
@@ -420,7 +419,7 @@ export function AdminDashboard() {
         open={agentOpen}
         onClose={() => setAgentOpen(false)}
         sessionState={agentSession}
-        onSessionStateChange={setAgentSession}
+        dispatch={agentDispatch}
       />
     </div>
   );
