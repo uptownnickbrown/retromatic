@@ -186,6 +186,25 @@ export function useBakeChallenge() {
   });
 }
 
+export function useStalePortraits(before?: string) {
+  return useQuery({
+    queryKey: ['admin', 'portraits', 'stale', before],
+    queryFn: () => adminApi.getStalePortraits(before),
+    enabled: false, // manual trigger only
+  });
+}
+
+export function useRegenerateStalePortraits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (optionIds: number[]) => adminApi.regenerateStalePortraits(optionIds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'portraits', 'stale'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}
+
 export function useRegenerateOptionPortrait() {
   const qc = useQueryClient();
   return useMutation({
