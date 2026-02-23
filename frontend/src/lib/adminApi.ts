@@ -551,6 +551,47 @@ export function streamAgentContinue(
   return { abort: () => controller.abort() };
 }
 
+// --- Stale Portraits ---
+
+export interface StalePortrait {
+  optionId: number;
+  playerId: string;
+  playerName: string;
+  challengeId: number;
+  fileDate: string;
+}
+
+export interface StalePortraitsResponse {
+  staleCount: number;
+  portraits: StalePortrait[];
+}
+
+export interface RegenerateResult {
+  optionId: number;
+  playerName: string;
+  confidence: number;
+  attempts: number;
+  error?: string;
+}
+
+export interface RegenerateStaleResponse {
+  regenerated: number;
+  failed: number;
+  results: RegenerateResult[];
+}
+
+export async function getStalePortraits(before?: string): Promise<StalePortraitsResponse> {
+  const params = before ? `?before=${encodeURIComponent(before)}` : '';
+  return adminFetch(`/admin/portraits/stale${params}`);
+}
+
+export async function regenerateStalePortraits(optionIds: number[]): Promise<RegenerateStaleResponse> {
+  return adminFetch('/admin/portraits/regenerate-stale', {
+    method: 'POST',
+    body: JSON.stringify({ optionIds }),
+  });
+}
+
 // --- Single-player operations ---
 
 export async function regenerateOptionPortrait(optionId: number): Promise<{ generated: boolean; portraitUrl: string }> {

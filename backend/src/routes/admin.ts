@@ -8,12 +8,13 @@ import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pla
 import { eq, and, desc, inArray, sql, asc } from 'drizzle-orm';
 import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
-import { generatePortraitsForChallenge, generatePortraitForOption } from '../services/portraitGenerator.js';
+import { generatePortraitsForChallenge, generatePortraitForOption, PORTRAITS_DIR, getPortraitPath } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
 import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
+import { asyncPool } from '../lib/asyncPool.js';
 import { getTodayET } from '../lib/date.js';
 import { getAllRoundData } from './challenge.js';
 
@@ -1138,6 +1139,149 @@ router.post('/portraits/upload', express.raw({ type: 'image/png', limit: '5mb' }
   } catch (error) {
     console.error('Portrait upload error:', error);
     res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// Find stale portraits (generated before a cutoff timestamp)
+router.get('/portraits/stale', async (req, res) => {
+  try {
+    const beforeParam = req.query.before as string | undefined;
+    const cutoffMs = beforeParam
+      ? new Date(beforeParam).getTime()
+      : Date.now() - 48 * 60 * 60 * 1000; // default: 48 hours ago
+
+    if (isNaN(cutoffMs)) {
+      res.status(400).json({ error: 'Invalid "before" timestamp' });
+      return;
+    }
+
+    // Scan portrait directory for old files
+    if (!fs.existsSync(PORTRAITS_DIR)) {
+      res.json({ staleCount: 0, portraits: [] });
+      return;
+    }
+
+    const files = fs.readdirSync(PORTRAITS_DIR).filter(f => f.endsWith('.webp'));
+    const stalePlayerIds = new Set<string>();
+
+    for (const file of files) {
+      const filePath = path.join(PORTRAITS_DIR, file);
+      const stat = fs.statSync(filePath);
+      if (stat.mtimeMs < cutoffMs) {
+        stalePlayerIds.add(file.replace('.webp', ''));
+      }
+    }
+
+    if (stalePlayerIds.size === 0) {
+      res.json({ staleCount: 0, portraits: [] });
+      return;
+    }
+
+    // Cross-reference with roundOptions to get player names and challenge IDs
+    const allOptions = await db.select({
+      optionId: roundOptions.id,
+      playerId: roundOptions.playerId,
+      playerName: roundOptions.playerName,
+      roundId: roundOptions.roundId,
+    }).from(roundOptions);
+
+    // Map roundId → challengeId
+    const allRounds = await db.select({
+      id: challengeRounds.id,
+      challengeId: challengeRounds.challengeId,
+    }).from(challengeRounds);
+    const roundToChallengeMap = new Map(allRounds.map(r => [r.id, r.challengeId]));
+
+    // Build stale portrait list (deduplicated by playerId — a player may appear in multiple challenges)
+    const seenPlayerIds = new Set<string>();
+    const portraits: Array<{
+      optionId: number;
+      playerId: string;
+      playerName: string;
+      challengeId: number;
+      fileDate: string;
+    }> = [];
+
+    for (const opt of allOptions) {
+      if (!stalePlayerIds.has(opt.playerId) || seenPlayerIds.has(opt.playerId)) continue;
+      seenPlayerIds.add(opt.playerId);
+
+      const filePath = getPortraitPath(opt.playerId);
+      const stat = fs.statSync(filePath);
+      const challengeId = roundToChallengeMap.get(opt.roundId) ?? 0;
+
+      portraits.push({
+        optionId: opt.optionId,
+        playerId: opt.playerId,
+        playerName: opt.playerName,
+        challengeId,
+        fileDate: new Date(stat.mtimeMs).toISOString(),
+      });
+    }
+
+    res.json({ staleCount: portraits.length, portraits });
+  } catch (error) {
+    console.error('Stale portraits error:', error);
+    res.status(500).json({ error: 'Failed to scan for stale portraits' });
+  }
+});
+
+// Regenerate stale portraits with quality validation
+router.post('/portraits/regenerate-stale', async (req, res) => {
+  try {
+    const { optionIds } = req.body as { optionIds: number[] };
+    if (!Array.isArray(optionIds) || optionIds.length === 0) {
+      res.status(400).json({ error: 'optionIds array required' });
+      return;
+    }
+
+    const results: Array<{
+      optionId: number;
+      playerName: string;
+      confidence: number;
+      attempts: number;
+      error?: string;
+    }> = [];
+
+    const { failures } = await asyncPool(
+      optionIds,
+      3,
+      async (optionId) => {
+        const result = await generatePortraitForOption(optionId);
+        // Look up player name for the response
+        const [opt] = await db.select({ playerName: roundOptions.playerName })
+          .from(roundOptions)
+          .where(eq(roundOptions.id, optionId))
+          .limit(1);
+        results.push({
+          optionId,
+          playerName: opt?.playerName ?? 'Unknown',
+          confidence: result.confidence,
+          attempts: result.attempts,
+        });
+        return optionId;
+      },
+      { retries: 1, backoffMs: 3000 },
+    );
+
+    for (const f of failures) {
+      results.push({
+        optionId: f.item,
+        playerName: 'Unknown',
+        confidence: 0,
+        attempts: 0,
+        error: f.error.message,
+      });
+    }
+
+    res.json({
+      regenerated: optionIds.length - failures.length,
+      failed: failures.length,
+      results,
+    });
+  } catch (error) {
+    console.error('Regenerate stale error:', error);
+    res.status(500).json({ error: 'Failed to regenerate stale portraits' });
   }
 });
 

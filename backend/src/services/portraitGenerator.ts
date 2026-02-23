@@ -28,9 +28,11 @@ const PORTRAITS_DIR = process.env.PORTRAIT_DIR
     '../../../frontend/public/portraits',
   );
 
-function getPortraitPath(playerId: string): string {
+export function getPortraitPath(playerId: string): string {
   return path.join(PORTRAITS_DIR, `${playerId}.webp`);
 }
+
+export { PORTRAITS_DIR };
 
 function portraitExists(playerId: string): boolean {
   return fs.existsSync(getPortraitPath(playerId));
@@ -108,6 +110,111 @@ async function processImage(rawBuffer: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+const VALIDATION_THRESHOLD = 3; // confidence >= 3 out of 5 = pass
+const MAX_VALIDATION_ATTEMPTS = 3;
+
+interface ValidationResult {
+  confidence: number;
+  reason: string;
+}
+
+interface ValidatedPortrait {
+  imageBuffer: Buffer;
+  confidence: number;
+  attempts: number;
+}
+
+/** Use a cheap vision model to check if the portrait looks like the intended player */
+async function validatePortrait(
+  imageBuffer: Buffer,
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+): Promise<ValidationResult> {
+  const client = getOpenAIClient();
+  if (!client) return { confidence: 5, reason: 'No API key — skipping validation' };
+
+  const b64 = imageBuffer.toString('base64');
+
+  const response = await client.responses.create({
+    model: 'gpt-4.1-mini',
+    input: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_image' as const,
+            image_url: `data:image/webp;base64,${b64}`,
+            detail: 'auto' as const,
+          },
+          {
+            type: 'input_text',
+            text: `This stipple portrait is supposed to depict MLB ${position} ${playerName} who played for the ${teamName} in ${year}. Rate how well it matches on a scale of 1-5:
+1 = Generic face, clearly not the intended player
+2 = Vaguely resembles someone but not convincingly this player
+3 = Reasonable likeness, could be this player
+4 = Good likeness, recognizably this player
+5 = Excellent likeness, clearly this player
+
+Consider: Does it look like a specific individual (not a generic baseball player)? Is the art style correct (stipple/hedcut, not cartoon or photo)?
+
+Respond with ONLY a JSON object: {"confidence": <number>, "reason": "<brief explanation>"}`,
+          },
+        ],
+      },
+    ],
+  });
+
+  try {
+    const text = response.output_text?.trim() ?? '';
+    // Strip markdown code fences if present
+    const jsonStr = text.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim();
+    const parsed = JSON.parse(jsonStr);
+    return {
+      confidence: Math.max(1, Math.min(5, Math.round(parsed.confidence))),
+      reason: String(parsed.reason ?? ''),
+    };
+  } catch {
+    console.warn('  Portrait validation parse error, assuming pass');
+    return { confidence: 3, reason: 'Could not parse validation response' };
+  }
+}
+
+/** Generate a portrait with quality validation and auto-retry */
+async function generateValidatedPortrait(
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+): Promise<ValidatedPortrait> {
+  let bestResult: { imageBuffer: Buffer; confidence: number } | null = null;
+
+  for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
+    const rawBuffer = await generatePortrait(playerName, teamName, year, position);
+    const imageBuffer = await processImage(rawBuffer);
+    const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position);
+
+    console.log(`    Attempt ${attempt}: confidence ${validation.confidence}/5 — ${validation.reason}`);
+
+    if (!bestResult || validation.confidence > bestResult.confidence) {
+      bestResult = { imageBuffer, confidence: validation.confidence };
+    }
+
+    if (validation.confidence >= VALIDATION_THRESHOLD) {
+      return { imageBuffer, confidence: validation.confidence, attempts: attempt };
+    }
+  }
+
+  // All attempts failed validation — use the best one
+  console.warn(`  ⚠ ${playerName}: all ${MAX_VALIDATION_ATTEMPTS} attempts below threshold, using best (confidence ${bestResult!.confidence})`);
+  return {
+    imageBuffer: bestResult!.imageBuffer,
+    confidence: bestResult!.confidence,
+    attempts: MAX_VALIDATION_ATTEMPTS,
+  };
+}
+
 const POSITION_LABELS: Record<string, string> = {
   SP: 'starting pitcher', RP: 'relief pitcher', P: 'pitcher',
   C: 'catcher', '1B': 'first baseman', '2B': 'second baseman',
@@ -128,6 +235,8 @@ interface PortraitTask {
 export async function generatePortraitForOption(optionId: number): Promise<{
   generated: boolean;
   portraitUrl: string;
+  confidence: number;
+  attempts: number;
 }> {
   // Ensure portraits directory exists
   if (!fs.existsSync(PORTRAITS_DIR)) {
@@ -182,10 +291,10 @@ export async function generatePortraitForOption(optionId: number): Promise<{
   const posLabel = POSITION_LABELS[bestPosition] ?? bestPosition;
   console.log(`  Generating portrait for ${option.playerName} (${posLabel}, ${bestYear} ${teamName})...`);
 
-  // Generate new portrait BEFORE deleting old one — if generation fails,
-  // the old file is preserved instead of leaving a broken image
-  const rawBuffer = await generatePortrait(option.playerName, teamName, bestYear, posLabel);
-  const imageBuffer = await processImage(rawBuffer);
+  // Generate with quality validation and auto-retry
+  const { imageBuffer, confidence, attempts } = await generateValidatedPortrait(
+    option.playerName, teamName, bestYear, posLabel,
+  );
 
   // Only now replace the old file (also clean up legacy .png if present)
   const existingPath = getPortraitPath(option.playerId);
@@ -199,15 +308,16 @@ export async function generatePortraitForOption(optionId: number): Promise<{
     .set({ portraitUrl })
     .where(eq(roundOptions.id, optionId));
 
-  console.log(`  ✓ ${option.playerName} portrait regenerated`);
+  console.log(`  ✓ ${option.playerName} portrait regenerated (confidence ${confidence}/5, ${attempts} attempt${attempts > 1 ? 's' : ''})`);
 
-  return { generated: true, portraitUrl };
+  return { generated: true, portraitUrl, confidence, attempts };
 }
 
 export async function generatePortraitsForChallenge(challengeId: number): Promise<{
   generated: number;
   skipped: number;
   failed: number;
+  retried: number;
 }> {
   // Ensure portraits directory exists
   if (!fs.existsSync(PORTRAITS_DIR)) {
@@ -284,12 +394,15 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
 
   console.log(`  Generating ${tasks.length} portraits (${skipped} already exist)...`);
 
+  let retried = 0;
   const { failures } = await asyncPool(
     tasks,
     5, // 5 concurrent — image gen is heavier than text
     async (task) => {
-      const rawBuffer = await generatePortrait(task.playerName, task.teamName, task.year, task.position);
-      const imageBuffer = await processImage(rawBuffer);
+      const { imageBuffer, confidence, attempts } = await generateValidatedPortrait(
+        task.playerName, task.teamName, task.year, task.position,
+      );
+      if (attempts > 1) retried++;
 
       // Save to disk
       const filePath = getPortraitPath(task.playerId);
@@ -300,7 +413,7 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
         .set({ portraitUrl: `/portraits/${task.playerId}.webp` })
         .where(eq(roundOptions.id, task.optionId));
 
-      console.log(`  ✓ ${task.playerName} (${task.year} ${task.teamName})`);
+      console.log(`  ✓ ${task.playerName} (${task.year} ${task.teamName}) — confidence ${confidence}/5, ${attempts} attempt${attempts > 1 ? 's' : ''}`);
       return task.playerId;
     },
     {
@@ -322,5 +435,6 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
     generated: tasks.length - failures.length,
     skipped,
     failed: failures.length,
+    retried,
   };
 }
