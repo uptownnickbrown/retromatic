@@ -19,6 +19,12 @@ function tierColor(score: number): string {
   return MUTED;
 }
 
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 /** Sort picks into canonical position order (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P) */
 function sortByPosition(picks: ResultsPick[]): ResultsPick[] {
   return [...picks].sort(
@@ -149,13 +155,20 @@ export async function generateShareImage(opts: {
     }
   }
 
-  // "BEST PICK" label
+  // Dynamic label: "SANDLOT LEGEND" or "BEST PICK"
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = MUTED;
-  ctx.font = '700 12px "Space Mono", monospace';
-  ctx.letterSpacing = '4px';
-  ctx.fillText('B E S T   P I C K', cardX + cardW / 2, portraitY + portraitH + 28);
+  if (bestScore >= 9.5) {
+    ctx.fillStyle = GOLD;
+    ctx.font = '900 14px "Playfair Display", Georgia, serif';
+    ctx.letterSpacing = '4px';
+    ctx.fillText('SANDLOT LEGEND', cardX + cardW / 2, portraitY + portraitH + 28);
+  } else {
+    ctx.fillStyle = MUTED;
+    ctx.font = '700 14px "Space Mono", monospace';
+    ctx.letterSpacing = '4px';
+    ctx.fillText('BEST PICK', cardX + cardW / 2, portraitY + portraitH + 28);
+  }
   ctx.letterSpacing = '0px';
 
   if (bestPick) {
@@ -164,14 +177,10 @@ export async function generateShareImage(opts: {
     ctx.font = '900 28px "Playfair Display", Georgia, serif';
     ctx.fillText(bestPick.playerName, cardX + cardW / 2, portraitY + portraitH + 62);
 
-    // Year + Team
+    // Team (no year — avoid spoilers)
     ctx.fillStyle = MUTED;
     ctx.font = '700 16px "Space Mono", monospace';
-    ctx.fillText(
-      `${bestPick.year} \u00B7 ${getTeamFullName(bestPick.team)}`,
-      cardX + cardW / 2,
-      portraitY + portraitH + 86,
-    );
+    ctx.fillText(getTeamFullName(bestPick.team), cardX + cardW / 2, portraitY + portraitH + 86);
 
     // Score pill
     const pillW = 90;
@@ -210,31 +219,17 @@ export async function generateShareImage(opts: {
   ctx.font = '900 120px "Playfair Display", Georgia, serif';
   ctx.fillText(opts.totalScore.toFixed(1), centerX, 310);
 
-  // Legend count + Percentile
-  const legendCount = opts.picks.filter(p => safeNum(p.legendScore) >= 9.5).length;
-  let statY = 400;
-
-  if (legendCount > 0) {
-    ctx.fillStyle = GOLD;
-    ctx.font = '700 26px "Space Mono", monospace';
-    ctx.fillText(
-      `${legendCount} Sandlot Legend${legendCount > 1 ? 's' : ''}`,
-      centerX,
-      statY,
-    );
-    statY += 50;
-  }
-
-  // Percentile
+  // Percentile (ordinal format)
   const pctRank = Math.max(1, Math.round(opts.percentile));
   ctx.fillStyle = NAVY;
   ctx.font = '900 48px "Playfair Display", Georgia, serif';
-  ctx.fillText(`Better than ${pctRank}%`, centerX, statY + 8);
+  ctx.fillText(`${ordinal(pctRank)} Percentile`, centerX, 408);
 
-  // ─── RIGHT COLUMN: Lineup with emojis ───
-  const rX = 920; // left edge of lineup column
+  // ─── RIGHT COLUMN: Lineup ───
+  const rX = 880; // left edge of lineup column
   const lineupTop = 70;
   const lineupRowH = 50;
+  const lineupRight = W - 50;
 
   ctx.textAlign = 'left';
 
@@ -242,29 +237,29 @@ export async function generateShareImage(opts: {
     const pick = sortedPicks[i];
     const score = safeNum(pick.legendScore);
     const rowY = lineupTop + i * lineupRowH;
+    const isLegend = score >= 9.5;
+
+    // Gold highlight bar for legend rows
+    if (isLegend) {
+      roundRect(ctx, rX - 8, rowY + 4, lineupRight - rX + 16, lineupRowH - 8, 4);
+      ctx.fillStyle = `${GOLD}1F`; // ~12% opacity
+      ctx.fill();
+    }
 
     // Position label
-    ctx.fillStyle = `${MUTED}CC`;
-    ctx.font = '700 14px "Space Mono", monospace';
+    ctx.fillStyle = isLegend ? GOLD : `${MUTED}CC`;
+    ctx.font = '700 18px "Space Mono", monospace';
     ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
     ctx.fillText(pick.position.padEnd(4), rX, rowY + lineupRowH / 2);
 
     // Score
-    ctx.fillStyle = tierColor(score);
-    ctx.font = '700 20px "Space Mono", monospace';
+    ctx.fillStyle = isLegend ? GOLD : tierColor(score);
+    ctx.font = '700 24px "Space Mono", monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(score.toFixed(1), W - 50, rowY + lineupRowH / 2);
+    ctx.fillText(score.toFixed(1), lineupRight, rowY + lineupRowH / 2);
     ctx.textAlign = 'left';
   }
-
-  // ─── Footer ───
-  drawInkDivider(ctx, H - 54, 40, W - 40);
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = NAVY;
-  ctx.font = '900 28px "Playfair Display", Georgia, serif';
-  ctx.fillText('sandlot.uptownnickbrown.com', W / 2, H - 36);
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(

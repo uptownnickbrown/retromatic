@@ -19,6 +19,12 @@ function getScoreEmoji(score: number): string {
   return '\u{1F95C}';                    // 🥜 peanut
 }
 
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 type Tab = 'image' | 'text';
 
 export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProps) {
@@ -61,7 +67,7 @@ export function ShareCard({ totalScore, percentile, picks, date }: ShareCardProp
       '',
       `Sandlot Score: ${safeNum(totalScore).toFixed(1)}/100`,
       ...(legendCount > 0 ? [`\u{1F3C6} ${legendCount} Sandlot Legend${legendCount > 1 ? 's' : ''}`] : []),
-      `Better than ${Math.max(1, Math.round(safeNum(percentile)))}% of drafts`,
+      `${ordinal(Math.max(1, Math.round(safeNum(percentile))))} Percentile`,
       '',
       'sandlot.uptownnickbrown.com',
     ];
