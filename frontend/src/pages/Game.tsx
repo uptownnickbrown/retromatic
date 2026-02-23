@@ -237,10 +237,7 @@ export function Game() {
       )}
 
       {/* Main content */}
-      <div className={cn(
-        'flex-1 flex flex-col justify-center py-2',
-        game.phase === 'revealing' && 'pb-20',
-      )}>
+      <div className="flex-1 flex flex-col justify-center py-2">
         <AnimatePresence mode="wait">
           {game.phase === 'picking' && game.currentRound && (
             <motion.div
@@ -287,21 +284,23 @@ export function Game() {
         </AnimatePresence>
       </div>
 
-      {/* Sticky "Next Round" button — visible without scrolling */}
+      {/* Fixed "Next Round" button — pinned above iOS toolbar */}
       {game.phase === 'revealing' && game.reveal && (
-        <div className="sticky bottom-0 px-3 pb-6 pt-2 bg-gradient-to-t from-bone via-bone/95 to-transparent">
-          <button
-            onClick={handleContinue}
-            className={cn(
-              'w-full font-mono font-bold text-base uppercase tracking-wider py-3.5 rounded',
-              'transition-transform duration-100 active:translate-y-0.5',
-              !game.currentRound
-                ? 'bg-red text-white border-2 border-red-dark shadow-[2px_2px_0px_#0A1E2F]'
-                : 'bg-navy text-paper border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.3)]',
-            )}
-          >
-            {!game.currentRound ? 'See Results' : 'Next Round'}
-          </button>
+        <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 bg-bone">
+          <div className="max-w-lg mx-auto">
+            <button
+              onClick={handleContinue}
+              className={cn(
+                'w-full font-mono font-bold text-base uppercase tracking-wider py-3.5 rounded',
+                'transition-transform duration-100 active:translate-y-0.5',
+                !game.currentRound
+                  ? 'bg-red text-white border-2 border-red-dark shadow-[2px_2px_0px_#0A1E2F]'
+                  : 'bg-navy text-paper border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.3)]',
+              )}
+            >
+              {!game.currentRound ? 'See Results' : 'Next Round'}
+            </button>
+          </div>
         </div>
       )}
     </div>
