@@ -80,6 +80,21 @@ export async function getRecapData(challengeId: number): Promise<RecapData> {
   return fetchAPI(`/challenge/${challengeId}/recap`);
 }
 
+// Replay (public — replay a completed challenge)
+export async function startReplay(challengeId: number): Promise<FullGameData> {
+  return fetchAPI(`/challenge/${challengeId}/replay`, { method: 'POST' });
+}
+
+export async function getReplayPercentile(
+  challengeId: number,
+  totalLegendScore: number,
+): Promise<{ percentile: number; totalParticipants: number }> {
+  return fetchAPI(`/challenge/${challengeId}/replay-percentile`, {
+    method: 'POST',
+    body: JSON.stringify({ totalLegendScore }),
+  });
+}
+
 // Streak API
 export async function getStreak(): Promise<{ current: number; longest: number }> {
   return fetchAPI('/challenge/streak');

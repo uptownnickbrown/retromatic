@@ -64,6 +64,7 @@ export function AdminChallengeDetail() {
   const updateBlurbMutation = useUpdateOptionBlurb();
 
   const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
+  const [preseedCount, setPreseedCount] = useState(20);
 
   const justPlaytested = searchParams.get('playtested') === 'true';
 
@@ -92,7 +93,7 @@ export function AdminChallengeDetail() {
   };
 
   const handlePreseedStats = () => {
-    if (challengeId) preseedMutation.mutate(challengeId);
+    if (challengeId) preseedMutation.mutate({ id: challengeId, count: preseedCount });
   };
 
   const handleDelete = () => {
@@ -268,23 +269,34 @@ export function AdminChallengeDetail() {
           )}
         </VintageButton>
 
-        <VintageButton
-          variant="section"
-          onClick={handlePreseedStats}
-          disabled={preseedMutation.isPending}
-        >
-          {preseedMutation.isPending ? (
-            <>
-              <Loader2 className="inline w-3.5 h-3.5 mr-1.5 animate-spin" />
-              Seeding...
-            </>
-          ) : (
-            <>
-              <Users className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
-              Preseed Stats
-            </>
-          )}
-        </VintageButton>
+        <div className="flex items-center gap-2">
+          <VintageButton
+            variant="section"
+            onClick={handlePreseedStats}
+            disabled={preseedMutation.isPending}
+          >
+            {preseedMutation.isPending ? (
+              <>
+                <Loader2 className="inline w-3.5 h-3.5 mr-1.5 animate-spin" />
+                Seeding...
+              </>
+            ) : (
+              <>
+                <Users className="inline w-3.5 h-3.5 mr-1.5 -mt-px" />
+                Preseed
+              </>
+            )}
+          </VintageButton>
+          <input
+            type="number"
+            min={1}
+            max={500}
+            value={preseedCount}
+            onChange={(e) => setPreseedCount(Math.max(1, Math.min(500, parseInt(e.target.value) || 1)))}
+            className="w-16 px-2 py-1.5 text-xs font-mono text-center border border-navy/15 rounded bg-paper text-navy"
+            title="Number of synthetic completions"
+          />
+        </div>
 
         {/* Remove from queue (scheduled challenges) */}
         {(challenge.status === 'scheduled' || challenge.status === 'draft') && (

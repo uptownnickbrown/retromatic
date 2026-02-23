@@ -862,6 +862,23 @@ router.patch('/challenges/:id', async (req, res) => {
 router.delete('/challenges/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+
+    // Get round IDs for this challenge (needed to clean up FKs without cascade)
+    const rounds = await db.select({ id: challengeRounds.id })
+      .from(challengeRounds)
+      .where(eq(challengeRounds.challengeId, id));
+    const roundIds = rounds.map(r => r.id);
+
+    if (roundIds.length > 0) {
+      // Delete pickStats and userPicks that reference these rounds
+      await db.delete(pickStats).where(inArray(pickStats.roundId, roundIds));
+      await db.delete(userPicks).where(inArray(userPicks.roundId, roundIds));
+    }
+
+    // Delete game sessions for this challenge
+    await db.delete(gameSessions).where(eq(gameSessions.challengeId, id));
+
+    // Now delete the challenge (cascades to challengeRounds → roundOptions)
     const [deleted] = await db.delete(challenges)
       .where(eq(challenges.id, id))
       .returning();
@@ -978,7 +995,8 @@ router.post('/challenges/:id/portraits', async (req, res) => {
 router.post('/challenges/:id/preseed', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const result = await preseedStatsForChallenge(id);
+    const count = req.body?.count ? parseInt(req.body.count) : undefined;
+    const result = await preseedStatsForChallenge(id, count);
     res.json(result);
   } catch (error) {
     console.error('Preseed error:', error);

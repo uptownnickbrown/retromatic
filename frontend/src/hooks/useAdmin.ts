@@ -69,8 +69,8 @@ export function useGenerateBlurbs() {
 export function usePreseedStats() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => adminApi.preseedStats(id),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, count }: { id: number; count?: number }) => adminApi.preseedStats(id, count),
+    onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: ['admin', 'health', id] });
       qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
     },

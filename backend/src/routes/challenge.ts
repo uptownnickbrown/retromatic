@@ -761,6 +761,86 @@ function buildCommunityStats(roundIds: number[], allStats: Array<{ roundId: numb
   });
 }
 
+// POST /api/challenge/:id/replay - Start a replay of a completed challenge (public, no auth)
+router.post('/:id/replay', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    if (isNaN(challengeId)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
+
+    const [challenge] = await db.select()
+      .from(challenges)
+      .where(eq(challenges.id, challengeId))
+      .limit(1);
+
+    if (!challenge || challenge.status !== 'completed') {
+      res.status(404).json({ error: 'Challenge not found or not completed' });
+      return;
+    }
+
+    const { rounds, communityStats } = await getAllRoundData(challengeId);
+
+    res.json({
+      session: { id: `replay-${challengeId}-${Date.now()}`, status: 'replay' },
+      challenge: {
+        id: challenge.id,
+        date: challenge.challengeDate,
+        positionOrder: challenge.positionOrder,
+        theme: challenge.theme,
+        totalRounds: 10,
+      },
+      rounds,
+      communityStats,
+    });
+  } catch (error) {
+    console.error('Replay start error:', error);
+    res.status(500).json({ error: 'Failed to start replay' });
+  }
+});
+
+// POST /api/challenge/:id/replay-percentile - Get real percentile for a replay score (public)
+router.post('/:id/replay-percentile', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    if (isNaN(challengeId)) {
+      res.status(400).json({ error: 'Invalid challenge ID' });
+      return;
+    }
+
+    const [challenge] = await db.select()
+      .from(challenges)
+      .where(eq(challenges.id, challengeId))
+      .limit(1);
+
+    if (!challenge || challenge.status !== 'completed') {
+      res.status(404).json({ error: 'Challenge not found or not completed' });
+      return;
+    }
+
+    const { totalLegendScore } = req.body as { totalLegendScore: number };
+    if (typeof totalLegendScore !== 'number') {
+      res.status(400).json({ error: 'totalLegendScore required' });
+      return;
+    }
+
+    const percentile = await calculateSessionPercentile(challengeId, totalLegendScore);
+
+    const [countResult] = await db.select({ count: sql<number>`count(*)` })
+      .from(gameSessions)
+      .where(and(eq(gameSessions.challengeId, challengeId), eq(gameSessions.status, 'completed')));
+
+    res.json({
+      percentile,
+      totalParticipants: toNum(countResult?.count),
+    });
+  } catch (error) {
+    console.error('Replay percentile error:', error);
+    res.status(500).json({ error: 'Failed to calculate percentile' });
+  }
+});
+
 // GET /api/challenge/streak - Get current user's streak
 router.get('/streak', async (req, res) => {
   try {
