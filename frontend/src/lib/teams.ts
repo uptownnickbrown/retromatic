@@ -14,10 +14,11 @@ const TEAM_NAMES: Record<string, string> = {
   'CLE': 'Cleveland Indians',
   'DET': 'Detroit Tigers',
   'HOU': 'Houston Astros',
-  'KCA': 'Kansas City Athletics',
-  'KCR': 'Kansas City Royals',
+  'KC1': 'Kansas City Athletics',
+  'KCA': 'Kansas City Royals',
   'LAA': 'Los Angeles Angels',
   'MIN': 'Minnesota Twins',
+  'ML1': 'Milwaukee Braves',
   'ML4': 'Milwaukee Brewers',
   'NYA': 'New York Yankees',
   'OAK': 'Oakland Athletics',
@@ -25,7 +26,8 @@ const TEAM_NAMES: Record<string, string> = {
   'TBA': 'Tampa Bay Rays',
   'TEX': 'Texas Rangers',
   'TOR': 'Toronto Blue Jays',
-  'WAS': 'Washington Senators',
+  'WAS': 'Washington Nationals',
+  'WS2': 'Washington Senators',
 
   // National League
   'ARI': 'Arizona Diamondbacks',
@@ -37,7 +39,6 @@ const TEAM_NAMES: Record<string, string> = {
   'LAN': 'Los Angeles Dodgers',
   'MIA': 'Miami Marlins',
   'MIL': 'Milwaukee Brewers',
-  'MLN': 'Milwaukee Braves',
   'MON': 'Montreal Expos',
   'NYN': 'New York Mets',
   'PHI': 'Philadelphia Phillies',
@@ -45,8 +46,7 @@ const TEAM_NAMES: Record<string, string> = {
   'SDN': 'San Diego Padres',
   'SFN': 'San Francisco Giants',
   'SLN': 'St. Louis Cardinals',
-  'WS1': 'Washington Senators',
-  'WSN': 'Washington Nationals',
+  'ATH': 'Athletics',
 
   // Expansion / relocated
   'SE1': 'Seattle Pilots',
