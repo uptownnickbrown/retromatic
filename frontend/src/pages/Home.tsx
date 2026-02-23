@@ -70,7 +70,7 @@ export function Home() {
   const { showCelebration, milestone } = useStreakMilestone(currentStreak);
 
   return (
-    <div className="flex-1 flex flex-col items-center max-w-lg mx-auto w-full px-3 pt-5 pb-20">
+    <div className="flex-1 flex flex-col items-center max-w-lg mx-auto w-full px-3 pt-5 safe-bottom">
       {/* Masthead */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}

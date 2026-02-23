@@ -367,9 +367,9 @@ h1, h2, h3, h4, h5, h6 {
   );
 }
 
-/* Safe area for mobile */
+/* Safe area for mobile — adds to existing padding rather than overriding */
 .safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 16px);
+  padding-bottom: max(5rem, env(safe-area-inset-bottom, 5rem));
 }
 
 /* Focus styles */
