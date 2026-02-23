@@ -248,9 +248,10 @@ export async function generateShareImage(opts: {
     const rowY = lineupTop + i * lineupRowH;
     const isLegend = score >= 9.5;
 
-    // Gold highlight bar for legend rows
+    // Gold highlight bar for legend rows — just around position + score
     if (isLegend) {
-      roundRect(ctx, rX - 8, rowY + 4, lineupRight - rX + 16, lineupRowH - 8, 4);
+      const hlLeft = lineupRight - 120;
+      roundRect(ctx, hlLeft, rowY + 4, lineupRight - hlLeft + 12, lineupRowH - 8, 4);
       ctx.fillStyle = `${GOLD}1F`; // ~12% opacity
       ctx.fill();
     }
