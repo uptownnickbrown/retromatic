@@ -43,7 +43,7 @@ export function Recap() {
   const perfectTotal = safeNum(perfectLineup.totalScore);
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 pt-4 pb-20 safe-bottom">
+    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-3 pt-4 safe-bottom">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -67,18 +67,35 @@ export function Recap() {
         </PaperCard>
       </motion.div>
 
+      {/* Replay CTA */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.1 }}
+        className="mb-4"
+      >
+        <VintageButton
+          variant="ticket"
+          onClick={() => navigate(`/play?replay=${challengeId}`)}
+          className="w-full flex items-center justify-center gap-2"
+        >
+          <Play size={16} />
+          Replay This Challenge
+        </VintageButton>
+      </motion.div>
+
       {/* Head-to-Head: Community vs Perfect */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.15 }}
+        transition={{ delay: 0.2 }}
         className="mb-4"
       >
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider">
             Tale of the Tape
           </h3>
-          <span className="font-mono text-[10px] text-muted">Tap to expand</span>
+          <span className="font-mono text-[10px] text-muted">Tap any matchup to see stats</span>
         </div>
         <HeadToHead
           picks={communityLineup.picks}
@@ -94,7 +111,7 @@ export function Recap() {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.25 }}
+        transition={{ delay: 0.3 }}
         className="mb-4"
       >
         <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
@@ -108,21 +125,13 @@ export function Recap() {
         />
       </motion.div>
 
-      {/* Play This Challenge + Back Home */}
+      {/* Back Home */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.35 }}
-        className="mt-auto pt-4 flex flex-col gap-3"
+        transition={{ delay: 0.4 }}
+        className="mt-auto pt-4"
       >
-        <VintageButton
-          variant="ticket"
-          onClick={() => navigate(`/play?replay=${challengeId}`)}
-          className="w-full flex items-center justify-center gap-2"
-        >
-          <Play size={16} />
-          Play This Challenge
-        </VintageButton>
         <VintageButton
           variant="section"
           onClick={() => navigate('/')}
