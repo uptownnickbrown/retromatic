@@ -167,6 +167,8 @@ router.post('/challenges/generate-agent', async (req, res) => {
     return;
   }
 
+  console.log(JSON.stringify({ event: 'agent_request', route: 'generate-agent', promptLength: prompt.length }));
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -178,6 +180,7 @@ router.post('/challenges/generate-agent', async (req, res) => {
       enrichChallengesInBackground([challengeId]);
     }
   } catch (error) {
+    console.error(JSON.stringify({ event: 'agent_request_error', route: 'generate-agent', error: String(error) }));
     res.write(`data: ${JSON.stringify({ type: 'error', message: String(error) })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
     res.end();
@@ -196,6 +199,8 @@ router.post('/challenges/generate-agent/continue', async (req, res) => {
     return;
   }
 
+  console.log(JSON.stringify({ event: 'agent_request', route: 'generate-agent/continue', sessionId, messageLength: message.length }));
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -207,6 +212,7 @@ router.post('/challenges/generate-agent/continue', async (req, res) => {
       enrichChallengesInBackground([challengeId]);
     }
   } catch (error) {
+    console.error(JSON.stringify({ event: 'agent_request_error', route: 'generate-agent/continue', sessionId, error: String(error) }));
     res.write(`data: ${JSON.stringify({ type: 'error', message: String(error) })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
     res.end();

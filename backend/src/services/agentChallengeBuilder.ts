@@ -599,6 +599,13 @@ WORKFLOW:
 
 Focus on the players that make the theme interesting. Don't waste iterations trying to fill every position — the system handles that automatically.
 
+EDITING WORKFLOW:
+When the user requests changes to a previewed challenge:
+- Only modify the rounds/players they specifically asked about
+- Keep all other rounds exactly as they were in the previous preview
+- Search for replacement players if needed, then call preview_challenge again with the full updated lineup
+- Include ALL rounds (both changed and unchanged) in the new preview so nothing is lost
+
 POSITIONS: Batters = C, 1B, 2B, SS, 3B, OF, UTIL. Pitchers = SP, RP, P.
 DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dodgers, SFN=Giants, SLN=Cardinals, CHN=Cubs, CHA=White Sox, etc.`;
 
@@ -619,6 +626,13 @@ export async function runAgentBuilder(
   send({ type: 'session', sessionId: sid });
 
   const existingSession = sessionId ? agentSessions.get(sessionId) : null;
+
+  console.log(JSON.stringify({
+    event: 'agent_session_start',
+    sessionId: sid,
+    isResume: !!existingSession,
+    promptPreview: prompt.slice(0, 100),
+  }));
 
   send({ type: 'thinking', message: existingSession ? 'Continuing conversation...' : 'Starting challenge builder...' });
 
@@ -658,6 +672,15 @@ export async function runAgentBuilder(
         (item): item is OpenAI.Responses.ResponseFunctionToolCall => item.type === 'function_call'
       );
 
+      console.log(JSON.stringify({
+        event: 'agent_iteration',
+        sessionId: sid,
+        iteration: iterations,
+        toolCount: toolCalls.length,
+        tools: toolCalls.map(t => t.name),
+        responseId: response.id,
+      }));
+
       if (toolCalls.length === 0) {
         // No tool calls — agent is done talking
         const messageOutput = response.output.find(
@@ -684,9 +707,18 @@ export async function runAgentBuilder(
         let result: string;
         if (toolCall.name === 'search_players') {
           result = await executeFindEligiblePlayers(args);
+          const parsed = JSON.parse(result);
+          console.log(JSON.stringify({
+            event: 'agent_tool_result',
+            sessionId: sid,
+            tool: 'search_players',
+            playerCount: Array.isArray(parsed) ? parsed.length : 0,
+            resultSize: result.length,
+          }));
         } else if (toolCall.name === 'preview_challenge') {
           const previewResult = await executePreviewChallenge(args, send);
           if ('preview' in previewResult) {
+            console.log(JSON.stringify({ event: 'agent_preview_sent', sessionId: sid, theme: args.theme }));
             // Save session for continuation
             agentSessions.set(sid, { responseId: response.id, createdAt: Date.now() });
             // Tell the agent the preview was sent
@@ -716,10 +748,12 @@ export async function runAgentBuilder(
             return null;
           }
           result = JSON.stringify(previewResult);
+          console.log(JSON.stringify({ event: 'agent_validation_error', sessionId: sid, tool: 'preview_challenge', error: (previewResult as { error: string }).error }));
           send({ type: 'error_recoverable', message: (previewResult as { error: string }).error });
         } else if (toolCall.name === 'submit_challenge') {
           const submitResult = await executeSubmitChallenge(args, send);
           if ('challengeId' in submitResult) {
+            console.log(JSON.stringify({ event: 'agent_challenge_submitted', sessionId: sid, challengeId: submitResult.challengeId, theme: args.theme }));
             // Clean up session
             agentSessions.delete(sid);
             send({ type: 'success', challengeId: submitResult.challengeId, theme: args.theme });
@@ -728,6 +762,7 @@ export async function runAgentBuilder(
             return submitResult.challengeId;
           }
           result = JSON.stringify(submitResult);
+          console.log(JSON.stringify({ event: 'agent_validation_error', sessionId: sid, tool: 'submit_challenge', error: (submitResult as { error: string }).error }));
           send({ type: 'error_recoverable', message: (submitResult as { error: string }).error });
         } else {
           result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
@@ -753,9 +788,11 @@ export async function runAgentBuilder(
     }
 
     if (iterations >= maxIterations) {
+      console.log(JSON.stringify({ event: 'agent_max_iterations', sessionId: sid, iterations }));
       send({ type: 'error', message: 'Agent reached maximum iterations without completing' });
     }
   } catch (error) {
+    console.error(JSON.stringify({ event: 'agent_error', sessionId: sid, error: String(error) }));
     send({ type: 'error', message: String(error) });
   }
 
