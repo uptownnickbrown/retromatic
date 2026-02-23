@@ -85,8 +85,23 @@ const mockRounds: RoundData[] = [
 ];
 
 const mockCommunityStats: RoundCommunityStats[] = [
-  { roundId: 100, picks: [{ playerId: 1001, year: 2020, percentage: 40 }] },
-  { roundId: 200, picks: [{ playerId: 2001, year: 2019, percentage: 50 }] },
+  {
+    roundId: 100,
+    totalPicks: 20,
+    picks: [
+      { playerId: 1001, year: 2020, count: 8, percentage: 40 },
+      { playerId: 2001, year: 2019, count: 7, percentage: 35 },
+      { playerId: 3001, year: 2018, count: 5, percentage: 25 },
+    ],
+  },
+  {
+    roundId: 200,
+    totalPicks: 20,
+    picks: [
+      { playerId: 2001, year: 2019, count: 10, percentage: 50 },
+      { playerId: 1001, year: 2020, count: 10, percentage: 50 },
+    ],
+  },
 ];
 
 const mockFullGameData: FullGameData = {
@@ -299,6 +314,64 @@ describe('useGame', () => {
           pickSubmissions: [expect.objectContaining({ wasTimeout: true })],
         })
       );
+    });
+
+    it('adjusts community percentages to include user pick', async () => {
+      const { result } = await loadToPickingPhase();
+
+      // Pick player 1001/2020 which has count=8 out of totalPicks=20
+      act(() => {
+        result.current.submitPick(1001, 2020);
+      });
+
+      // After adding user's pick: 9/21 ≈ 43%, 7/21 ≈ 33%, 5/21 ≈ 24%
+      const percentages = result.current.reveal?.pickPercentages;
+      expect(percentages).toBeDefined();
+      const picked = percentages?.find(p => p.playerId === 1001 && p.year === 2020);
+      expect(picked?.percentage).toBe(43); // Math.round(9/21 * 100)
+    });
+
+    it('shows non-zero percentage when picking an option nobody else chose', async () => {
+      const { result } = await loadToPickingPhase();
+
+      // Pick player 1002/2021 which has no prior picks in mockCommunityStats
+      act(() => {
+        result.current.submitPick(1002, 2021);
+      });
+
+      const percentages = result.current.reveal?.pickPercentages;
+      expect(percentages).toBeDefined();
+      const picked = percentages?.find(p => p.playerId === 1002 && p.year === 2021);
+      expect(picked?.percentage).toBe(5); // Math.round(1/21 * 100)
+    });
+
+    it('passes percentages through unchanged for old localStorage without totalPicks', async () => {
+      // Override communityStats to omit totalPicks (old format)
+      const oldFormatStats: RoundCommunityStats[] = [
+        { roundId: 100, picks: [{ playerId: 1001, year: 2020, percentage: 40 }] },
+        { roundId: 200, picks: [{ playerId: 2001, year: 2019, percentage: 50 }] },
+      ];
+      vi.mocked(api.getTodaysChallenge).mockResolvedValue({
+        challenge: mockChallenge,
+        session: null,
+      });
+      vi.mocked(api.startGame).mockResolvedValue({
+        ...mockFullGameData,
+        communityStats: oldFormatStats,
+      });
+
+      const hook = renderHook(() => useGame());
+      await act(async () => {
+        await hook.result.current.loadAndStart();
+      });
+
+      act(() => {
+        hook.result.current.submitPick(1001, 2020);
+      });
+
+      // Should pass through the original percentages unchanged
+      const percentages = hook.result.current.reveal?.pickPercentages;
+      expect(percentages).toEqual([{ playerId: 1001, year: 2020, percentage: 40 }]);
     });
   });
 

@@ -223,6 +223,27 @@ export function useGame() {
       // Get community stats for this round (snapshot from game start)
       const roundStats = prev.communityStats.find(s => s.roundId === round.roundId);
 
+      // Adjust community stats to include the user's own pick
+      let adjustedPicks = roundStats?.picks;
+      if (roundStats && roundStats.totalPicks != null) {
+        const newTotal = roundStats.totalPicks + 1;
+        const existingIdx = roundStats.picks.findIndex(
+          p => p.playerId === playerRecordId && p.year === year
+        );
+        let updatedPicks;
+        if (existingIdx >= 0) {
+          updatedPicks = roundStats.picks.map((p, i) =>
+            i === existingIdx ? { ...p, count: (p.count ?? 0) + 1 } : p
+          );
+        } else {
+          updatedPicks = [...roundStats.picks, { playerId: playerRecordId, year, count: 1, percentage: 0 }];
+        }
+        adjustedPicks = updatedPicks.map(p => ({
+          ...p,
+          percentage: newTotal > 0 ? Math.round(((p.count ?? 0) / newTotal) * 100) : 0,
+        }));
+      }
+
       // Build round players info for community picks display
       const roundPlayers = round.players.map(p => ({
         name: p.name,
@@ -240,7 +261,7 @@ export function useGame() {
         portraitUrl: selectedPlayer.portraitUrl,
         year,
         team: selectedYearOption.team,
-        pickPercentages: roundStats?.picks,
+        pickPercentages: adjustedPicks,
         roundPlayers,
       };
 

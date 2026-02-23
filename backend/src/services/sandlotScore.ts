@@ -130,5 +130,5 @@ export async function calculateSessionPercentile(
   const totalDistinct = toNum(result?.totalDistinct);
   const belowDistinct = toNum(result?.belowDistinct);
   if (totalDistinct <= 1) return 50; // Only one player, default to 50th
-  return Math.round((belowDistinct / (totalDistinct - 1)) * 100);
+  return Math.min(100, Math.max(0, Math.round((belowDistinct / (totalDistinct - 1)) * 100)));
 }
