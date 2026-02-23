@@ -235,7 +235,6 @@ export async function generateShareImage(opts: {
   ctx.fillText(opts.date, centerX, H - 50);
 
   // ─── RIGHT COLUMN: Lineup ───
-  const rX = 880; // left edge of lineup column
   const lineupTop = 70;
   const lineupRowH = 50;
   const lineupRight = W - 50;
