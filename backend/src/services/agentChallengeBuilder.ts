@@ -662,7 +662,8 @@ export async function runAgentBuilder(
     }
 
     let iterations = 0;
-    const maxIterations = 60;
+    const maxIterations = 100;
+    const checkpointAt = 50;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -775,6 +776,28 @@ export async function runAgentBuilder(
         });
       }
 
+      // Checkpoint: pause at 50 iterations and ask user to confirm continuing
+      if (iterations === checkpointAt) {
+        // Send tool results so the conversation state is up to date
+        const checkpointResponse = await client.responses.create({
+          model: 'gpt-5-mini',
+          instructions: systemPrompt,
+          previous_response_id: response.id,
+          input: toolResults,
+          tools,
+          tool_choice: 'none',
+          max_output_tokens: 256,
+        });
+        agentSessions.set(sid, { responseId: checkpointResponse.id, createdAt: Date.now() });
+
+        console.log(JSON.stringify({ event: 'agent_checkpoint', sessionId: sid, iterations }));
+        send({ type: 'message', message: 'This is taking a while — I\'ve done a lot of searching. Want me to keep going, or should I work with what I\'ve found so far?' });
+        send({ type: 'awaiting_feedback', sessionId: sid });
+        res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+        res.end();
+        return null;
+      }
+
       // Continue the conversation with tool results
       response = await client.responses.create({
         model: 'gpt-5-mini',
@@ -789,7 +812,7 @@ export async function runAgentBuilder(
 
     if (iterations >= maxIterations) {
       console.log(JSON.stringify({ event: 'agent_max_iterations', sessionId: sid, iterations }));
-      send({ type: 'error', message: 'Agent reached maximum iterations without completing' });
+      send({ type: 'error', message: 'Agent reached maximum iterations without completing. Try a simpler prompt or break it into parts.' });
     }
   } catch (error) {
     console.error(JSON.stringify({ event: 'agent_error', sessionId: sid, error: String(error) }));
