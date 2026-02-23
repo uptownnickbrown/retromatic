@@ -9,7 +9,8 @@ import { PickGrid } from '../components/game/PickGrid';
 import { RevealCard } from '../components/game/RevealCard';
 import { VintageButton } from '../components/ui/VintageButton';
 import { PaperCard } from '../components/ui/PaperCard';
-import { Loader2, FlaskConical, Home } from 'lucide-react';
+import { Loader2, FlaskConical } from 'lucide-react';
+import { HomePlateIcon } from '../components/ui/HomePlateIcon';
 import { cn } from '../lib/utils';
 import { safeNum } from '../lib/numeric';
 
@@ -153,7 +154,7 @@ export function Game() {
           className="absolute top-3 left-3 z-20 p-2 text-navy/40 hover:text-navy transition-colors"
           aria-label="Home"
         >
-          <Home size={20} />
+          <HomePlateIcon className="w-5 h-5" />
         </button>
       )}
 
