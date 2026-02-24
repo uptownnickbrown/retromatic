@@ -551,50 +551,107 @@ export function streamAgentContinue(
   return { abort: () => controller.abort() };
 }
 
-// --- Portrait Quality Audit ---
+// --- Portrait Quality Audit (SSE streaming) ---
 
-export interface AuditResult {
-  optionId: number;
-  playerId: string;
-  playerName: string;
-  challengeId: number;
-  pass: boolean;
-  reason: string;
-}
-
-export interface AuditResponse {
-  total: number;
-  skipped: number;
-  failed: number;
-  passed: number;
-  results: AuditResult[];
-}
-
-export interface RegenerateResult {
-  optionId: number;
-  playerName: string;
-  pass: boolean;
-  attempts: number;
+export interface AuditStreamEvent {
+  type: 'start' | 'progress' | 'complete' | 'error';
+  total?: number;
+  skipped?: number;
+  index?: number;
+  optionId?: number;
+  playerId?: string;
+  playerName?: string;
+  challengeId?: number;
+  pass?: boolean;
+  reason?: string;
+  failed?: number;
+  passed?: number;
   error?: string;
 }
 
-export interface RegenerateResponse {
-  regenerated: number;
-  failed: number;
-  results: RegenerateResult[];
+export interface RegenStreamEvent {
+  type: 'start' | 'progress' | 'complete' | 'error';
+  total?: number;
+  index?: number;
+  optionId?: number;
+  playerId?: string;
+  playerName?: string;
+  pass?: boolean;
+  attempts?: number;
+  portraitUrl?: string;
+  regenerated?: number;
+  failed?: number;
+  error?: string;
 }
 
-export async function auditPortraits(challengeIds?: number[]): Promise<AuditResponse> {
-  return adminFetch('/admin/portraits/audit', {
+function createSSEStream<T>(
+  url: string,
+  body: unknown,
+  onEvent: (event: T) => void,
+): { abort: () => void } {
+  const secret = getAdminSecret();
+  if (!secret) throw new Error('Not authenticated');
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}${url}`, {
     method: 'POST',
-    body: JSON.stringify({ challengeIds }),
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) {
+      onEvent({ type: 'error', error: `HTTP ${res.status}` } as T);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', error: String(err) } as T);
+    }
   });
+
+  return { abort: () => controller.abort() };
 }
 
-export async function regeneratePortraits(optionIds: number[]): Promise<RegenerateResponse> {
-  return adminFetch('/admin/portraits/regenerate', {
-    method: 'POST',
-    body: JSON.stringify({ optionIds }),
+export function streamAuditPortraits(
+  onEvent: (event: AuditStreamEvent) => void,
+  challengeIds?: number[],
+): { abort: () => void } {
+  return createSSEStream('/admin/portraits/audit', { challengeIds }, onEvent);
+}
+
+export function streamRegeneratePortraits(
+  optionIds: number[],
+  onEvent: (event: RegenStreamEvent) => void,
+): { abort: () => void } {
+  return createSSEStream('/admin/portraits/regenerate', { optionIds }, onEvent);
+}
+
+export async function validatePortrait(playerId: string, validated: boolean): Promise<{ playerId: string; validated: boolean }> {
+  return adminFetch(`/admin/portraits/${playerId}/validate`, {
+    method: 'PATCH',
+    body: JSON.stringify({ validated }),
   });
 }
 

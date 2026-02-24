@@ -1144,7 +1144,33 @@ router.post('/portraits/upload', express.raw({ type: 'image/png', limit: '5mb' }
 });
 
 // Audit portrait quality — validates portraits against player appearance
+// Manually validate (or un-validate) a portrait
+router.patch('/portraits/:playerId/validate', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const { validated } = req.body as { validated: boolean };
+
+    await db.insert(portraits)
+      .values({ playerId, validated: !!validated, validatedAt: validated ? new Date() : null, portraitUrl: `/portraits/${playerId}.webp` })
+      .onConflictDoUpdate({
+        target: portraits.playerId,
+        set: { validated: !!validated, validatedAt: validated ? new Date() : null },
+      });
+
+    res.json({ playerId, validated: !!validated });
+  } catch (error) {
+    console.error('Validate portrait error:', error);
+    res.status(500).json({ error: 'Failed to validate portrait' });
+  }
+});
+
 router.post('/portraits/audit', async (req, res) => {
+  // SSE streaming audit
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
   try {
     const { challengeIds } = req.body as { challengeIds?: number[] };
 
@@ -1160,7 +1186,9 @@ router.post('/portraits/audit', async (req, res) => {
     }
 
     if (targetChallengeIds.length === 0) {
-      res.json({ total: 0, skipped: 0, failed: 0, passed: 0, results: [] });
+      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, skipped: 0 })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'complete', total: 0, skipped: 0, failed: 0, passed: 0 })}\n\n`);
+      res.end();
       return;
     }
 
@@ -1171,7 +1199,9 @@ router.post('/portraits/audit', async (req, res) => {
 
     const roundIds = rounds.map(r => r.id);
     if (roundIds.length === 0) {
-      res.json({ total: 0, skipped: 0, failed: 0, passed: 0, results: [] });
+      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, skipped: 0 })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'complete', total: 0, skipped: 0, failed: 0, passed: 0 })}\n\n`);
+      res.end();
       return;
     }
 
@@ -1252,14 +1282,9 @@ router.post('/portraits/audit', async (req, res) => {
 
     console.log(`  Auditing ${tasks.length} portraits (${skipped} skipped)...`);
 
-    const results: Array<{
-      optionId: number;
-      playerId: string;
-      playerName: string;
-      challengeId: number;
-      pass: boolean;
-      reason: string;
-    }> = [];
+    res.write(`data: ${JSON.stringify({ type: 'start', total: tasks.length, skipped })}\n\n`);
+
+    let doneCount = 0;
 
     await asyncPool(
       tasks,
@@ -1279,14 +1304,18 @@ router.post('/portraits/audit', async (req, res) => {
             });
         }
 
-        results.push({
+        doneCount++;
+        res.write(`data: ${JSON.stringify({
+          type: 'progress',
+          index: doneCount,
+          total: tasks.length,
           optionId: task.optionId,
           playerId: task.playerId,
           playerName: task.playerName,
           challengeId: task.challengeId,
           pass: result.pass,
           reason: result.reason,
-        });
+        })}\n\n`);
 
         console.log(`    ${result.pass ? '✓' : '✗'} ${task.playerName}: ${result.reason}`);
         return task.playerId;
@@ -1294,74 +1323,87 @@ router.post('/portraits/audit', async (req, res) => {
       { retries: 1, backoffMs: 3000 },
     );
 
-    // Sort: failures first
-    results.sort((a, b) => (a.pass === b.pass ? 0 : a.pass ? 1 : -1));
-
-    const failed = results.filter(r => !r.pass).length;
-    const passed = results.filter(r => r.pass).length;
-
-    res.json({ total: results.length, skipped, failed, passed, results });
+    res.write(`data: ${JSON.stringify({ type: 'complete', total: tasks.length, skipped })}\n\n`);
+    res.end();
   } catch (error) {
     console.error('Portrait audit error:', error);
-    res.status(500).json({ error: 'Failed to audit portraits' });
+    res.write(`data: ${JSON.stringify({ type: 'error', error: 'Failed to audit portraits' })}\n\n`);
+    res.end();
   }
 });
 
-// Regenerate portraits by optionId with full quality validation
+// Regenerate portraits by optionId with full quality validation (SSE streaming)
 router.post('/portraits/regenerate', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
   try {
     const { optionIds } = req.body as { optionIds: number[] };
     if (!Array.isArray(optionIds) || optionIds.length === 0) {
-      res.status(400).json({ error: 'optionIds array required' });
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'optionIds array required' })}\n\n`);
+      res.end();
       return;
     }
 
-    const results: Array<{
-      optionId: number;
-      playerName: string;
-      pass: boolean;
-      attempts: number;
-      error?: string;
-    }> = [];
+    res.write(`data: ${JSON.stringify({ type: 'start', total: optionIds.length })}\n\n`);
+
+    let doneCount = 0;
 
     const { failures } = await asyncPool(
       optionIds,
       3,
       async (optionId) => {
         const result = await generatePortraitForOption(optionId);
-        const [opt] = await db.select({ playerName: roundOptions.playerName })
+        const [opt] = await db.select({ playerName: roundOptions.playerName, playerId: roundOptions.playerId })
           .from(roundOptions)
           .where(eq(roundOptions.id, optionId))
           .limit(1);
-        results.push({
+
+        doneCount++;
+        res.write(`data: ${JSON.stringify({
+          type: 'progress',
+          index: doneCount,
+          total: optionIds.length,
           optionId,
+          playerId: opt?.playerId,
           playerName: opt?.playerName ?? 'Unknown',
           pass: result.pass,
           attempts: result.attempts,
-        });
+          portraitUrl: result.portraitUrl,
+        })}\n\n`);
+
         return optionId;
       },
       { retries: 1, backoffMs: 3000 },
     );
 
     for (const f of failures) {
-      results.push({
+      doneCount++;
+      res.write(`data: ${JSON.stringify({
+        type: 'progress',
+        index: doneCount,
+        total: optionIds.length,
         optionId: f.item,
         playerName: 'Unknown',
         pass: false,
         attempts: 0,
         error: f.error.message,
-      });
+      })}\n\n`);
     }
 
-    res.json({
+    res.write(`data: ${JSON.stringify({
+      type: 'complete',
+      total: optionIds.length,
       regenerated: optionIds.length - failures.length,
       failed: failures.length,
-      results,
-    });
+    })}\n\n`);
+    res.end();
   } catch (error) {
     console.error('Regenerate portraits error:', error);
-    res.status(500).json({ error: 'Failed to regenerate portraits' });
+    res.write(`data: ${JSON.stringify({ type: 'error', error: 'Failed to regenerate portraits' })}\n\n`);
+    res.end();
   }
 });
 
