@@ -254,7 +254,7 @@ export function Game() {
                 players={game.currentRound.players}
                 position={game.currentRound.position}
                 onPick={handlePick}
-                isFirstPick={game.picks.length === 0}
+                showSwapHint={game.picks.length < 3}
               />
             </motion.div>
           )}

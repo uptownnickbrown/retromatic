@@ -138,7 +138,7 @@ export function Results() {
           <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider">
             Your Lineup
           </h3>
-          <span className="font-mono text-[10px] text-muted">Tap any pick to see stats</span>
+          <span className="font-mono text-xs text-muted">Tap any pick to see stats</span>
         </div>
         <FinalLineup picks={picks} />
       </motion.div>
@@ -154,7 +154,7 @@ export function Results() {
           <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider">
             Tale of the Tape
           </h3>
-          <span className="font-mono text-[10px] text-muted">Tap any matchup to see stats</span>
+          <span className="font-mono text-xs text-muted">Tap any matchup to see stats</span>
         </div>
         <HeadToHead
           picks={picks}
