@@ -60,7 +60,7 @@ export function Recap() {
                 "{challenge.theme}"
               </p>
             )}
-            <p className="font-mono text-[10px] text-muted mt-1">
+            <p className="font-mono text-xs text-muted mt-1">
               {challenge.date}
             </p>
           </div>
@@ -95,7 +95,7 @@ export function Recap() {
           <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider">
             Tale of the Tape
           </h3>
-          <span className="font-mono text-[10px] text-muted">Tap any matchup to see stats</span>
+          <span className="font-mono text-xs text-muted">Tap any matchup to see stats</span>
         </div>
         <HeadToHead
           picks={communityLineup.picks}
