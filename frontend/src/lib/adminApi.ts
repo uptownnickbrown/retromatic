@@ -551,42 +551,48 @@ export function streamAgentContinue(
   return { abort: () => controller.abort() };
 }
 
-// --- Stale Portraits ---
+// --- Portrait Quality Audit ---
 
-export interface StalePortrait {
+export interface AuditResult {
   optionId: number;
   playerId: string;
   playerName: string;
   challengeId: number;
-  fileDate: string;
+  pass: boolean;
+  reason: string;
 }
 
-export interface StalePortraitsResponse {
-  staleCount: number;
-  portraits: StalePortrait[];
+export interface AuditResponse {
+  total: number;
+  skipped: number;
+  failed: number;
+  passed: number;
+  results: AuditResult[];
 }
 
 export interface RegenerateResult {
   optionId: number;
   playerName: string;
-  confidence: number;
+  pass: boolean;
   attempts: number;
   error?: string;
 }
 
-export interface RegenerateStaleResponse {
+export interface RegenerateResponse {
   regenerated: number;
   failed: number;
   results: RegenerateResult[];
 }
 
-export async function getStalePortraits(before?: string): Promise<StalePortraitsResponse> {
-  const params = before ? `?before=${encodeURIComponent(before)}` : '';
-  return adminFetch(`/admin/portraits/stale${params}`);
+export async function auditPortraits(challengeIds?: number[]): Promise<AuditResponse> {
+  return adminFetch('/admin/portraits/audit', {
+    method: 'POST',
+    body: JSON.stringify({ challengeIds }),
+  });
 }
 
-export async function regenerateStalePortraits(optionIds: number[]): Promise<RegenerateStaleResponse> {
-  return adminFetch('/admin/portraits/regenerate-stale', {
+export async function regeneratePortraits(optionIds: number[]): Promise<RegenerateResponse> {
+  return adminFetch('/admin/portraits/regenerate', {
     method: 'POST',
     body: JSON.stringify({ optionIds }),
   });

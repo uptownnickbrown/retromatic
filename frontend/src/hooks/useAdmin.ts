@@ -186,20 +186,21 @@ export function useBakeChallenge() {
   });
 }
 
-export function useStalePortraits(before?: string) {
-  return useQuery({
-    queryKey: ['admin', 'portraits', 'stale', before],
-    queryFn: () => adminApi.getStalePortraits(before),
-    enabled: false, // manual trigger only
+export function usePortraitAudit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (challengeIds?: number[]) => adminApi.auditPortraits(challengeIds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
   });
 }
 
-export function useRegenerateStalePortraits() {
+export function useRegeneratePortraits() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (optionIds: number[]) => adminApi.regenerateStalePortraits(optionIds),
+    mutationFn: (optionIds: number[]) => adminApi.regeneratePortraits(optionIds),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'portraits', 'stale'] });
       qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
     },
   });
