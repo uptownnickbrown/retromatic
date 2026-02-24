@@ -16,7 +16,19 @@ This file provides guidance to Claude Code when working with this repository.
 7. Final results: all picks submitted in one batch, server re-validates scores
 
 ### Sandlot Score
-Position-adjusted Z-score mapped to a 1.0-10.0 scale. This is the game's signature metric — measures how good a player-year was relative to others at that position. Scores ≥ 9.5 earn "Sandlot Legend" status.
+The game's signature 1.0–10.0 metric. Measures how dominant a player-season was relative to others at the same position.
+
+**How it's computed** (data pipeline, `preprocess-to-postgres.py`):
+1. **Individual stat z-scores** — each counting stat is z-scored within the player's position group (e.g., HR for catchers only). `zscore = (value - position_mean) / position_std_dev`.
+2. **Composite z-score** — the individual z-scores are **summed** into a single `z_score_position`:
+   - Batters: `R_z + HR_z + RBI_z + SB_z + H_z − Outs_z` (6 components)
+   - Pitchers: `W_z + SV_z + SO_z + ER_saved_z + BR_saved_z` (5 components; W and SV use overall z-scores to avoid degenerate variance within SP/RP)
+3. **Linear mapping** — `z_score_position` is mapped to 1.0–10.0 (clamped at z=−2 and z=10):
+   `sandlotScore = 1.0 + ((clamp(z, -2, 10) + 2) / 12) × 9.0`
+
+Because it's a **sum of multiple z-scores**, values well above 10 are possible. A `z_score_position` of 18 doesn't mean "18 standard deviations above the mean" — it means the player averaged ~3σ above their position's mean across each of the 6 stat categories. Scores ≥ 9.5 (z ≥ 9.33) earn "Sandlot Legend" status.
+
+**Special cases**: UTIL batters and P-position pitchers have tiny pools, so they z-score against all batters / all pitchers respectively.
 
 ## Commands
 
