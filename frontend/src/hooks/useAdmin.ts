@@ -186,23 +186,10 @@ export function useBakeChallenge() {
   });
 }
 
-export function usePortraitAudit() {
-  const qc = useQueryClient();
+export function useValidatePortrait() {
   return useMutation({
-    mutationFn: (challengeIds?: number[]) => adminApi.auditPortraits(challengeIds),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
-    },
-  });
-}
-
-export function useRegeneratePortraits() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (optionIds: number[]) => adminApi.regeneratePortraits(optionIds),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
-    },
+    mutationFn: ({ playerId, validated }: { playerId: string; validated: boolean }) =>
+      adminApi.validatePortrait(playerId, validated),
   });
 }
 

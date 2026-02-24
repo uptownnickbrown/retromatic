@@ -17,8 +17,6 @@ import {
   BarChart3,
   Zap,
   Play,
-  Image,
-  RefreshCw,
 } from 'lucide-react';
 import {
   useAdminPipeline,
@@ -30,8 +28,6 @@ import {
   useBakeChallenge,
   usePromoteNext,
   useForceActivate,
-  usePortraitAudit,
-  useRegeneratePortraits,
 } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
@@ -41,6 +37,7 @@ import { InlineThemeEditor } from '../components/admin/InlineThemeEditor';
 import { clearAdminSecret } from '../lib/adminApi';
 import { streamBakeAll } from '../lib/adminApi';
 import { AgentChatPanel } from '../components/admin/AgentChatPanel';
+import { PortraitHealthPanel } from '../components/admin/PortraitHealthPanel';
 import { INITIAL_SESSION_STATE, agentReducer } from '../lib/adminApi';
 import { cn } from '../lib/utils';
 import type { PipelineChallenge, HistoryChallenge } from '../lib/adminApi';
@@ -64,8 +61,6 @@ export function AdminDashboard() {
   const forceActivateMutation = useForceActivate();
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentSession, agentDispatch] = useReducer(agentReducer, INITIAL_SESSION_STATE);
-  const auditMutation = usePortraitAudit();
-  const regenMutation = useRegeneratePortraits();
 
   // Bake-all SSE state
   const [bakeAllProgress, setBakeAllProgress] = useState<{
@@ -412,106 +407,7 @@ export function AdminDashboard() {
         )}
 
         {/* Portrait Health */}
-        <motion.section
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.12 }}
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <h2 className="font-editorial font-bold text-xl text-navy">Portrait Health</h2>
-            <button
-              onClick={() => auditMutation.mutate(undefined)}
-              disabled={auditMutation.isPending}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
-                auditMutation.isPending
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
-                  : 'bg-navy/5 border-navy/15 text-navy/60 hover:bg-navy/10 hover:text-navy',
-              )}
-            >
-              {auditMutation.isPending ? (
-                <><Loader2 className="w-3 h-3 animate-spin" /> Auditing...</>
-              ) : (
-                <><Image className="w-3 h-3" /> Audit Portrait Quality</>
-              )}
-            </button>
-          </div>
-
-          {auditMutation.data && (
-            <PaperCard noPadding>
-              {auditMutation.data.failed === 0 ? (
-                <div className="px-4 py-3 font-mono text-xs text-emerald-700">
-                  All {auditMutation.data.passed} portrait{auditMutation.data.passed !== 1 ? 's' : ''} passed
-                  {auditMutation.data.skipped > 0 && ` (${auditMutation.data.skipped} already validated)`}.
-                </div>
-              ) : (
-                <>
-                  <div className="px-4 py-3 flex items-center justify-between border-b border-navy/8">
-                    <span className="font-mono text-xs text-navy/70">
-                      {auditMutation.data.failed} failed / {auditMutation.data.passed} passed
-                      {auditMutation.data.skipped > 0 && ` / ${auditMutation.data.skipped} skipped`}
-                    </span>
-                    <button
-                      onClick={() => {
-                        const failedIds = auditMutation.data!.results
-                          .filter(r => !r.pass)
-                          .map(r => r.optionId);
-                        regenMutation.mutate(failedIds);
-                      }}
-                      disabled={regenMutation.isPending}
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
-                        regenMutation.isPending
-                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
-                          : 'bg-navy/5 border-navy/15 text-navy/60 hover:bg-navy/10 hover:text-navy',
-                      )}
-                    >
-                      {regenMutation.isPending ? (
-                        <><Loader2 className="w-3 h-3 animate-spin" /> Regenerating...</>
-                      ) : (
-                        <><RefreshCw className="w-3 h-3" /> Regenerate All Failed</>
-                      )}
-                    </button>
-                  </div>
-                  <div className="divide-y divide-navy/5 max-h-[400px] overflow-y-auto">
-                    {auditMutation.data.results.map((r) => (
-                      <div key={r.optionId} className="px-4 py-2 flex items-center gap-3">
-                        <div className={cn(
-                          'w-2 h-2 rounded-full flex-shrink-0',
-                          r.pass ? 'bg-emerald-500' : 'bg-red-500',
-                        )} />
-                        <div className="w-8 h-10 rounded overflow-hidden bg-bone flex-shrink-0">
-                          <img
-                            src={`/portraits/${r.playerId}.webp?v=${Date.now()}`}
-                            alt={r.playerName}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <span className="font-mono text-xs text-navy font-bold block truncate">
-                            {r.playerName}
-                          </span>
-                          <span className="font-mono text-[10px] text-muted block truncate">
-                            {r.reason}
-                          </span>
-                        </div>
-                        <span className="font-mono text-[10px] text-muted flex-shrink-0">
-                          #{r.challengeId}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  {regenMutation.isSuccess && (
-                    <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/20 font-mono text-xs text-emerald-700">
-                      Regenerated {regenMutation.data.regenerated} portrait{regenMutation.data.regenerated !== 1 ? 's' : ''}
-                      {regenMutation.data.failed > 0 && `, ${regenMutation.data.failed} failed`}
-                    </div>
-                  )}
-                </>
-              )}
-            </PaperCard>
-          )}
-        </motion.section>
+        <PortraitHealthPanel />
 
         {/* Previous Games */}
         {history.length > 0 && (
