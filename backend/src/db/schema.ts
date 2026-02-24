@@ -109,6 +109,14 @@ export const pickStats = pgTable('pick_stats', {
   index('idx_stats_round').on(table.roundId),
 ]);
 
+// Portrait validation tracking (keyed by playerId since portrait files are shared across challenges)
+export const portraits = pgTable('portraits', {
+  playerId: varchar('player_id', { length: 20 }).primaryKey(),
+  validated: boolean('validated').notNull().default(false),
+  validatedAt: timestamp('validated_at'),
+  portraitUrl: varchar('portrait_url', { length: 500 }),
+});
+
 // Type exports
 export type Player = typeof players.$inferSelect;
 export type NewPlayer = typeof players.$inferInsert;
@@ -119,3 +127,4 @@ export type RoundOption = typeof roundOptions.$inferSelect;
 export type GameSession = typeof gameSessions.$inferSelect;
 export type UserPick = typeof userPicks.$inferSelect;
 export type PickStat = typeof pickStats.$inferSelect;
+export type Portrait = typeof portraits.$inferSelect;

@@ -30,8 +30,8 @@ import {
   useBakeChallenge,
   usePromoteNext,
   useForceActivate,
-  useStalePortraits,
-  useRegenerateStalePortraits,
+  usePortraitAudit,
+  useRegeneratePortraits,
 } from '../hooks/useAdmin';
 import { PaperCard } from '../components/ui/PaperCard';
 import { VintageButton } from '../components/ui/VintageButton';
@@ -64,8 +64,8 @@ export function AdminDashboard() {
   const forceActivateMutation = useForceActivate();
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentSession, agentDispatch] = useReducer(agentReducer, INITIAL_SESSION_STATE);
-  const staleQuery = useStalePortraits();
-  const regenStaleMutation = useRegenerateStalePortraits();
+  const auditMutation = usePortraitAudit();
+  const regenMutation = useRegeneratePortraits();
 
   // Bake-all SSE state
   const [bakeAllProgress, setBakeAllProgress] = useState<{
@@ -420,81 +420,91 @@ export function AdminDashboard() {
           <div className="flex items-center gap-3 mb-3">
             <h2 className="font-editorial font-bold text-xl text-navy">Portrait Health</h2>
             <button
-              onClick={() => staleQuery.refetch()}
-              disabled={staleQuery.isFetching}
+              onClick={() => auditMutation.mutate(undefined)}
+              disabled={auditMutation.isPending}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
-                staleQuery.isFetching
+                auditMutation.isPending
                   ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
                   : 'bg-navy/5 border-navy/15 text-navy/60 hover:bg-navy/10 hover:text-navy',
               )}
             >
-              {staleQuery.isFetching ? (
-                <><Loader2 className="w-3 h-3 animate-spin" /> Scanning...</>
+              {auditMutation.isPending ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /> Auditing...</>
               ) : (
-                <><Image className="w-3 h-3" /> Scan for Stale Portraits</>
+                <><Image className="w-3 h-3" /> Audit Portrait Quality</>
               )}
             </button>
           </div>
 
-          {staleQuery.data && (
+          {auditMutation.data && (
             <PaperCard noPadding>
-              {staleQuery.data.staleCount === 0 ? (
+              {auditMutation.data.failed === 0 ? (
                 <div className="px-4 py-3 font-mono text-xs text-emerald-700">
-                  All portraits are up to date.
+                  All {auditMutation.data.passed} portrait{auditMutation.data.passed !== 1 ? 's' : ''} passed
+                  {auditMutation.data.skipped > 0 && ` (${auditMutation.data.skipped} already validated)`}.
                 </div>
               ) : (
                 <>
                   <div className="px-4 py-3 flex items-center justify-between border-b border-navy/8">
                     <span className="font-mono text-xs text-navy/70">
-                      {staleQuery.data.staleCount} stale portrait{staleQuery.data.staleCount !== 1 ? 's' : ''} found
+                      {auditMutation.data.failed} failed / {auditMutation.data.passed} passed
+                      {auditMutation.data.skipped > 0 && ` / ${auditMutation.data.skipped} skipped`}
                     </span>
                     <button
                       onClick={() => {
-                        const ids = staleQuery.data!.portraits.map(p => p.optionId);
-                        regenStaleMutation.mutate(ids);
+                        const failedIds = auditMutation.data!.results
+                          .filter(r => !r.pass)
+                          .map(r => r.optionId);
+                        regenMutation.mutate(failedIds);
                       }}
-                      disabled={regenStaleMutation.isPending}
+                      disabled={regenMutation.isPending}
                       className={cn(
                         'flex items-center gap-1.5 px-3 py-1.5 rounded border font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
-                        regenStaleMutation.isPending
+                        regenMutation.isPending
                           ? 'bg-amber-500/10 border-amber-500/30 text-amber-700'
                           : 'bg-navy/5 border-navy/15 text-navy/60 hover:bg-navy/10 hover:text-navy',
                       )}
                     >
-                      {regenStaleMutation.isPending ? (
+                      {regenMutation.isPending ? (
                         <><Loader2 className="w-3 h-3 animate-spin" /> Regenerating...</>
                       ) : (
-                        <><RefreshCw className="w-3 h-3" /> Regenerate All</>
+                        <><RefreshCw className="w-3 h-3" /> Regenerate All Failed</>
                       )}
                     </button>
                   </div>
                   <div className="divide-y divide-navy/5 max-h-[400px] overflow-y-auto">
-                    {staleQuery.data.portraits.map((p) => (
-                      <div key={p.optionId} className="px-4 py-2 flex items-center gap-3">
+                    {auditMutation.data.results.map((r) => (
+                      <div key={r.optionId} className="px-4 py-2 flex items-center gap-3">
+                        <div className={cn(
+                          'w-2 h-2 rounded-full flex-shrink-0',
+                          r.pass ? 'bg-emerald-500' : 'bg-red-500',
+                        )} />
                         <div className="w-8 h-10 rounded overflow-hidden bg-bone flex-shrink-0">
                           <img
-                            src={`/portraits/${p.playerId}.webp?v=${Date.now()}`}
-                            alt={p.playerName}
+                            src={`/portraits/${r.playerId}.webp?v=${Date.now()}`}
+                            alt={r.playerName}
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <span className="font-mono text-xs text-navy font-bold flex-1 truncate">
-                          {p.playerName}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-mono text-xs text-navy font-bold block truncate">
+                            {r.playerName}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted block truncate">
+                            {r.reason}
+                          </span>
+                        </div>
                         <span className="font-mono text-[10px] text-muted flex-shrink-0">
-                          #{p.challengeId}
-                        </span>
-                        <span className="font-mono text-[10px] text-muted/60 flex-shrink-0">
-                          {new Date(p.fileDate).toLocaleDateString()}
+                          #{r.challengeId}
                         </span>
                       </div>
                     ))}
                   </div>
-                  {regenStaleMutation.isSuccess && (
+                  {regenMutation.isSuccess && (
                     <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/20 font-mono text-xs text-emerald-700">
-                      Regenerated {regenStaleMutation.data.regenerated} portrait{regenStaleMutation.data.regenerated !== 1 ? 's' : ''}
-                      {regenStaleMutation.data.failed > 0 && `, ${regenStaleMutation.data.failed} failed`}
+                      Regenerated {regenMutation.data.regenerated} portrait{regenMutation.data.regenerated !== 1 ? 's' : ''}
+                      {regenMutation.data.failed > 0 && `, ${regenMutation.data.failed} failed`}
                     </div>
                   )}
                 </>

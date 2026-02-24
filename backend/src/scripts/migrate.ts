@@ -77,6 +77,17 @@ async function migrate() {
       console.log('[migrate] ✓ portrait URLs already webp (no changes)');
     }
 
+    // Create portraits table for validation tracking
+    await sql`
+      CREATE TABLE IF NOT EXISTS portraits (
+        player_id VARCHAR(20) PRIMARY KEY,
+        validated BOOLEAN NOT NULL DEFAULT FALSE,
+        validated_at TIMESTAMP,
+        portrait_url VARCHAR(500)
+      )
+    `;
+    console.log('[migrate] ✓ portraits table');
+
     console.log('[migrate] Done.');
   } catch (err) {
     console.error('[migrate] FAILED:', (err as Error).message || err);

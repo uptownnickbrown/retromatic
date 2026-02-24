@@ -4,17 +4,18 @@ import type { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { db } from '../db/index.js';
-import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players, pickStats } from '../db/schema.js';
+import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players, pickStats, portraits } from '../db/schema.js';
 import { eq, and, desc, inArray, sql, asc } from 'drizzle-orm';
 import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
-import { generatePortraitsForChallenge, generatePortraitForOption, PORTRAITS_DIR, getPortraitPath } from '../services/portraitGenerator.js';
+import { generatePortraitsForChallenge, generatePortraitForOption, getPortraitPath, auditPortrait, POSITION_LABELS } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
 import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
 import { asyncPool } from '../lib/asyncPool.js';
+import { getTeamName } from '../lib/teams.js';
 import { getTodayET } from '../lib/date.js';
 import { getAllRoundData } from './challenge.js';
 
@@ -1142,92 +1143,172 @@ router.post('/portraits/upload', express.raw({ type: 'image/png', limit: '5mb' }
   }
 });
 
-// Find stale portraits (generated before a cutoff timestamp)
-router.get('/portraits/stale', async (req, res) => {
+// Audit portrait quality — validates portraits against player appearance
+router.post('/portraits/audit', async (req, res) => {
   try {
-    const beforeParam = req.query.before as string | undefined;
-    const cutoffMs = beforeParam
-      ? new Date(beforeParam).getTime()
-      : Date.now() - 48 * 60 * 60 * 1000; // default: 48 hours ago
+    const { challengeIds } = req.body as { challengeIds?: number[] };
 
-    if (isNaN(cutoffMs)) {
-      res.status(400).json({ error: 'Invalid "before" timestamp' });
+    // Default: audit active + upcoming (scheduled) challenges
+    let targetChallengeIds: number[];
+    if (challengeIds && challengeIds.length > 0) {
+      targetChallengeIds = challengeIds;
+    } else {
+      const active = await db.select({ id: challenges.id })
+        .from(challenges)
+        .where(inArray(challenges.status, ['active', 'scheduled']));
+      targetChallengeIds = active.map(c => c.id);
+    }
+
+    if (targetChallengeIds.length === 0) {
+      res.json({ total: 0, skipped: 0, failed: 0, passed: 0, results: [] });
       return;
     }
 
-    // Scan portrait directory for old files
-    if (!fs.existsSync(PORTRAITS_DIR)) {
-      res.json({ staleCount: 0, portraits: [] });
+    // Get all round options for target challenges
+    const rounds = await db.select({ id: challengeRounds.id, challengeId: challengeRounds.challengeId, position: challengeRounds.position })
+      .from(challengeRounds)
+      .where(inArray(challengeRounds.challengeId, targetChallengeIds));
+
+    const roundIds = rounds.map(r => r.id);
+    if (roundIds.length === 0) {
+      res.json({ total: 0, skipped: 0, failed: 0, passed: 0, results: [] });
       return;
     }
 
-    const files = fs.readdirSync(PORTRAITS_DIR).filter(f => f.endsWith('.webp'));
-    const stalePlayerIds = new Set<string>();
+    const options = await db.select()
+      .from(roundOptions)
+      .where(inArray(roundOptions.roundId, roundIds));
 
-    for (const file of files) {
-      const filePath = path.join(PORTRAITS_DIR, file);
-      const stat = fs.statSync(filePath);
-      if (stat.mtimeMs < cutoffMs) {
-        stalePlayerIds.add(file.replace('.webp', ''));
-      }
-    }
+    const roundMap = new Map(rounds.map(r => [r.id, r]));
 
-    if (stalePlayerIds.size === 0) {
-      res.json({ staleCount: 0, portraits: [] });
-      return;
-    }
+    // Check which portraits are already validated
+    const existingPortraits = await db.select()
+      .from(portraits)
+      .where(eq(portraits.validated, true));
+    const validatedSet = new Set(existingPortraits.map(p => p.playerId));
 
-    // Cross-reference with roundOptions to get player names and challenge IDs
-    const allOptions = await db.select({
-      optionId: roundOptions.id,
-      playerId: roundOptions.playerId,
-      playerName: roundOptions.playerName,
-      roundId: roundOptions.roundId,
-    }).from(roundOptions);
-
-    // Map roundId → challengeId
-    const allRounds = await db.select({
-      id: challengeRounds.id,
-      challengeId: challengeRounds.challengeId,
-    }).from(challengeRounds);
-    const roundToChallengeMap = new Map(allRounds.map(r => [r.id, r.challengeId]));
-
-    // Build stale portrait list (deduplicated by playerId — a player may appear in multiple challenges)
+    // Deduplicate by playerId (same portrait file shared across challenges)
     const seenPlayerIds = new Set<string>();
-    const portraits: Array<{
+    interface AuditTask {
       optionId: number;
       playerId: string;
       playerName: string;
       challengeId: number;
-      fileDate: string;
-    }> = [];
+      teamName: string;
+      year: number;
+      position: string;
+    }
+    const tasks: AuditTask[] = [];
+    let skipped = 0;
 
-    for (const opt of allOptions) {
-      if (!stalePlayerIds.has(opt.playerId) || seenPlayerIds.has(opt.playerId)) continue;
+    for (const opt of options) {
+      if (seenPlayerIds.has(opt.playerId)) { skipped++; continue; }
       seenPlayerIds.add(opt.playerId);
 
-      const filePath = getPortraitPath(opt.playerId);
-      const stat = fs.statSync(filePath);
-      const challengeId = roundToChallengeMap.get(opt.roundId) ?? 0;
+      if (validatedSet.has(opt.playerId)) { skipped++; continue; }
+      if (!fs.existsSync(getPortraitPath(opt.playerId))) { skipped++; continue; }
 
-      portraits.push({
-        optionId: opt.optionId,
+      const round = roundMap.get(opt.roundId);
+      const challengeId = round?.challengeId ?? 0;
+
+      // Pick best year for audit context
+      const years = opt.yearOptions as number[];
+      let bestTeam = 'Unknown';
+      let bestYear = years[0] ?? 2000;
+      let bestZ = -Infinity;
+      let bestPosition = round?.position ?? 'player';
+
+      for (const year of years) {
+        const [record] = await db.select({
+          team: players.team,
+          zScorePosition: players.zScorePosition,
+          primaryPosition: players.primaryPosition,
+        })
+          .from(players)
+          .where(and(eq(players.playerId, opt.playerId), eq(players.year, year)))
+          .limit(1);
+
+        if (record) {
+          const z = Number(record.zScorePosition);
+          if (z > bestZ) {
+            bestZ = z;
+            bestTeam = record.team ?? 'Unknown';
+            bestYear = year;
+            bestPosition = record.primaryPosition;
+          }
+        }
+      }
+
+      tasks.push({
+        optionId: opt.id,
         playerId: opt.playerId,
         playerName: opt.playerName,
         challengeId,
-        fileDate: new Date(stat.mtimeMs).toISOString(),
+        teamName: getTeamName(bestTeam),
+        year: bestYear,
+        position: POSITION_LABELS[bestPosition] ?? bestPosition,
       });
     }
 
-    res.json({ staleCount: portraits.length, portraits });
+    console.log(`  Auditing ${tasks.length} portraits (${skipped} skipped)...`);
+
+    const results: Array<{
+      optionId: number;
+      playerId: string;
+      playerName: string;
+      challengeId: number;
+      pass: boolean;
+      reason: string;
+    }> = [];
+
+    await asyncPool(
+      tasks,
+      5,
+      async (task) => {
+        const result = await auditPortrait(
+          task.playerId, task.playerName, task.teamName, task.year, task.position,
+        );
+
+        // Mark validated if passed
+        if (result.pass) {
+          await db.insert(portraits)
+            .values({ playerId: task.playerId, validated: true, validatedAt: new Date(), portraitUrl: `/portraits/${task.playerId}.webp` })
+            .onConflictDoUpdate({
+              target: portraits.playerId,
+              set: { validated: true, validatedAt: new Date() },
+            });
+        }
+
+        results.push({
+          optionId: task.optionId,
+          playerId: task.playerId,
+          playerName: task.playerName,
+          challengeId: task.challengeId,
+          pass: result.pass,
+          reason: result.reason,
+        });
+
+        console.log(`    ${result.pass ? '✓' : '✗'} ${task.playerName}: ${result.reason}`);
+        return task.playerId;
+      },
+      { retries: 1, backoffMs: 3000 },
+    );
+
+    // Sort: failures first
+    results.sort((a, b) => (a.pass === b.pass ? 0 : a.pass ? 1 : -1));
+
+    const failed = results.filter(r => !r.pass).length;
+    const passed = results.filter(r => r.pass).length;
+
+    res.json({ total: results.length, skipped, failed, passed, results });
   } catch (error) {
-    console.error('Stale portraits error:', error);
-    res.status(500).json({ error: 'Failed to scan for stale portraits' });
+    console.error('Portrait audit error:', error);
+    res.status(500).json({ error: 'Failed to audit portraits' });
   }
 });
 
-// Regenerate stale portraits with quality validation
-router.post('/portraits/regenerate-stale', async (req, res) => {
+// Regenerate portraits by optionId with full quality validation
+router.post('/portraits/regenerate', async (req, res) => {
   try {
     const { optionIds } = req.body as { optionIds: number[] };
     if (!Array.isArray(optionIds) || optionIds.length === 0) {
@@ -1238,7 +1319,7 @@ router.post('/portraits/regenerate-stale', async (req, res) => {
     const results: Array<{
       optionId: number;
       playerName: string;
-      confidence: number;
+      pass: boolean;
       attempts: number;
       error?: string;
     }> = [];
@@ -1248,7 +1329,6 @@ router.post('/portraits/regenerate-stale', async (req, res) => {
       3,
       async (optionId) => {
         const result = await generatePortraitForOption(optionId);
-        // Look up player name for the response
         const [opt] = await db.select({ playerName: roundOptions.playerName })
           .from(roundOptions)
           .where(eq(roundOptions.id, optionId))
@@ -1256,7 +1336,7 @@ router.post('/portraits/regenerate-stale', async (req, res) => {
         results.push({
           optionId,
           playerName: opt?.playerName ?? 'Unknown',
-          confidence: result.confidence,
+          pass: result.pass,
           attempts: result.attempts,
         });
         return optionId;
@@ -1268,7 +1348,7 @@ router.post('/portraits/regenerate-stale', async (req, res) => {
       results.push({
         optionId: f.item,
         playerName: 'Unknown',
-        confidence: 0,
+        pass: false,
         attempts: 0,
         error: f.error.message,
       });
@@ -1280,8 +1360,8 @@ router.post('/portraits/regenerate-stale', async (req, res) => {
       results,
     });
   } catch (error) {
-    console.error('Regenerate stale error:', error);
-    res.status(500).json({ error: 'Failed to regenerate stale portraits' });
+    console.error('Regenerate portraits error:', error);
+    res.status(500).json({ error: 'Failed to regenerate portraits' });
   }
 });
 
