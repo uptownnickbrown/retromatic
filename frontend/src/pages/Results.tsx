@@ -103,7 +103,7 @@ export function Results() {
                 <span className="font-editorial font-bold text-lg">
                   {getOrdinalSuffix(percentileRank)}
                 </span>{' '}
-                percentile — {totalParticipants} player{totalParticipants !== 1 ? 's' : ''}
+                percentile
               </p>
             </div>
           )}
