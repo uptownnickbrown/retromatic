@@ -38,7 +38,7 @@ export function Recap() {
     );
   }
 
-  const { challenge, communityLineup, perfectLineup, totalParticipants } = data;
+  const { challenge, communityLineup, perfectLineup } = data;
   const communityTotal = safeNum(communityLineup.totalScore);
   const perfectTotal = safeNum(perfectLineup.totalScore);
 
@@ -61,7 +61,7 @@ export function Recap() {
               </p>
             )}
             <p className="font-mono text-[10px] text-muted mt-1">
-              {challenge.date} · {totalParticipants} player{totalParticipants !== 1 ? 's' : ''}
+              {challenge.date}
             </p>
           </div>
         </PaperCard>
