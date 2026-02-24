@@ -55,7 +55,7 @@ export function Results() {
     );
   }
 
-  const { session, picks, perfectLineup, totalParticipants } = data;
+  const { session, picks, perfectLineup } = data;
   const totalScore = safeNum(session.totalLegendScore);
   const percentile = safeNum(session.percentile, 50);
   const percentileRank = Math.max(1, Math.round(percentile));

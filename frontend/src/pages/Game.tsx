@@ -146,12 +146,15 @@ export function Game() {
   }
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg mx-auto w-full safe-bottom relative">
+    <div className={cn(
+      "flex-1 flex flex-col max-w-lg mx-auto w-full relative",
+      game.phase !== 'revealing' && 'safe-bottom'
+    )}>
       {/* Home icon + Pause overlay */}
       {showHomeIcon && (
         <button
           onClick={handlePause}
-          className="absolute top-3 left-3 z-20 p-2 text-navy/40 hover:text-navy transition-colors"
+          className="absolute top-2 left-3 z-20 p-2 text-navy/40 hover:text-navy transition-colors"
           aria-label="Home"
         >
           <HomePlateIcon className="w-5 h-5" />
@@ -251,6 +254,7 @@ export function Game() {
                 players={game.currentRound.players}
                 position={game.currentRound.position}
                 onPick={handlePick}
+                isFirstPick={game.picks.length === 0}
               />
             </motion.div>
           )}
@@ -285,23 +289,21 @@ export function Game() {
         </AnimatePresence>
       </div>
 
-      {/* Fixed "Next Round" button — pinned above iOS toolbar */}
+      {/* Sticky "Next Round" button — sticks to bottom while scrolling, no gap when fully scrolled */}
       {game.phase === 'revealing' && game.reveal && (
-        <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 bg-bone">
-          <div className="max-w-lg mx-auto">
-            <button
-              onClick={handleContinue}
-              className={cn(
-                'w-full font-mono font-bold text-base uppercase tracking-wider py-3.5 rounded',
-                'transition-transform duration-100 active:translate-y-0.5',
-                !game.currentRound
-                  ? 'bg-red text-white border-2 border-red-dark shadow-[2px_2px_0px_#0A1E2F]'
-                  : 'bg-navy text-paper border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.3)]',
-              )}
-            >
-              {!game.currentRound ? 'See Results' : 'Next Round'}
-            </button>
-          </div>
+        <div className="sticky bottom-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          <button
+            onClick={handleContinue}
+            className={cn(
+              'w-full font-mono font-bold text-base uppercase tracking-wider py-3.5 rounded',
+              'transition-transform duration-100 active:translate-y-0.5',
+              !game.currentRound
+                ? 'bg-red text-white border-2 border-red-dark shadow-[2px_2px_0px_#0A1E2F]'
+                : 'bg-navy text-paper border-2 border-navy shadow-[2px_2px_0px_rgba(10,30,47,0.3)]',
+            )}
+          >
+            {!game.currentRound ? 'See Results' : 'Next Round'}
+          </button>
         </div>
       )}
     </div>

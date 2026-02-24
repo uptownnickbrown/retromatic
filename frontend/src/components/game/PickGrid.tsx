@@ -10,10 +10,12 @@ interface PickGridProps {
   position: string;
   onPick: (playerId: number, year: number) => void;
   disabled?: boolean;
+  isFirstPick?: boolean;
 }
 
-export function PickGrid({ players, position, onPick, disabled }: PickGridProps) {
+export function PickGrid({ players, position, onPick, disabled, isFirstPick }: PickGridProps) {
   const [focusedSlot, setFocusedSlot] = useState<number | null>(null);
+  const showHint = isFirstPick && focusedSlot !== null;
 
   const handleCardTap = (slot: number) => {
     if (disabled) return;
@@ -139,6 +141,30 @@ export function PickGrid({ players, position, onPick, disabled }: PickGridProps)
             </div>
           ))}
         </div>
+        <AnimatePresence>
+          {showHint && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center gap-2 pt-1"
+            >
+              {/* Arrow from mid-right, swooping left then up — tip points up at left card */}
+              <svg className="w-5 h-5 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 6L4 3L1 6" />
+                <path d="M4 3C4 10 4 13 14 15" />
+              </svg>
+              <span className="font-mono text-xs text-muted mt-1.5">
+                Tap to swap players
+              </span>
+              {/* Arrow from mid-left, swooping right then up — tip points up at right card */}
+              <svg className="w-5 h-5 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 6L20 3L23 6" />
+                <path d="M20 3C20 10 20 13 10 15" />
+              </svg>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
