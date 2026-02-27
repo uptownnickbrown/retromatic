@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import type { Stream } from 'openai/streaming';
 import type { Response as SSEResponse } from 'express';
 import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
@@ -15,6 +16,42 @@ function getClient(): OpenAI {
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return openai;
+}
+
+/**
+ * Stream an OpenAI Responses API call, forwarding text deltas as SSE events.
+ * Returns the completed Response object for use with previous_response_id.
+ */
+async function streamOpenAICall(
+  params: {
+    model: string;
+    instructions: string;
+    input: string | OpenAI.Responses.ResponseInputItem[];
+    previous_response_id?: string;
+    tools: OpenAI.Responses.Tool[];
+    tool_choice: 'auto';
+    max_output_tokens: number;
+  },
+  send: (data: Record<string, unknown>) => void,
+): Promise<OpenAI.Responses.Response> {
+  const client = getClient();
+  const stream: Stream<OpenAI.Responses.ResponseStreamEvent> = await client.responses.create({
+    ...params,
+    stream: true,
+  });
+
+  let completedResponse: OpenAI.Responses.Response | null = null;
+
+  for await (const event of stream) {
+    if (event.type === 'response.output_text.delta') {
+      send({ type: 'message_delta', delta: event.delta });
+    } else if (event.type === 'response.completed') {
+      completedResponse = event.response;
+    }
+  }
+
+  if (!completedResponse) throw new Error('OpenAI stream ended without completed response');
+  return completedResponse;
 }
 
 const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] as const;
@@ -734,28 +771,22 @@ export async function runAgentBuilder(
     const teamCodes = await getTeamCodesForPrompt();
     const systemPrompt = buildSystemPrompt(teamCodes);
 
-    // Initial or continuation call
+    // Initial or continuation call — streamed so text appears in real-time
+    const baseParams = {
+      model: 'gpt-5-mini',
+      instructions: systemPrompt,
+      tools,
+      tool_choice: 'auto' as const,
+      max_output_tokens: 16384,
+    };
     let response: OpenAI.Responses.Response;
     if (existingSession) {
-      // Continue existing conversation with user's new message
-      response = await client.responses.create({
-        model: 'gpt-5-mini',
-        instructions: systemPrompt,
-        previous_response_id: existingSession.responseId,
-        input: prompt,
-        tools,
-        tool_choice: 'auto',
-        max_output_tokens: 16384,
-      });
+      response = await streamOpenAICall(
+        { ...baseParams, previous_response_id: existingSession.responseId, input: prompt },
+        send,
+      );
     } else {
-      response = await client.responses.create({
-        model: 'gpt-5-mini',
-        instructions: systemPrompt,
-        input: prompt,
-        tools,
-        tool_choice: 'auto',
-        max_output_tokens: 16384,
-      });
+      response = await streamOpenAICall({ ...baseParams, input: prompt }, send);
     }
 
     let iterations = 0;
@@ -779,17 +810,9 @@ export async function runAgentBuilder(
         responseId: response.id,
       }));
 
-      // Extract any text the model produced (can appear alongside tool calls)
-      const messageOutput = response.output.find(
-        (item): item is OpenAI.Responses.ResponseOutputMessage => item.type === 'message'
-      );
-      if (messageOutput) {
-        const text = messageOutput.content
-          .filter((c): c is OpenAI.Responses.ResponseOutputText => c.type === 'output_text')
-          .map(c => c.text)
-          .join('');
-        if (text) send({ type: 'message', message: text });
-      }
+      // Text was already streamed to the client via message_delta events.
+      // For the first iteration, text came from the initial streamOpenAICall.
+      // For subsequent iterations, text came from the tool-result continuation stream.
 
       if (toolCalls.length === 0) break;
 
@@ -917,16 +940,11 @@ export async function runAgentBuilder(
         return null;
       }
 
-      // Continue the conversation with tool results
-      response = await client.responses.create({
-        model: 'gpt-5-mini',
-        instructions: systemPrompt,
-        previous_response_id: response.id,
-        input: toolResults,
-        tools,
-        tool_choice: 'auto',
-        max_output_tokens: 16384,
-      });
+      // Continue the conversation with tool results — streamed for real-time text
+      response = await streamOpenAICall(
+        { ...baseParams, previous_response_id: response.id, input: toolResults },
+        send,
+      );
     }
 
     if (iterations >= maxIterations) {
