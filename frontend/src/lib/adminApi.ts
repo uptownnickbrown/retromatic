@@ -438,7 +438,7 @@ export interface ProposalData {
   theme: string;
   rounds: ProposalRound[];
   missingPositions: string[];
-  autoFilledCount: number;
+  incompleteRounds?: Array<{ position: string; have: number }>;
 }
 
 export interface AgentEvent {

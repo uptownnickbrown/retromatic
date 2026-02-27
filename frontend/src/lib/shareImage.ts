@@ -229,10 +229,13 @@ export async function generateShareImage(opts: {
   ctx.font = '900 48px "Playfair Display", Georgia, serif';
   ctx.fillText(`${ordinal(pctRank)} Percentile`, centerX, 388);
 
-  // Date — bottom center
+  // Footer — URL · date, centered as a unit
   ctx.fillStyle = NAVY;
   ctx.font = '700 26px "Space Mono", monospace';
-  ctx.fillText(opts.date, centerX, H - 50);
+  const url = 'sandlot.uptownnickbrown.com';
+  const sep = '  ·  ';
+  const footerText = `${url}${sep}${opts.date}`;
+  ctx.fillText(footerText, centerX, H - 50);
 
   // ─── RIGHT COLUMN: Lineup ───
   const lineupTop = 70;
