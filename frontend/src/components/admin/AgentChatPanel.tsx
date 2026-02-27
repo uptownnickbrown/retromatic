@@ -48,7 +48,7 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { messages, running, awaitingFeedback, sessionId, phase, startedAt } = sessionState;
+  const { messages, running, awaitingFeedback, sessionId, challengeTitle, phase, startedAt } = sessionState;
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -64,6 +64,9 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
     switch (event.type) {
       case 'session':
         dispatch({ type: 'SESSION', sessionId: event.sessionId || '' });
+        break;
+      case 'theme':
+        if (event.title) dispatch({ type: 'SET_TITLE', title: event.title });
         break;
       case 'thinking':
       case 'message':
@@ -117,7 +120,8 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
     dispatch({ type: 'START_RUNNING' });
 
     let stream: { abort: () => void };
-    if (awaitingFeedback && sessionId) {
+    if (sessionId) {
+      // Always continue the existing session — "New Chat" resets if the user wants fresh
       stream = streamAgentContinue(sessionId, text, handleEvent);
     } else {
       stream = streamAgentBuild(text, handleEvent);
@@ -184,6 +188,15 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Pinned challenge title */}
+            {challengeTitle && (
+              <div className="px-5 py-2 border-b border-navy/10 bg-navy/[0.03]">
+                <p className="font-editorial font-bold text-sm text-navy truncate">
+                  {challengeTitle}
+                </p>
+              </div>
+            )}
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3">

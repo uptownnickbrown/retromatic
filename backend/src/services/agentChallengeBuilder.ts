@@ -94,6 +94,7 @@ async function getTeamCodesForPrompt(): Promise<string> {
 
 interface AgentSession {
   responseId: string;
+  challengeTitle: string | null;
   createdAt: number;
 }
 
@@ -756,11 +757,18 @@ export async function runAgentBuilder(
   send({ type: 'session', sessionId: sid });
 
   const existingSession = sessionId ? agentSessions.get(sessionId) : null;
+  let challengeTitle = existingSession?.challengeTitle ?? null;
+
+  // Send existing title immediately so the frontend can show it
+  if (challengeTitle) {
+    send({ type: 'theme', title: challengeTitle });
+  }
 
   console.log(JSON.stringify({
     event: 'agent_session_start',
     sessionId: sid,
     isResume: !!existingSession,
+    challengeTitle,
     promptPreview: prompt.slice(0, 100),
   }));
 
@@ -781,8 +789,12 @@ export async function runAgentBuilder(
     };
     let response: OpenAI.Responses.Response;
     if (existingSession) {
+      // Prefix continuation with challenge title to reinforce context
+      const contextPrefix = challengeTitle
+        ? `[Continuing work on challenge: "${challengeTitle}"]\n\nUser feedback: `
+        : '[Continuing conversation]\n\nUser feedback: ';
       response = await streamOpenAICall(
-        { ...baseParams, previous_response_id: existingSession.responseId, input: prompt },
+        { ...baseParams, previous_response_id: existingSession.responseId, input: contextPrefix + prompt },
         send,
       );
     } else {
@@ -821,6 +833,12 @@ export async function runAgentBuilder(
 
       for (const toolCall of toolCalls) {
         const args = JSON.parse(toolCall.arguments);
+
+        // Extract challenge title from preview/submit tool calls
+        if ((toolCall.name === 'preview_challenge' || toolCall.name === 'submit_challenge') && args.theme && args.theme !== challengeTitle) {
+          challengeTitle = args.theme;
+          send({ type: 'theme', title: challengeTitle });
+        }
 
         send({ type: 'tool_call', tool: toolCall.name, args });
 
@@ -863,7 +881,7 @@ export async function runAgentBuilder(
           if ('preview' in previewResult) {
             console.log(JSON.stringify({ event: 'agent_preview_sent', sessionId: sid, theme: args.theme }));
             // Save session for continuation
-            agentSessions.set(sid, { responseId: response.id, createdAt: Date.now() });
+            agentSessions.set(sid, { responseId: response.id, challengeTitle, createdAt: Date.now() });
             // Tell the agent the preview was sent, including quality metrics
             result = JSON.stringify({ success: true, message: `Preview sent to user. ${previewResult.qualitySummary}. Waiting for approval or feedback.` });
             toolResults.push({
@@ -882,7 +900,7 @@ export async function runAgentBuilder(
               tool_choice: 'none',
               max_output_tokens: 256,
             });
-            agentSessions.set(sid, { responseId: updatedResponse.id, createdAt: Date.now() });
+            agentSessions.set(sid, { responseId: updatedResponse.id, challengeTitle, createdAt: Date.now() });
 
             // Send awaiting_feedback and end the stream
             send({ type: 'awaiting_feedback', sessionId: sid });
@@ -930,7 +948,7 @@ export async function runAgentBuilder(
           tool_choice: 'none',
           max_output_tokens: 256,
         });
-        agentSessions.set(sid, { responseId: checkpointResponse.id, createdAt: Date.now() });
+        agentSessions.set(sid, { responseId: checkpointResponse.id, challengeTitle, createdAt: Date.now() });
 
         console.log(JSON.stringify({ event: 'agent_checkpoint', sessionId: sid, iterations }));
         send({ type: 'message', message: 'This is taking a while — I\'ve done a lot of searching. Want me to keep going, or should I work with what I\'ve found so far?' });
@@ -947,10 +965,17 @@ export async function runAgentBuilder(
       );
     }
 
+    // Save session so the user can continue the conversation
+    // (the agent may have asked a clarifying question, or hit max iterations)
+    agentSessions.set(sid, { responseId: response.id, challengeTitle, createdAt: Date.now() });
+
     if (iterations >= maxIterations) {
       console.log(JSON.stringify({ event: 'agent_max_iterations', sessionId: sid, iterations }));
       send({ type: 'error', message: 'Agent reached maximum iterations without completing. Try a simpler prompt or break it into parts.' });
     }
+
+    // Let the frontend know it can continue this session
+    send({ type: 'awaiting_feedback', sessionId: sid });
   } catch (error) {
     console.error(JSON.stringify({ event: 'agent_error', sessionId: sid, error: String(error) }));
     send({ type: 'error', message: String(error) });
