@@ -336,6 +336,7 @@ export interface AgentChatMessage {
 
 export interface AgentSessionState {
   sessionId: string | null;
+  challengeTitle: string | null;
   messages: AgentChatMessage[];
   awaitingFeedback: boolean;
   running: boolean;
@@ -346,6 +347,7 @@ export interface AgentSessionState {
 
 export const INITIAL_SESSION_STATE: AgentSessionState = {
   sessionId: null,
+  challengeTitle: null,
   messages: [],
   awaitingFeedback: false,
   running: false,
@@ -358,6 +360,7 @@ export const INITIAL_SESSION_STATE: AgentSessionState = {
 
 export type AgentAction =
   | { type: 'SESSION'; sessionId: string }
+  | { type: 'SET_TITLE'; title: string }
   | { type: 'AGENT_MESSAGE'; text: string }
   | { type: 'MESSAGE_DELTA'; delta: string }
   | { type: 'TOOL_CALL'; text: string; toolName: string; toolArgs?: Record<string, unknown> }
@@ -399,6 +402,8 @@ export function agentReducer(state: AgentSessionState, action: AgentAction): Age
   switch (action.type) {
     case 'SESSION':
       return { ...state, sessionId: action.sessionId };
+    case 'SET_TITLE':
+      return { ...state, challengeTitle: action.title };
     case 'AGENT_MESSAGE':
       return { ...addMsg(state, { type: 'agent', text: action.text }), phase: 'thinking' };
     case 'MESSAGE_DELTA': {
@@ -438,8 +443,11 @@ export function agentReducer(state: AgentSessionState, action: AgentAction): Age
       return { ...state, running: false, phase: 'idle', startedAt: null };
     case 'START_RUNNING':
       return { ...state, running: true, awaitingFeedback: false, phase: 'thinking', startedAt: Date.now() };
-    case 'USER_MESSAGE':
-      return addMsg(state, { type: 'user', text: action.text });
+    case 'USER_MESSAGE': {
+      // Set the first user message as the working title (replaced by model's theme on preview)
+      const title = state.challengeTitle === null ? action.text.split('\n')[0].slice(0, 60) : state.challengeTitle;
+      return { ...addMsg(state, { type: 'user', text: action.text }), challengeTitle: title };
+    }
     case 'RESET':
       return { ...INITIAL_SESSION_STATE };
   }
@@ -474,13 +482,14 @@ export interface ProposalData {
 }
 
 export interface AgentEvent {
-  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session';
+  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session' | 'theme';
   message?: string;
   delta?: string;
   tool?: string;
   args?: Record<string, unknown>;
   challengeId?: number;
   theme?: string;
+  title?: string;
   proposal?: ProposalData;
   sessionId?: string;
 }
