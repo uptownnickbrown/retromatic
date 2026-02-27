@@ -69,6 +69,9 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
       case 'message':
         dispatch({ type: 'AGENT_MESSAGE', text: event.message || '' });
         break;
+      case 'message_delta':
+        dispatch({ type: 'MESSAGE_DELTA', delta: event.delta || '' });
+        break;
       case 'tool_call':
         dispatch({
           type: 'TOOL_CALL',

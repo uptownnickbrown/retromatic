@@ -331,6 +331,7 @@ export interface AgentChatMessage {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   proposal?: ProposalData;
+  streaming?: boolean; // true while message_delta tokens are still arriving
 }
 
 export interface AgentSessionState {
@@ -358,6 +359,7 @@ export const INITIAL_SESSION_STATE: AgentSessionState = {
 export type AgentAction =
   | { type: 'SESSION'; sessionId: string }
   | { type: 'AGENT_MESSAGE'; text: string }
+  | { type: 'MESSAGE_DELTA'; delta: string }
   | { type: 'TOOL_CALL'; text: string; toolName: string; toolArgs?: Record<string, unknown> }
   | { type: 'PROPOSAL'; text: string; proposal: ProposalData }
   | { type: 'AWAITING_FEEDBACK'; sessionId?: string }
@@ -381,12 +383,42 @@ function phaseFromTool(toolName: string): AgentPhase {
   return 'thinking';
 }
 
+/** Finalize any in-progress streaming message (set streaming=false) */
+function finalizeStream(state: AgentSessionState): AgentSessionState {
+  const last = state.messages[state.messages.length - 1];
+  if (!last?.streaming) return state;
+  return { ...state, messages: [...state.messages.slice(0, -1), { ...last, streaming: false }] };
+}
+
 export function agentReducer(state: AgentSessionState, action: AgentAction): AgentSessionState {
+  // Finalize any streaming message when a non-delta action arrives
+  if (action.type !== 'MESSAGE_DELTA') {
+    state = finalizeStream(state);
+  }
+
   switch (action.type) {
     case 'SESSION':
       return { ...state, sessionId: action.sessionId };
     case 'AGENT_MESSAGE':
       return { ...addMsg(state, { type: 'agent', text: action.text }), phase: 'thinking' };
+    case 'MESSAGE_DELTA': {
+      const last = state.messages[state.messages.length - 1];
+      if (last?.streaming) {
+        // Append to the existing streaming message
+        return {
+          ...state,
+          messages: [...state.messages.slice(0, -1), { ...last, text: last.text + action.delta }],
+        };
+      }
+      // Start a new streaming message
+      const id = state.nextMsgId + 1;
+      return {
+        ...state,
+        messages: [...state.messages, { id, type: 'agent', text: action.delta, streaming: true }],
+        nextMsgId: id,
+        phase: 'thinking',
+      };
+    }
     case 'TOOL_CALL':
       return {
         ...addMsg(state, { type: 'tool', text: action.text, toolName: action.toolName, toolArgs: action.toolArgs }),
@@ -442,8 +474,9 @@ export interface ProposalData {
 }
 
 export interface AgentEvent {
-  type: 'thinking' | 'message' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session';
+  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session';
   message?: string;
+  delta?: string;
   tool?: string;
   args?: Record<string, unknown>;
   challengeId?: number;
