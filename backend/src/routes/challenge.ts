@@ -478,10 +478,14 @@ router.get('/:id/results', async (req, res) => {
       communityStats = buildCommunityStats(roundIds, allStats);
     }
 
+    // Recalculate percentile dynamically (shifts as more players complete)
+    const totalScore = toNum(session.totalLegendScore);
+    const percentile = await calculateSessionPercentile(challengeId, totalScore);
+
     res.json({
       session: {
-        totalLegendScore: toNum(session.totalLegendScore),
-        percentile: toNum(session.percentile, 50),
+        totalLegendScore: totalScore,
+        percentile,
         completedAt: session.completedAt,
       },
       picks: picks.map(p => ({ ...p, legendScore: toNum(p.legendScore) })),

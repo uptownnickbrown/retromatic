@@ -19,6 +19,40 @@ function getClient(): OpenAI {
 
 const POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'OF', 'UTIL', 'SP', 'RP', 'P'] as const;
 
+// ─── Dynamic team codes (cached) ────────────────────────────
+
+let cachedTeamCodes: string | null = null;
+
+// Well-known Lahman franchise ID → display name mapping
+const TEAM_NAMES: Record<string, string> = {
+  ANA: 'Angels', ARI: 'Diamondbacks', ATL: 'Braves', BAL: 'Orioles', BOS: 'Red Sox',
+  CAL: 'Angels', CHA: 'White Sox', CHN: 'Cubs', CIN: 'Reds', CLE: 'Guardians/Indians',
+  COL: 'Rockies', DET: 'Tigers', FLO: 'Marlins', HOU: 'Astros', KCA: 'Royals',
+  LAA: 'Angels', LAN: 'Dodgers', MIA: 'Marlins', MIL: 'Brewers', MIN: 'Twins',
+  MON: 'Expos', NYA: 'Yankees', NYN: 'Mets', OAK: 'Athletics', PHI: 'Phillies',
+  PIT: 'Pirates', SDN: 'Padres', SEA: 'Mariners', SFN: 'Giants', SLN: 'Cardinals',
+  TBA: 'Rays', TEX: 'Rangers', TOR: 'Blue Jays', WAS: 'Nationals', WSN: 'Nationals',
+};
+
+async function getTeamCodesForPrompt(): Promise<string> {
+  if (cachedTeamCodes) return cachedTeamCodes;
+
+  const rows = await db.selectDistinct({ team: players.team })
+    .from(players)
+    .orderBy(players.team);
+
+  const codes = rows
+    .map(r => r.team)
+    .filter((t): t is string => !!t)
+    .map(code => {
+      const name = TEAM_NAMES[code];
+      return name ? `${code}=${name}` : code;
+    });
+
+  cachedTeamCodes = codes.join(', ');
+  return cachedTeamCodes;
+}
+
 // ─── Session store for multi-turn conversations ──────────────
 
 interface AgentSession {
@@ -44,14 +78,14 @@ const challengeParamsSchema = {
     theme: { type: 'string' as const, description: 'Challenge theme name (2-6 words)' },
     rounds: {
       type: 'array' as const,
-      description: 'The rounds you want to curate. Omit positions to auto-fill.',
+      description: 'The rounds of the challenge. Provide all 10 positions with 3 players each for a complete challenge.',
       items: {
         type: 'object' as const,
         properties: {
           position: { type: 'string' as const, description: 'Position code for this round' },
           players: {
             type: 'array' as const,
-            description: '1-3 players for this round. If fewer than 3, the rest are auto-filled.',
+            description: '3 players for this round.',
             items: {
               type: 'object' as const,
               properties: {
@@ -86,36 +120,66 @@ Example: searching {team:"BOS", yearMin:2015, yearMax:2019} finds players who pl
     parameters: {
       type: 'object',
       properties: {
-        team: { type: 'string', description: '3-letter team code (e.g. NYA, BOS, LAN, PHI)' },
+        team: { type: 'string', description: '3-letter Lahman team code (e.g. NYA, BOS, LAN, PHI). Use TEAM CODES from your instructions.' },
         position: { type: 'string', description: 'Position code (C, 1B, 2B, SS, 3B, OF, SP, RP, P, UTIL)' },
         yearMin: { type: 'number', description: 'Minimum year (inclusive)' },
         yearMax: { type: 'number', description: 'Maximum year (inclusive)' },
-        name: { type: 'string', description: 'Player last name (partial match)' },
+        name: { type: 'string', description: 'Player last name (partial match, case-insensitive)' },
+        firstName: { type: 'string', description: 'Player first name (partial match, case-insensitive)' },
         playerType: { type: 'string', enum: ['batter', 'pitcher'], description: 'Filter by player type' },
-        minSeasons: { type: 'number', description: 'Minimum qualifying seasons (default 3)' },
+        minSeasons: { type: 'number', description: 'Minimum total qualifying seasons in DB (default 3, minimum 3). Use higher values like 8+ for "veterans" or "late bloomers" themes.' },
+        minZScore: { type: 'number', description: 'Min z-score for matched seasons. Reference: z≈7.3 = Sandlot Score 8, z≈9.3 = Score 9.5+' },
+        maxZScore: { type: 'number', description: 'Max z-score for matched seasons.' },
+        statFilter: {
+          type: 'object',
+          description: 'Filter by a raw stat. Batters: R, HR, RBI, SB, H, AB, AVG, BB. Pitchers: W, SV, K, ERA, WHIP, IP, G, GS. Example: {stat:"HR", min:40}',
+          properties: {
+            stat: { type: 'string', description: 'Stat key (HR, RBI, SB, AVG, W, SV, K, ERA, WHIP, IP, etc.)' },
+            min: { type: 'number', description: 'Minimum value (inclusive)' },
+            max: { type: 'number', description: 'Maximum value (inclusive)' },
+          },
+          required: ['stat'],
+        },
+        excludePlayerIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Player IDs to exclude from results (e.g. players already in your lineup)',
+        },
         limit: { type: 'number', description: 'Max players to return (default 15)' },
       },
     },
   },
   {
     type: 'function' as const,
+    name: 'lookup_player',
+    strict: false,
+    description: `Quick lookup to verify a specific player exists in the database. Returns matching players with their IDs, positions, and season counts. No minimum season requirement — shows all matches. Use this to verify a player is available before including them.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        firstName: { type: 'string', description: 'First name (partial match, case-insensitive)' },
+        lastName: { type: 'string', description: 'Last name (partial match, case-insensitive)' },
+      },
+      required: ['lastName'],
+    },
+  },
+  {
+    type: 'function' as const,
     name: 'preview_challenge',
     strict: false,
-    description: `Preview the challenge for the user to review before submitting. ALWAYS call this before submit_challenge. The user will see the proposed lineup with Sandlot Scores and can approve or request changes. Same rules as submit_challenge — partial lineups are OK, missing positions will be auto-filled.`,
+    description: `Preview the challenge for the user to review before submitting. ALWAYS call this before submit_challenge. The user will see the proposed lineup with Sandlot Scores and can approve or request changes. You can preview a partial challenge — unfilled positions will show as gaps.`,
     parameters: challengeParamsSchema,
   },
   {
     type: 'function' as const,
     name: 'submit_challenge',
     strict: false,
-    description: `Submit the challenge to the database. Only call this AFTER the user has approved a preview. You can submit a PARTIAL challenge — any positions you don't include will be auto-filled with random eligible players from the database.
+    description: `Submit the finished challenge to the database. Only call this AFTER the user has approved a preview. The challenge MUST have all 10 positions (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P) with exactly 3 players each, and each player must have exactly 3 year options.
 
-Rules for the rounds you DO include:
-- Each round needs a position and 1-3 players, each with exactly 3 year options
-- All player-years must exist in the database (only use years from search_players results)
-- No duplicate player-year combinations
-
-You do NOT need to fill all 10 positions. Focus on the players that matter for the theme and let the system fill the rest.`,
+Rules:
+- All 10 positions required, 3 players each
+- All player-years must exist in the database (only use years from search results)
+- No duplicate player-year combinations`,
     parameters: challengeParamsSchema,
   },
 ];
@@ -143,11 +207,26 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   const conditions = [];
 
   if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
+  if (args.firstName) conditions.push(ilike(players.nameFirst, `%${args.firstName}%`));
   if (args.team) conditions.push(eq(players.team, String(args.team)));
   if (args.position) conditions.push(buildPositionFilter(String(args.position))!);
   if (args.yearMin) conditions.push(gte(players.year, Number(args.yearMin)));
   if (args.yearMax) conditions.push(lte(players.year, Number(args.yearMax)));
   if (args.playerType) conditions.push(eq(players.playerType, String(args.playerType)));
+  if (args.minZScore) conditions.push(gte(players.zScorePosition, String(args.minZScore)));
+  if (args.maxZScore) conditions.push(lte(players.zScorePosition, String(args.maxZScore)));
+
+  // Stat filter: query JSONB stats column
+  const statFilter = args.statFilter as { stat: string; min?: number; max?: number } | undefined;
+  if (statFilter?.stat) {
+    const statKey = String(statFilter.stat);
+    if (statFilter.min != null) {
+      conditions.push(sql`(${players.stats}->>${sql.raw(`'${statKey}'`)})::numeric >= ${statFilter.min}`);
+    }
+    if (statFilter.max != null) {
+      conditions.push(sql`(${players.stats}->>${sql.raw(`'${statKey}'`)})::numeric <= ${statFilter.max}`);
+    }
+  }
 
   // Step 1: Find player-seasons matching the filters
   const matchingRows = await db.select({
@@ -164,8 +243,11 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
     .orderBy(desc(players.zScorePosition))
     .limit(500);
 
-  // Get unique player IDs from matching rows
-  const playerIds = [...new Set(matchingRows.map(r => r.playerId))];
+  // Get unique player IDs from matching rows, applying excludePlayerIds filter
+  const excludeIds = new Set(
+    Array.isArray(args.excludePlayerIds) ? (args.excludePlayerIds as string[]) : []
+  );
+  const playerIds = [...new Set(matchingRows.map(r => r.playerId))].filter(id => !excludeIds.has(id));
   if (playerIds.length === 0) return JSON.stringify([]);
 
   // Step 2: Fetch ALL seasons for those players (not just filtered ones)
@@ -180,7 +262,7 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
     .where(or(...playerIds.map(id => eq(players.playerId, id))))
     .orderBy(desc(players.zScorePosition));
 
-  // Build player info from matching rows (deduped)
+  // Build player info from matching rows (deduped, excluding filtered)
   const playerInfo = new Map<string, {
     playerId: string;
     name: string;
@@ -191,6 +273,7 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   }>();
 
   for (const r of matchingRows) {
+    if (excludeIds.has(r.playerId)) continue;
     if (!playerInfo.has(r.playerId)) {
       playerInfo.set(r.playerId, {
         playerId: r.playerId,
@@ -214,7 +297,7 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
     yearsByPlayer.set(s.playerId, arr);
   }
 
-  const minSeasons = Number(args.minSeasons) || 3;
+  const minSeasons = Math.max(Number(args.minSeasons) || 3, 3);
   const limit = Number(args.limit) || 15;
 
   // Filter to players with enough total seasons, sort by best z-score
@@ -236,6 +319,74 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   })));
 }
 
+async function executeLookupPlayer(args: Record<string, unknown>): Promise<string> {
+  const conditions = [];
+  if (args.lastName) conditions.push(ilike(players.nameLast, `%${args.lastName}%`));
+  if (args.firstName) conditions.push(ilike(players.nameFirst, `%${args.firstName}%`));
+
+  if (conditions.length === 0) return JSON.stringify({ error: 'lastName is required' });
+
+  const rows = await db.select({
+    playerId: players.playerId,
+    nameFirst: players.nameFirst,
+    nameLast: players.nameLast,
+    year: players.year,
+    position: players.primaryPosition,
+    positions: players.positionsEligible,
+    playerType: players.playerType,
+    zScore: players.zScorePosition,
+  })
+    .from(players)
+    .where(and(...conditions))
+    .orderBy(desc(players.zScorePosition));
+
+  // Group by player
+  const grouped = new Map<string, {
+    playerId: string;
+    name: string;
+    position: string;
+    positions: string;
+    playerType: string;
+    totalSeasons: number;
+    bestZScore: number;
+    yearRange: string;
+  }>();
+
+  for (const r of rows) {
+    const existing = grouped.get(r.playerId);
+    if (existing) {
+      existing.totalSeasons++;
+      if (Number(r.zScore) > existing.bestZScore) existing.bestZScore = Number(r.zScore);
+    } else {
+      grouped.set(r.playerId, {
+        playerId: r.playerId,
+        name: `${r.nameFirst} ${r.nameLast}`,
+        position: r.position,
+        positions: r.positions || r.position,
+        playerType: r.playerType,
+        totalSeasons: 1,
+        bestZScore: Number(r.zScore),
+        yearRange: '',
+      });
+    }
+  }
+
+  // Compute year ranges
+  for (const r of rows) {
+    const g = grouped.get(r.playerId)!;
+    if (!g.yearRange) {
+      const years = rows.filter(x => x.playerId === r.playerId).map(x => x.year);
+      g.yearRange = `${Math.min(...years)}-${Math.max(...years)}`;
+    }
+  }
+
+  const results = Array.from(grouped.values())
+    .sort((a, b) => b.bestZScore - a.bestZScore)
+    .slice(0, 10);
+
+  return JSON.stringify(results);
+}
+
 interface SubmitRound {
   position: string;
   players: Array<{
@@ -255,118 +406,32 @@ function shuffle<T>(array: T[]): T[] {
   return result;
 }
 
-// Pick 3 years for a player: best + middle + weak for variety
-function pickYears(seasons: Array<{ year: number; zScore: number }>): number[] {
-  const sorted = [...seasons].sort((a, b) => b.zScore - a.zScore);
-  if (sorted.length <= 3) return sorted.map(s => s.year);
-
-  const best = sorted[0];
-  const mid = sorted[Math.floor(sorted.length / 2)];
-  const weak = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.75))];
-
-  const years = [best.year, mid.year, weak.year];
-  // Dedupe: if any collide, fill from remaining
-  const unique = [...new Set(years)];
-  for (const s of sorted) {
-    if (unique.length >= 3) break;
-    if (!unique.includes(s.year)) unique.push(s.year);
-  }
-  return unique.slice(0, 3);
-}
-
-// Get random eligible players for a position, excluding already-used player IDs
-async function getRandomEligiblePlayers(
-  position: string,
-  count: number,
-  excludePlayerIds: Set<string>,
-): Promise<Array<{ playerId: string; playerName: string; years: number[] }>> {
-  let posFilter;
-  if (position === 'UTIL') {
-    posFilter = eq(players.playerType, 'batter');
-  } else if (position === 'P') {
-    posFilter = eq(players.playerType, 'pitcher');
-  } else if (position === 'OF') {
-    posFilter = or(
-      like(players.positionsEligible, '%LF%'),
-      like(players.positionsEligible, '%CF%'),
-      like(players.positionsEligible, '%RF%'),
-      like(players.positionsEligible, '%OF%'),
-    );
-  } else {
-    posFilter = or(
-      eq(players.primaryPosition, position),
-      like(players.positionsEligible, `%${position}%`),
-    );
-  }
-
-  const rows = await db.select({
-    playerId: players.playerId,
-    nameFirst: players.nameFirst,
-    nameLast: players.nameLast,
-    year: players.year,
-    zScore: players.zScorePosition,
-  })
-    .from(players)
-    .where(and(posFilter!, gte(players.zScorePosition, '-2')))
-    .orderBy(desc(players.zScorePosition));
-
-  // Group by player
-  const grouped = new Map<string, {
-    playerId: string;
-    name: string;
-    seasons: Array<{ year: number; zScore: number }>;
-  }>();
-
-  for (const r of rows) {
-    if (excludePlayerIds.has(r.playerId)) continue;
-    const existing = grouped.get(r.playerId);
-    const season = { year: r.year, zScore: Number(r.zScore) };
-    if (existing) {
-      existing.seasons.push(season);
-    } else {
-      grouped.set(r.playerId, {
-        playerId: r.playerId,
-        name: `${r.nameFirst} ${r.nameLast}`,
-        seasons: [season],
-      });
-    }
-  }
-
-  // Only players with 3+ seasons, shuffle, pick count
-  const eligible = shuffle(
-    Array.from(grouped.values()).filter(p => p.seasons.length >= 3)
-  ).slice(0, count);
-
-  return eligible.map(p => ({
-    playerId: p.playerId,
-    playerName: p.name,
-    years: pickYears(p.seasons),
-  }));
-}
-
 // ─── Shared validation + round building ─────────────────────
 
 interface ValidatedRounds {
   finalRounds: SubmitRound[];
   missingPositions: string[];
-  autoFilledCount: number;
+  incompleteRounds: Array<{ position: string; have: number }>;
 }
 
 async function validateAndBuildRounds(
   args: Record<string, unknown>,
-  send: (data: Record<string, unknown>) => void,
+  _send: (data: Record<string, unknown>) => void,
+  requireComplete: boolean,
 ): Promise<ValidatedRounds | { error: string }> {
   const aiRounds = (args.rounds as SubmitRound[]) || [];
 
   // Validate AI-provided rounds
   const errors: string[] = [];
   const allPlayerYears = new Set<string>();
-  const usedPlayerIds = new Set<string>();
 
   for (const round of aiRounds) {
     if (!POSITIONS.includes(round.position as typeof POSITIONS[number])) {
       errors.push(`Invalid position: ${round.position}`);
       continue;
+    }
+    if (requireComplete && round.players.length !== 3) {
+      errors.push(`${round.position} must have exactly 3 players (has ${round.players.length})`);
     }
     for (const p of round.players) {
       if (p.years.length !== 3) {
@@ -379,6 +444,17 @@ async function validateAndBuildRounds(
         allPlayerYears.add(key);
       }
     }
+  }
+
+  // Check completeness for submit
+  const providedPositions = new Set(aiRounds.map(r => r.position));
+  const missingPositions = POSITIONS.filter(p => !providedPositions.has(p));
+  const incompleteRounds = aiRounds
+    .filter(r => r.players.length < 3)
+    .map(r => ({ position: r.position, have: r.players.length }));
+
+  if (requireComplete && missingPositions.length > 0) {
+    errors.push(`Missing positions: ${missingPositions.join(', ')}. All 10 positions are required.`);
   }
 
   if (errors.length > 0) {
@@ -409,7 +485,6 @@ async function validateAndBuildRounds(
           `${p.playerName} (${p.playerId}): years ${missingForPlayer.join(', ')} not in DB. Available: [${availableYears}]`
         );
       }
-      usedPlayerIds.add(p.playerId);
     }
   }
 
@@ -417,52 +492,18 @@ async function validateAndBuildRounds(
     return { error: `Player-years not in database:\n${missingInfo.join('\n')}` };
   }
 
-  // Build the final 10 rounds: AI-provided + auto-filled
+  // Assemble rounds in shuffled position order
   const roundsByPosition = new Map<string, SubmitRound>();
   for (const round of aiRounds) {
     roundsByPosition.set(round.position, round);
   }
 
-  // Auto-fill missing positions and incomplete rounds
-  const missingPositions = POSITIONS.filter(p => !roundsByPosition.has(p));
-  const partialPositions = aiRounds.filter(r => r.players.length < 3);
-
-  if (missingPositions.length > 0 || partialPositions.length > 0) {
-    const fillCount = missingPositions.length + partialPositions.reduce((sum, r) => sum + (3 - r.players.length), 0);
-    send({ type: 'thinking', message: `Auto-filling ${fillCount} player slots across ${missingPositions.length + partialPositions.length} positions...` });
-  }
-
-  // Fill completely missing positions
-  for (const pos of missingPositions) {
-    const randomPlayers = await getRandomEligiblePlayers(pos, 3, usedPlayerIds);
-    if (randomPlayers.length < 3) {
-      return { error: `Could not find enough eligible players for position ${pos}` };
-    }
-    for (const p of randomPlayers) usedPlayerIds.add(p.playerId);
-    roundsByPosition.set(pos, { position: pos, players: randomPlayers });
-  }
-
-  // Fill partial rounds (AI provided 1-2 players, need 3)
-  for (const round of partialPositions) {
-    const needed = 3 - round.players.length;
-    const randomPlayers = await getRandomEligiblePlayers(round.position, needed, usedPlayerIds);
-    if (randomPlayers.length < needed) {
-      return { error: `Could not find enough eligible players for position ${round.position}` };
-    }
-    for (const p of randomPlayers) usedPlayerIds.add(p.playerId);
-    round.players.push(...randomPlayers);
-    roundsByPosition.set(round.position, round);
-  }
-
-  // Assemble final rounds in shuffled position order (like other generators)
   const shuffledPositions = shuffle([...POSITIONS]);
-  const finalRounds = shuffledPositions.map(pos => roundsByPosition.get(pos)!);
+  const finalRounds = shuffledPositions
+    .filter(pos => roundsByPosition.has(pos))
+    .map(pos => roundsByPosition.get(pos)!);
 
-  return {
-    finalRounds,
-    missingPositions: [...missingPositions],
-    autoFilledCount: missingPositions.length * 3 + partialPositions.reduce((sum, r) => sum + (3 - r.players.length), 0),
-  };
+  return { finalRounds, missingPositions: [...missingPositions], incompleteRounds };
 }
 
 // ─── Preview: enrich with z-scores and Sandlot Scores ────────
@@ -470,9 +511,9 @@ async function validateAndBuildRounds(
 async function executePreviewChallenge(
   args: Record<string, unknown>,
   send: (data: Record<string, unknown>) => void,
-): Promise<{ preview: true } | { error: string }> {
+): Promise<{ preview: true; qualitySummary: string } | { error: string }> {
   const theme = String(args.theme);
-  const result = await validateAndBuildRounds(args, send);
+  const result = await validateAndBuildRounds(args, send, false); // preview allows gaps
   if ('error' in result) return result;
 
   // Collect all player-year pairs for z-score lookup
@@ -506,13 +547,10 @@ async function executePreviewChallenge(
     }
   }
 
-  // Build enriched proposal
-  const aiRounds = (args.rounds as SubmitRound[]) || [];
-  const aiPositions = new Set(aiRounds.map(r => r.position));
-
+  // Build enriched proposal for filled rounds
   const proposalRounds = result.finalRounds.map(round => ({
     position: round.position,
-    autoFilled: !aiPositions.has(round.position),
+    autoFilled: false,
     players: round.players.map(p => ({
       playerId: p.playerId,
       playerName: p.playerName,
@@ -528,17 +566,49 @@ async function executePreviewChallenge(
     })),
   }));
 
+  // Add unfilled positions as empty rounds
+  for (const pos of result.missingPositions) {
+    proposalRounds.push({ position: pos, autoFilled: false, players: [] });
+  }
+
+  // Sort by position order
+  const posOrder = POSITIONS.reduce((acc, p, i) => { acc[p] = i; return acc; }, {} as Record<string, number>);
+  proposalRounds.sort((a, b) => (posOrder[a.position] ?? 99) - (posOrder[b.position] ?? 99));
+
+  // Compute quality metrics for the model
+  const filledRounds = proposalRounds.filter(r => r.players.length > 0);
+  const roundBests = filledRounds.map(r =>
+    Math.max(...r.players.flatMap(p => p.years.map(y => y.sandlotScore)))
+  );
+  const totalMaxScore = roundBests.reduce((a, b) => a + b, 0);
+  const weakRounds = roundBests.filter(s => s < 8).length;
+
+  const filledCount = filledRounds.length;
+  const completeCount = filledRounds.filter(r => r.players.length === 3).length;
+  const qualityParts: string[] = [];
+  qualityParts.push(`${filledCount}/10 positions filled (${completeCount} complete with 3 players)`);
+  if (result.missingPositions.length > 0) {
+    qualityParts.push(`Unfilled: ${result.missingPositions.join(', ')}`);
+  }
+  if (result.incompleteRounds.length > 0) {
+    qualityParts.push(`Incomplete: ${result.incompleteRounds.map(r => `${r.position} (${r.have}/3)`).join(', ')}`);
+  }
+  if (filledRounds.length > 0) {
+    qualityParts.push(`Max possible score: ${totalMaxScore.toFixed(1)}. ${weakRounds} round(s) with best option below 8.0`);
+  }
+  const qualitySummary = qualityParts.join('. ');
+
   send({
     type: 'proposal',
     proposal: {
       theme,
       rounds: proposalRounds,
       missingPositions: result.missingPositions,
-      autoFilledCount: result.autoFilledCount,
+      incompleteRounds: result.incompleteRounds,
     },
   });
 
-  return { preview: true };
+  return { preview: true, qualitySummary };
 }
 
 // ─── Submit: write to DB ─────────────────────────────────────
@@ -548,7 +618,7 @@ async function executeSubmitChallenge(
   send: (data: Record<string, unknown>) => void,
 ): Promise<{ challengeId: number } | { error: string }> {
   const theme = String(args.theme);
-  const result = await validateAndBuildRounds(args, send);
+  const result = await validateAndBuildRounds(args, send, true); // submit requires all 10 positions
   if ('error' in result) return result;
 
   // Insert challenge
@@ -587,27 +657,50 @@ async function executeSubmitChallenge(
 
 // ─── Main agent loop ─────────────────────────────────────────
 
-const systemPrompt = `You are an expert baseball challenge builder for the Sandlot daily game.
+function buildSystemPrompt(teamCodes: string): string {
+  return `You are an expert baseball challenge builder for the Sandlot daily game.
 
-Your job: Create a 10-round draft challenge based on the user's prompt. Each challenge has a theme, 10 positions (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P), and 3 players per position with 3 year options each.
+Your job: Create a 10-round draft challenge based on the user's prompt. Each challenge has a theme, 10 positions, and 3 players per position with 3 year options each.
+
+COMMUNICATION:
+- Before your first search, explain your interpretation of the theme and your strategy in 1-2 sentences.
+- After reviewing search results, briefly note what you found and any concerns before proceeding.
+- When presenting a preview, summarize why these players fit the theme.
+- Track your progress: after searches, note which positions you've filled and which remain (e.g. "Covered: C, 1B, OF, SP. Still need: 2B, SS, 3B, UTIL, RP, P.").
+
+THEME VALIDATION:
+- Use your world knowledge to validate every pick against the theme. Search results are keyword matches — they need YOUR judgment to determine actual theme fit.
+- A search by last name returns everyone with that name, not just the person you want. A search by team returns everyone who played there, not just the ones relevant to your theme.
+- If a search returns players who don't fit, exclude them. If uncertain, use lookup_player to verify or skip them.
 
 WORKFLOW:
-1. Use search_players to find players that fit the user's prompt. Search by team, era, name, position — whatever matches the theme. Each result shows the player grouped with ALL their qualifying seasons.
-2. From the results, pick the players you want to include. For each, choose exactly 3 years from their "years" array. NEVER guess years — only use years that appeared in results.
-3. ALWAYS call preview_challenge first to show the user your proposed lineup. Wait for their feedback.
-4. Only call submit_challenge after the user approves the preview. If they request changes, search again and preview again.
+1. Use search_players to find players fitting the theme. Each result shows the player with ALL qualifying seasons.
+2. Pick players and choose exactly 3 years from their "years" array. NEVER guess years — only use years from results.
+3. ALWAYS call preview_challenge first to show the user your proposed lineup. Wait for feedback.
+4. Only call submit_challenge after the user approves. If they request changes, search and preview again.
 
-Focus on the players that make the theme interesting. Don't waste iterations trying to fill every position — the system handles that automatically.
+COVERAGE:
+- You must curate all 10 positions with 3 players each. There is NO auto-fill. Any position you don't provide will show as UNFILLED.
+- Think about the board holistically. Players can cross positions — use the "positions" field to assign them flexibly. If you need a 2B and a themed player is listed as "SS,2B", put them at 2B.
+- When a theme involves groups (families, teammates, rivals), spread them across different positions — that's great and makes the draft more interesting.
+- Use excludePlayerIds in search_players to avoid seeing players you've already placed.
+- Use statFilter to search by raw stats (HR, SB, W, ERA, etc.) for stat-based themes.
+
+DRAFT QUALITY:
+- Every round should have at least one player-year with a Sandlot Score of 8+ (z-score ≥ 7.3). The max possible total score (picking the best option each round) should be ≥ 70.
+- Variety is good but not formulaic. Sometimes all 3 options are great. Sometimes 2 are mediocre but one has a golden hidden season. Surprising bad seasons from great players are interesting too.
+- Check these targets before calling preview_challenge. If a round is weak, search for a stronger themed player.
 
 EDITING WORKFLOW:
-When the user requests changes to a previewed challenge:
-- Only modify the rounds/players they specifically asked about
-- Keep all other rounds exactly as they were in the previous preview
-- Search for replacement players if needed, then call preview_challenge again with the full updated lineup
-- Include ALL rounds (both changed and unchanged) in the new preview so nothing is lost
+- When the user requests changes: ONLY modify the specific rounds/players they mentioned.
+- Preserve every other round EXACTLY as-is.
+- Search for themed replacements — never introduce off-theme players unless asked.
+- Include ALL rounds (changed + unchanged) in the new preview.
 
 POSITIONS: Batters = C, 1B, 2B, SS, 3B, OF, UTIL. Pitchers = SP, RP, P.
-DATABASE: 1961-2025. Team codes: NYA=Yankees, BOS=Red Sox, PHI=Phillies, LAN=Dodgers, SFN=Giants, SLN=Cardinals, CHN=Cubs, CHA=White Sox, etc.`;
+DATABASE: 1961-2025, MLB only. Players need 3+ qualifying seasons to appear in search.
+TEAM CODES: ${teamCodes}`;
+}
 
 export async function runAgentBuilder(
   prompt: string,
@@ -637,6 +730,10 @@ export async function runAgentBuilder(
   send({ type: 'thinking', message: existingSession ? 'Continuing conversation...' : 'Starting challenge builder...' });
 
   try {
+    // Load team codes (cached after first call)
+    const teamCodes = await getTeamCodesForPrompt();
+    const systemPrompt = buildSystemPrompt(teamCodes);
+
     // Initial or continuation call
     let response: OpenAI.Responses.Response;
     if (existingSession) {
@@ -682,20 +779,19 @@ export async function runAgentBuilder(
         responseId: response.id,
       }));
 
-      if (toolCalls.length === 0) {
-        // No tool calls — agent is done talking
-        const messageOutput = response.output.find(
-          (item): item is OpenAI.Responses.ResponseOutputMessage => item.type === 'message'
-        );
-        if (messageOutput) {
-          const text = messageOutput.content
-            .filter((c): c is OpenAI.Responses.ResponseOutputText => c.type === 'output_text')
-            .map(c => c.text)
-            .join('');
-          if (text) send({ type: 'message', message: text });
-        }
-        break;
+      // Extract any text the model produced (can appear alongside tool calls)
+      const messageOutput = response.output.find(
+        (item): item is OpenAI.Responses.ResponseOutputMessage => item.type === 'message'
+      );
+      if (messageOutput) {
+        const text = messageOutput.content
+          .filter((c): c is OpenAI.Responses.ResponseOutputText => c.type === 'output_text')
+          .map(c => c.text)
+          .join('');
+        if (text) send({ type: 'message', message: text });
       }
+
+      if (toolCalls.length === 0) break;
 
       // Process each tool call
       const toolResults: OpenAI.Responses.ResponseInputItem[] = [];
@@ -716,14 +812,37 @@ export async function runAgentBuilder(
             playerCount: Array.isArray(parsed) ? parsed.length : 0,
             resultSize: result.length,
           }));
+          // Send search result summary to user
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const names = parsed.slice(0, 5).map((p: { name: string }) => p.name).join(', ');
+            const suffix = parsed.length > 5 ? `, +${parsed.length - 5} more` : '';
+            send({ type: 'thinking', message: `Found ${parsed.length} players: ${names}${suffix}` });
+          } else {
+            send({ type: 'thinking', message: 'No players matched this search.' });
+          }
+        } else if (toolCall.name === 'lookup_player') {
+          result = await executeLookupPlayer(args);
+          const parsed = JSON.parse(result);
+          console.log(JSON.stringify({
+            event: 'agent_tool_result',
+            sessionId: sid,
+            tool: 'lookup_player',
+            matchCount: Array.isArray(parsed) ? parsed.length : 0,
+          }));
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const names = parsed.map((p: { name: string; totalSeasons: number }) => `${p.name} (${p.totalSeasons} seasons)`).join(', ');
+            send({ type: 'thinking', message: `Found: ${names}` });
+          } else {
+            send({ type: 'thinking', message: `No match for "${args.firstName || ''} ${args.lastName || ''}".` });
+          }
         } else if (toolCall.name === 'preview_challenge') {
           const previewResult = await executePreviewChallenge(args, send);
           if ('preview' in previewResult) {
             console.log(JSON.stringify({ event: 'agent_preview_sent', sessionId: sid, theme: args.theme }));
             // Save session for continuation
             agentSessions.set(sid, { responseId: response.id, createdAt: Date.now() });
-            // Tell the agent the preview was sent
-            result = JSON.stringify({ success: true, message: 'Preview sent to user. Waiting for approval or feedback.' });
+            // Tell the agent the preview was sent, including quality metrics
+            result = JSON.stringify({ success: true, message: `Preview sent to user. ${previewResult.qualitySummary}. Waiting for approval or feedback.` });
             toolResults.push({
               type: 'function_call_output',
               call_id: toolCall.call_id,

@@ -16,13 +16,25 @@ interface AgentChatPanelProps {
 function formatToolCall(tool: string, args?: Record<string, unknown>): string {
   if (tool === 'search_players') {
     const parts: string[] = [];
+    if (args?.firstName) parts.push(String(args.firstName));
     if (args?.name) parts.push(String(args.name));
     if (args?.team) parts.push(String(args.team));
     if (args?.position) parts.push(String(args.position));
     if (args?.yearMin || args?.yearMax) {
       parts.push(`${args.yearMin || '...'}–${args.yearMax || '...'}`);
     }
+    if (args?.statFilter) {
+      const sf = args.statFilter as { stat?: string; min?: number; max?: number };
+      const statParts = [sf.stat];
+      if (sf.min != null) statParts.push(`≥${sf.min}`);
+      if (sf.max != null) statParts.push(`≤${sf.max}`);
+      parts.push(statParts.join(''));
+    }
     return parts.length > 0 ? `Searching: ${parts.join(', ')}` : 'Searching players...';
+  }
+  if (tool === 'lookup_player') {
+    const parts = [args?.firstName, args?.lastName].filter(Boolean).map(String);
+    return `Looking up: ${parts.join(' ')}`;
   }
   if (tool === 'preview_challenge') return 'Building preview...';
   if (tool === 'submit_challenge') return 'Submitting challenge...';
@@ -362,9 +374,11 @@ function ProposalCard({
 }) {
   const [expanded, setExpanded] = useState(true);
 
-  // Count curated vs auto-filled rounds
-  const curatedCount = proposal.rounds.filter(r => !r.autoFilled).length;
-  const autoFilledCount = proposal.rounds.filter(r => r.autoFilled).length;
+  const filledCount = proposal.rounds.filter(r => r.players.length > 0).length;
+  const completeCount = proposal.rounds.filter(r => r.players.length === 3).length;
+  const isComplete = completeCount === 10;
+  const unfilledPositions = proposal.rounds.filter(r => r.players.length === 0);
+  const incompletePositions = proposal.rounds.filter(r => r.players.length > 0 && r.players.length < 3);
 
   return (
     <div className="border-2 border-navy/15 rounded-lg overflow-hidden bg-paper">
@@ -377,8 +391,8 @@ function ProposalCard({
         <span className="font-editorial font-bold text-sm text-navy flex-1 truncate">
           {proposal.theme}
         </span>
-        <span className="font-mono text-[10px] text-muted">
-          {curatedCount} curated, {autoFilledCount} auto
+        <span className={`font-mono text-[10px] ${isComplete ? 'text-emerald-600' : 'text-amber-600'}`}>
+          {filledCount} of 10 filled
         </span>
         {expanded ? <ChevronUp className="w-3 h-3 text-muted" /> : <ChevronDown className="w-3 h-3 text-muted" />}
       </button>
@@ -390,47 +404,63 @@ function ProposalCard({
             <div key={round.position} className="flex items-start gap-2">
               {/* Position badge */}
               <span className={`font-mono text-[10px] font-bold w-8 flex-shrink-0 text-center py-0.5 rounded ${
-                round.autoFilled ? 'text-muted/50 bg-navy/5' : 'text-navy bg-navy/10'
+                round.players.length === 0 ? 'text-muted/40 bg-navy/5' :
+                round.players.length < 3 ? 'text-amber-600 bg-amber-500/10' :
+                'text-navy bg-navy/10'
               }`}>
                 {round.position}
               </span>
 
-              {/* Players */}
+              {/* Players or unfilled indicator */}
               <div className="flex-1 min-w-0 space-y-0.5">
-                {round.players.map((player) => {
-                  const bestYear = player.years.reduce((best, y) =>
-                    y.sandlotScore > best.sandlotScore ? y : best
-                  , player.years[0]);
+                {round.players.length === 0 ? (
+                  <span className="font-mono text-[11px] text-muted/40 italic">(unfilled)</span>
+                ) : (
+                  <>
+                    {round.players.map((player) => {
+                      const bestYear = player.years.reduce((best, y) =>
+                        y.sandlotScore > best.sandlotScore ? y : best
+                      , player.years[0]);
 
-                  return (
-                    <div key={player.playerId} className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs text-navy truncate flex-1">
-                        {player.playerName}
+                      return (
+                        <div key={player.playerId} className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs text-navy truncate flex-1">
+                            {player.playerName}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted">
+                            {player.years.map(y => y.year).join(', ')}
+                          </span>
+                          <span className={`font-mono text-[10px] font-bold tabular-nums ${
+                            bestYear.sandlotScore >= 8 ? 'text-emerald-600'
+                              : bestYear.sandlotScore >= 6 ? 'text-navy'
+                                : 'text-muted'
+                          }`}>
+                            {bestYear.sandlotScore.toFixed(1)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {round.players.length < 3 && (
+                      <span className="font-mono text-[10px] text-amber-600 italic">
+                        need {3 - round.players.length} more player{round.players.length < 2 ? 's' : ''}
                       </span>
-                      <span className="font-mono text-[10px] text-muted">
-                        {player.years.map(y => y.year).join(', ')}
-                      </span>
-                      <span className={`font-mono text-[10px] font-bold tabular-nums ${
-                        bestYear.sandlotScore >= 8 ? 'text-emerald-600'
-                          : bestYear.sandlotScore >= 6 ? 'text-navy'
-                            : 'text-muted'
-                      }`}>
-                        {bestYear.sandlotScore.toFixed(1)}
-                      </span>
-                    </div>
-                  );
-                })}
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Auto-fill note */}
-      {autoFilledCount > 0 && expanded && (
+      {/* Gaps note */}
+      {(unfilledPositions.length > 0 || incompletePositions.length > 0) && expanded && (
         <div className="px-3 py-1.5 bg-amber-500/5 border-t border-navy/5">
           <p className="font-mono text-[10px] text-amber-700">
-            {autoFilledCount} position{autoFilledCount > 1 ? 's' : ''} will be auto-filled with random eligible players
+            {unfilledPositions.length > 0 && `${unfilledPositions.length} position${unfilledPositions.length > 1 ? 's' : ''} unfilled`}
+            {unfilledPositions.length > 0 && incompletePositions.length > 0 && ', '}
+            {incompletePositions.length > 0 && `${incompletePositions.length} incomplete`}
+            {' — tell the builder what to do with them'}
           </p>
         </div>
       )}
@@ -438,14 +468,22 @@ function ProposalCard({
       {/* Approve button + edit hint */}
       {isActive && (
         <div className="px-3 py-2.5 border-t border-navy/10">
-          <button
-            onClick={onApprove}
-            className="w-full py-2 rounded bg-emerald-600 text-white font-mono text-xs font-bold
-                       hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
-          >
-            <Check className="w-3.5 h-3.5" />
-            Approve & Submit
-          </button>
+          {isComplete ? (
+            <button
+              onClick={onApprove}
+              className="w-full py-2 rounded bg-emerald-600 text-white font-mono text-xs font-bold
+                         hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <Check className="w-3.5 h-3.5" />
+              Approve & Submit
+            </button>
+          ) : (
+            <div className="text-center py-1">
+              <p className="font-mono text-[10px] text-amber-700 font-bold">
+                {10 - completeCount} position{10 - completeCount > 1 ? 's' : ''} still need players
+              </p>
+            </div>
+          )}
           <p className="font-mono text-[10px] text-muted/50 mt-2 text-center">
             Or type below to request changes (swap players, adjust years, etc.)
           </p>
