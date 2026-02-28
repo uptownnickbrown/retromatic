@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Pencil,
   Save,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   useAdminChallengeDetail,
@@ -38,6 +39,7 @@ import { StatusBadge } from '../components/admin/StatusBadge';
 import { cn } from '../lib/utils';
 import { getTeamNickname } from '../lib/teams';
 import type { AdminRound, AdminRoundOption } from '../lib/adminApi';
+import { ReplacePlayerModal } from '../components/admin/ReplacePlayerModal';
 
 function formatDateLong(dateStr: string): string {
   if (!dateStr || dateStr === 'unassigned') return 'Unassigned';
@@ -555,6 +557,7 @@ function RoundSection({
                   <PlayerCard
                     key={option.id}
                     option={option}
+                    position={round.position}
                     challengeId={challengeId}
                     regenPortraitMutation={regenPortraitMutation}
                     regenBlurbsMutation={regenBlurbsMutation}
@@ -574,14 +577,16 @@ function RoundSection({
 
 function PlayerCard({
   option,
+  position,
   challengeId,
   regenPortraitMutation,
   regenBlurbsMutation,
   updateBlurbMutation,
-}: { option: AdminRoundOption } & PlayerCardMutations) {
+}: { option: AdminRoundOption; position: string } & PlayerCardMutations) {
   const [expandedBlurbs, setExpandedBlurbs] = useState<Set<number>>(new Set());
   const [editingBlurb, setEditingBlurb] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+  const [replaceModalOpen, setReplaceModalOpen] = useState(false);
   const blurbs = option.blurbs ?? {};
 
   const isRegenningPortrait = regenPortraitMutation.isPending
@@ -659,25 +664,35 @@ function PlayerCard({
           <p className="font-mono text-[9px] text-muted mt-0.5">
             ID: {option.playerId} · Slot {option.playerSlot}
           </p>
-          {/* Regen all blurbs button */}
-          <button
-            onClick={() => regenBlurbsMutation.mutate({ optionId: option.id, challengeId })}
-            disabled={isRegenningBlurbs}
-            className="mt-1.5 flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors disabled:opacity-50"
-            title="Regenerate all blurbs for this player"
-          >
-            {isRegenningBlurbs ? (
-              <>
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Wand2 className="w-3 h-3" />
-                Regen blurbs
-              </>
-            )}
-          </button>
+          {/* Action buttons */}
+          <div className="mt-1.5 flex items-center gap-3">
+            <button
+              onClick={() => regenBlurbsMutation.mutate({ optionId: option.id, challengeId })}
+              disabled={isRegenningBlurbs}
+              className="flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors disabled:opacity-50"
+              title="Regenerate all blurbs for this player"
+            >
+              {isRegenningBlurbs ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-3 h-3" />
+                  Regen blurbs
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setReplaceModalOpen(true)}
+              className="flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors"
+              title="Replace this player"
+            >
+              <ArrowRightLeft className="w-3 h-3" />
+              Replace
+            </button>
+          </div>
         </div>
       </div>
 
@@ -800,6 +815,15 @@ function PlayerCard({
           );
         })}
       </div>
+
+      {/* Replace Player Modal */}
+      <ReplacePlayerModal
+        open={replaceModalOpen}
+        onClose={() => setReplaceModalOpen(false)}
+        option={option}
+        position={position}
+        challengeId={challengeId}
+      />
     </div>
   );
 }
