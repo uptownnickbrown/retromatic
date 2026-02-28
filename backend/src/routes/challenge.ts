@@ -64,8 +64,8 @@ router.get('/home', async (req, res) => {
       }
     }
 
-    // Yesterday: most recent completed challenge
-    const [yesterdayChallenge] = await db.select({
+    // Past challenges: up to 7 most recent completed
+    const pastChallenges = await db.select({
       id: challenges.id,
       date: challenges.challengeDate,
       theme: challenges.theme,
@@ -73,7 +73,7 @@ router.get('/home', async (req, res) => {
       .from(challenges)
       .where(eq(challenges.status, 'completed'))
       .orderBy(desc(challenges.challengeDate))
-      .limit(1);
+      .limit(7);
 
     // Tomorrow: next scheduled challenge (by queue position, then id)
     const [tomorrowChallenge] = await db.select({
@@ -90,11 +90,11 @@ router.get('/home', async (req, res) => {
     res.json({
       today,
       session,
-      yesterday: yesterdayChallenge ? {
-        id: yesterdayChallenge.id,
-        date: yesterdayChallenge.date,
-        theme: yesterdayChallenge.theme,
-      } : null,
+      pastChallenges: pastChallenges.map(c => ({
+        id: c.id,
+        date: c.date,
+        theme: c.theme,
+      })),
       tomorrow: tomorrowChallenge ? {
         theme: tomorrowChallenge.theme,
       } : null,
@@ -857,8 +857,9 @@ router.post('/:id/replay-percentile', async (req, res) => {
 router.get('/streak', async (req, res) => {
   try {
     const guestToken = req.headers['x-guest-token'] as string;
+    const emptyStats = { current: 0, longest: 0, gamesPlayed: 0, averageScore: 0, averagePercentile: 0 };
     if (!guestToken) {
-      res.json({ current: 0, longest: 0 });
+      res.json(emptyStats);
       return;
     }
 
@@ -875,9 +876,25 @@ router.get('/streak', async (req, res) => {
       .orderBy(desc(challenges.challengeDate));
 
     if (sessions.length === 0) {
-      res.json({ current: 0, longest: 0 });
+      res.json(emptyStats);
       return;
     }
+
+    // Aggregate lifetime stats
+    const [statsResult] = await db.select({
+      gamesPlayed: sql<number>`count(*)::int`,
+      averageScore: sql<number>`round(avg(${gameSessions.totalLegendScore}::numeric), 1)`,
+      averagePercentile: sql<number>`round(avg(${gameSessions.percentile})::numeric)`,
+    })
+      .from(gameSessions)
+      .where(and(
+        eq(gameSessions.guestToken, guestToken),
+        eq(gameSessions.status, 'completed')
+      ));
+
+    const gamesPlayed = toNum(statsResult?.gamesPlayed);
+    const averageScore = toNum(statsResult?.averageScore);
+    const averagePercentile = toNum(statsResult?.averagePercentile);
 
     // Calculate streaks
     const dates = sessions.map(s => s.date);
@@ -913,7 +930,7 @@ router.get('/streak', async (req, res) => {
 
     longestStreak = Math.max(longestStreak, tempStreak, currentStreak);
 
-    res.json({ current: currentStreak, longest: longestStreak });
+    res.json({ current: currentStreak, longest: longestStreak, gamesPlayed, averageScore, averagePercentile });
   } catch (error) {
     console.error('Streak error:', error);
     res.status(500).json({ error: 'Failed to calculate streak' });
