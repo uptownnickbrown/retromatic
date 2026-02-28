@@ -27,11 +27,9 @@ function getStreakMilestone(streak: number): number | null {
 }
 
 function useStreakMilestone(streak: number) {
-  // Determine if there's a new milestone to celebrate
   const hit = streak > 0 ? getStreakMilestone(streak) : null;
   const lastCelebrated = parseInt(localStorage.getItem(CELEBRATED_KEY) ?? '0', 10);
 
-  // Use state initializer to claim the milestone exactly once per mount
   const [celebratedMilestone] = useState<number | null>(() => {
     if (hit !== null && hit > lastCelebrated) {
       localStorage.setItem(CELEBRATED_KEY, String(hit));
@@ -40,19 +38,23 @@ function useStreakMilestone(streak: number) {
     return null;
   });
 
-  const [dismissed, setDismissed] = useState(false);
-
-  // Auto-dismiss after 4 seconds — triggered via setTimeout in render (safe since it only fires once)
-  const [timerStarted] = useState(() => {
-    if (celebratedMilestone !== null) {
-      setTimeout(() => setDismissed(true), 4000);
-    }
-    return true;
-  });
-  void timerStarted; // suppress unused
-
-  const showCelebration = celebratedMilestone !== null && !dismissed;
+  // Milestone stays visible (no auto-dismiss)
+  const showCelebration = celebratedMilestone !== null;
   return { showCelebration, milestone: celebratedMilestone };
+}
+
+/** Returns "Yesterday" if dateStr is yesterday in ET, otherwise a formatted date like "Wed, Feb 25" */
+function getPastChallengeLabel(dateStr: string): string {
+  const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const todayDate = new Date(todayET + 'T12:00:00');
+  const yesterdayDate = new Date(todayDate);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayStr = yesterdayDate.toLocaleDateString('en-CA');
+
+  if (dateStr === yesterdayStr) return 'Yesterday';
+
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 export function Home() {
@@ -62,11 +64,14 @@ export function Home() {
 
   const today = data?.today;
   const session = data?.session;
-  const yesterday = data?.yesterday;
+  const pastChallenges = data?.pastChallenges ?? [];
   const tomorrow = data?.tomorrow;
   const isCompleted = session?.status === 'completed';
   const isInProgress = session?.status === 'in_progress';
   const currentStreak = streakData?.current ?? 0;
+  const gamesPlayed = streakData?.gamesPlayed ?? 0;
+  const averageScore = streakData?.averageScore ?? 0;
+  const averagePercentile = streakData?.averagePercentile ?? 0;
   const { showCelebration, milestone } = useStreakMilestone(currentStreak);
 
   return (
@@ -148,6 +153,14 @@ export function Home() {
                 {today.theme && (
                   <p className="text-xl text-navy font-editorial italic mt-1">"{today.theme}"</p>
                 )}
+                {currentStreak > 0 && (
+                  <div className="flex items-center justify-center gap-1.5 mt-2">
+                    <Flame size={14} className={currentStreak >= 7 ? 'text-gold' : 'text-navy/40'} />
+                    <span className="font-mono text-xs text-muted">
+                      {currentStreak} day streak
+                    </span>
+                  </div>
+                )}
               </div>
 
               <VintageButton
@@ -184,8 +197,54 @@ export function Home() {
         </motion.div>
       )}
 
-      {/* Yesterday's Recap */}
-      {yesterday && (
+      {/* Post-completion: Streak display */}
+      {isCompleted && currentStreak > 0 && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.3, type: 'spring', stiffness: 200, damping: 18 }}
+          className="w-full mb-4"
+        >
+          <PaperCard>
+            <div className="text-center">
+              {showCelebration && milestone && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+                  className="mb-3"
+                >
+                  <p className="font-editorial font-bold text-xl text-gold leading-tight">
+                    {milestone}-day streak!
+                  </p>
+                  <p className="font-mono text-sm text-navy/60 mt-0.5">
+                    {MILESTONE_TEXT[milestone]}
+                  </p>
+                </motion.div>
+              )}
+
+              <div className="flex items-center justify-center gap-2">
+                <Flame size={22} className={currentStreak >= 7 ? 'text-gold' : 'text-navy'} />
+                <span className="text-2xl font-editorial font-bold text-navy">
+                  {currentStreak}
+                </span>
+                <span className="font-mono text-sm text-muted uppercase tracking-wider">
+                  day streak
+                </span>
+              </div>
+
+              {(streakData?.longest ?? 0) > currentStreak && (
+                <p className="font-mono text-xs text-muted mt-1">
+                  Personal best: {streakData?.longest} days
+                </p>
+              )}
+            </div>
+          </PaperCard>
+        </motion.div>
+      )}
+
+      {/* Post-completion: Your Season stats */}
+      {isCompleted && gamesPlayed > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -193,85 +252,118 @@ export function Home() {
           className="w-full mb-4"
         >
           <PaperCard>
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
-                  Yesterday
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted mb-3 text-center">
+              Your Season
+            </p>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="font-editorial font-bold text-xl text-navy">
+                  {averageScore.toFixed(1)}
                 </p>
-                {yesterday.theme && (
-                  <p className="text-base text-navy font-editorial italic mt-1 truncate">
-                    "{yesterday.theme}"
-                  </p>
-                )}
+                <p className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                  Avg Score
+                </p>
               </div>
-              <button
-                onClick={() => navigate(`/recap/${yesterday.id}`)}
-                className="flex items-center gap-1 text-sm font-mono text-navy/60 hover:text-navy transition-colors flex-shrink-0 ml-3 py-1"
-              >
-                Recap
-                <ChevronRight size={14} />
-              </button>
+              <div>
+                <p className="font-editorial font-bold text-xl text-navy">
+                  {Math.round(averagePercentile)}%
+                </p>
+                <p className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                  Avg Percentile
+                </p>
+              </div>
+              <div>
+                <p className="font-editorial font-bold text-xl text-navy">
+                  {gamesPlayed}
+                </p>
+                <p className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                  Games Played
+                </p>
+              </div>
             </div>
           </PaperCard>
         </motion.div>
       )}
 
-      {/* Tomorrow's Preview */}
-      {tomorrow && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.45 }}
-          className="w-full mb-4 text-center"
-        >
-          <p className="font-mono text-sm text-navy/50">
-            Come back tomorrow for{' '}
-            {tomorrow.theme ? (
-              <span className="font-editorial italic text-base text-navy/70">"{tomorrow.theme}"</span>
-            ) : (
-              'a new challenge'
-            )}
-          </p>
-        </motion.div>
-      )}
-
-      {/* Streak */}
-      {currentStreak > 0 && (
+      {/* Post-completion: Come back tomorrow */}
+      {isCompleted && tomorrow && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="flex flex-col items-center gap-2"
+          transition={{ delay: 0.45 }}
+          className="w-full mb-4"
         >
-          {/* Milestone celebration */}
-          {showCelebration && milestone && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 15 }}
-              className="bg-gold/10 border border-gold/30 rounded px-4 py-2 text-center"
-            >
-              <p className="font-editorial font-bold text-lg text-gold leading-tight">
-                {milestone}-day streak!
+          <PaperCard>
+            <div className="text-center">
+              <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted mb-1">
+                Tomorrow
               </p>
-              <p className="font-mono text-sm text-navy/60 mt-0.5">
-                {MILESTONE_TEXT[milestone]}
+              {tomorrow.theme ? (
+                <p className="text-lg text-navy font-editorial italic">
+                  "{tomorrow.theme}"
+                </p>
+              ) : (
+                <p className="text-base text-navy font-editorial italic">
+                  A new challenge awaits
+                </p>
+              )}
+              <p className="font-mono text-xs text-muted mt-2">
+                Same time, same sandlot.
               </p>
-            </motion.div>
-          )}
-          <div className="flex items-center gap-2 text-navy/50">
-            <Flame size={18} className={currentStreak >= 7 ? 'text-gold' : 'text-navy/40'} />
-            <span className="text-base font-editorial italic">
-              {currentStreak} day streak
-            </span>
-            {(streakData?.longest ?? 0) > currentStreak && (
-              <span className="text-sm font-mono text-muted ml-1">
-                (best: {streakData?.longest})
-              </span>
-            )}
-          </div>
+            </div>
+          </PaperCard>
         </motion.div>
+      )}
+
+      {/* Past Challenges section */}
+      {pastChallenges.length > 0 && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: isCompleted ? 0.55 : 0.3 }}
+            className="w-full mb-3"
+          >
+            <div className="flex items-baseline gap-3">
+              <h2 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider whitespace-nowrap">
+                Past Challenges
+              </h2>
+              <div className="flex-1 ink-divider" />
+            </div>
+          </motion.div>
+
+          {pastChallenges.map((challenge, index) => (
+            <motion.div
+              key={challenge.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: (isCompleted ? 0.6 : 0.35) + index * 0.05 }}
+              className="w-full mb-2"
+            >
+              <PaperCard>
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
+                      {getPastChallengeLabel(challenge.date)}
+                    </p>
+                    {challenge.theme && (
+                      <p className="text-base text-navy font-editorial italic mt-0.5 truncate">
+                        "{challenge.theme}"
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => navigate(`/recap/${challenge.id}`)}
+                    className="flex items-center gap-1 text-sm font-mono text-navy/60 hover:text-navy transition-colors flex-shrink-0 ml-3 py-1"
+                  >
+                    Recap / Play Again
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </PaperCard>
+            </motion.div>
+          ))}
+        </>
       )}
     </div>
   );

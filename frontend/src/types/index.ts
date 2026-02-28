@@ -145,7 +145,7 @@ export interface ResultsData {
 export interface HomeData {
   today: { id: number; date: string; theme: string | null; totalRounds: number } | null;
   session: { id: string; status: string; totalLegendScore?: number; percentile?: number } | null;
-  yesterday: { id: number; date: string; theme: string | null } | null;
+  pastChallenges: Array<{ id: number; date: string; theme: string | null }>;
   tomorrow: { theme: string | null } | null;
 }
 
