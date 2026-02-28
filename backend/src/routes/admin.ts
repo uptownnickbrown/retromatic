@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { db } from '../db/index.js';
@@ -35,6 +36,16 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+const adminRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15-minute window
+  limit: 5,                  // 5 failed attempts per window per IP
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+  skipSuccessfulRequests: true, // Only count 401s, not legitimate admin work
+});
+
+router.use(adminRateLimiter);
 router.use(requireAdmin);
 
 // Background enrichment pipeline: blurbs → portraits → preseed for each challenge.
