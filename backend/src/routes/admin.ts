@@ -12,6 +12,7 @@ import { generatePortraitsForChallenge, generatePortraitForOption, getPortraitPa
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
+import { runReplacementAgent, confirmReplacement } from '../services/playerReplacer.js';
 import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
 import { asyncPool } from '../lib/asyncPool.js';
@@ -952,6 +953,49 @@ router.patch('/options/:optionId/blurb', async (req, res) => {
   } catch (error: any) {
     console.error('Blurb update error:', error);
     res.status(500).json({ error: error.message || 'Failed to update blurb' });
+  }
+});
+
+// AI-powered player replacement — SSE stream
+router.post('/options/:optionId/replace', async (req, res) => {
+  const optionId = parseInt(req.params.optionId);
+  const { prompt, sessionId } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    res.status(400).json({ error: 'prompt string required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await runReplacementAgent(optionId, prompt, res, sessionId);
+  } catch (error) {
+    console.error('Replacement agent error:', error);
+    res.write(`data: ${JSON.stringify({ type: 'error', message: String(error) })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+    res.end();
+  }
+});
+
+// Confirm player replacement — swaps the player and generates assets
+router.post('/options/:optionId/replace/confirm', async (req, res) => {
+  try {
+    const optionId = parseInt(req.params.optionId);
+    const { playerId, playerName, yearOptions } = req.body;
+
+    if (!playerId || !playerName || !Array.isArray(yearOptions) || yearOptions.length !== 3) {
+      res.status(400).json({ error: 'playerId, playerName, and yearOptions (3 years) required' });
+      return;
+    }
+
+    const result = await confirmReplacement(optionId, playerId, playerName, yearOptions);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Replacement confirm error:', error);
+    res.status(500).json({ error: error.message || 'Failed to replace player' });
   }
 });
 

@@ -713,3 +713,99 @@ export async function updateOptionBlurb(optionId: number, year: number, blurb: s
     body: JSON.stringify({ year, blurb }),
   });
 }
+
+// --- Player Replacement ---
+
+export interface ReplacementSuggestionYear {
+  year: number;
+  team: string;
+  zScore: number;
+  sandlotScore: number;
+}
+
+export interface ReplacementSuggestion {
+  playerId: string;
+  playerName: string;
+  years: ReplacementSuggestionYear[];
+  reasoning: string;
+  hasExistingPortrait: boolean;
+}
+
+export interface ReplacementEvent {
+  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'suggestion' | 'error' | 'error_recoverable' | 'complete' | 'awaiting_feedback' | 'session';
+  message?: string;
+  delta?: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  suggestion?: ReplacementSuggestion;
+  sessionId?: string;
+}
+
+export function streamReplacementAgent(
+  optionId: number,
+  prompt: string,
+  onEvent: (event: ReplacementEvent) => void,
+  sessionId?: string,
+): { abort: () => void } {
+  const secret = getAdminSecret();
+  if (!secret) throw new Error('Not authenticated');
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/admin/options/${optionId}/replace`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+    body: JSON.stringify({ prompt, sessionId }),
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) {
+      onEvent({ type: 'error', message: `HTTP ${res.status}` });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', message: String(err) });
+    }
+  });
+
+  return { abort: () => controller.abort() };
+}
+
+export interface ReplacementResult {
+  option: { id: number; playerId: string; playerName: string; yearOptions: number[] };
+  blurbs: { generated: number; failed: number };
+  portrait: { generated: boolean; skipped: boolean; portraitUrl: string | null };
+}
+
+export async function confirmReplacement(
+  optionId: number,
+  playerId: string,
+  playerName: string,
+  yearOptions: number[],
+): Promise<ReplacementResult> {
+  return adminFetch(`/admin/options/${optionId}/replace/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ playerId, playerName, yearOptions }),
+  });
+}
