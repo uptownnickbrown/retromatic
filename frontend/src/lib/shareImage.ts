@@ -231,9 +231,9 @@ export async function generateShareImage(opts: {
 
   // Footer — URL · date, centered as a unit
   ctx.fillStyle = NAVY;
-  ctx.font = '700 18px "Space Mono", monospace';
+  ctx.font = '700 22px "Space Mono", monospace';
   const url = 'sandlot.uptownnickbrown.com';
-  const sep = ' · ';
+  const sep = '·';
   const footerText = `${url}${sep}${opts.date}`;
   ctx.fillText(footerText, centerX, H - 42);
 
