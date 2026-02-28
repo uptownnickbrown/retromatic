@@ -230,3 +230,21 @@ export function useUpdateOptionBlurb() {
     },
   });
 }
+
+export function useConfirmReplacement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ optionId, playerId, playerName, yearOptions }: {
+      optionId: number;
+      playerId: string;
+      playerName: string;
+      yearOptions: number[];
+      challengeId: number;
+    }) => adminApi.confirmReplacement(optionId, playerId, playerName, yearOptions),
+    onSuccess: (_data, { challengeId }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'challenge', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'health', challengeId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'pipeline'] });
+    },
+  });
+}

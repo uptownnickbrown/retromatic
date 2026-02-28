@@ -71,7 +71,7 @@ const TEAM_NAMES: Record<string, string> = {
   TBA: 'Rays', TEX: 'Rangers', TOR: 'Blue Jays', WAS: 'Nationals', WSN: 'Nationals',
 };
 
-async function getTeamCodesForPrompt(): Promise<string> {
+export async function getTeamCodesForPrompt(): Promise<string> {
   if (cachedTeamCodes) return cachedTeamCodes;
 
   const rows = await db.selectDistinct({ team: players.team })
@@ -224,7 +224,7 @@ Rules:
 
 // ─── Tool execution ──────────────────────────────────────────
 
-function buildPositionFilter(pos: string) {
+export function buildPositionFilter(pos: string) {
   if (pos === 'UTIL') return eq(players.playerType, 'batter');
   if (pos === 'P') return eq(players.playerType, 'pitcher');
   if (pos === 'OF') {
@@ -241,7 +241,7 @@ function buildPositionFilter(pos: string) {
   );
 }
 
-async function executeFindEligiblePlayers(args: Record<string, unknown>): Promise<string> {
+export async function executeFindEligiblePlayers(args: Record<string, unknown>): Promise<string> {
   const conditions = [];
 
   if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
@@ -357,7 +357,7 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   })));
 }
 
-async function executeLookupPlayer(args: Record<string, unknown>): Promise<string> {
+export async function executeLookupPlayer(args: Record<string, unknown>): Promise<string> {
   const conditions = [];
   if (args.lastName) conditions.push(ilike(players.nameLast, `%${args.lastName}%`));
   if (args.firstName) conditions.push(ilike(players.nameFirst, `%${args.firstName}%`));
