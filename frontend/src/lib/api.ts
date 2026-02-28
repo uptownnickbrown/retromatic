@@ -96,6 +96,12 @@ export async function getReplayPercentile(
 }
 
 // Streak API
-export async function getStreak(): Promise<{ current: number; longest: number }> {
+export async function getStreak(): Promise<{
+  current: number;
+  longest: number;
+  gamesPlayed: number;
+  averageScore: number;
+  averagePercentile: number;
+}> {
   return fetchAPI('/challenge/streak');
 }
