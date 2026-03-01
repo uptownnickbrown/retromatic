@@ -127,6 +127,25 @@ export function Results() {
         </motion.div>
       )}
 
+      {/* Home — below share, before lineup */}
+      {!isPlaytest && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.25 }}
+          className="mb-4"
+        >
+          <VintageButton
+            variant="section"
+            onClick={() => navigate('/')}
+            className="w-full flex items-center justify-center gap-2"
+          >
+            <HomePlateIcon className="w-4 h-4" />
+            Home
+          </VintageButton>
+        </motion.div>
+      )}
+
       {/* Your lineup — interactive mini-cards */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -179,25 +198,6 @@ export function Results() {
           rightPicks={perfectLineup.picks}
         />
       </motion.div>
-
-      {/* Home — non-playtest */}
-      {!isPlaytest && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="mt-auto pt-4"
-        >
-          <VintageButton
-            variant="section"
-            onClick={() => navigate('/')}
-            className="w-full flex items-center justify-center gap-2"
-          >
-            <HomePlateIcon className="w-4 h-4" />
-            Home
-          </VintageButton>
-        </motion.div>
-      )}
 
       {/* Navigation — playtest gets back button */}
       {isPlaytest && (
