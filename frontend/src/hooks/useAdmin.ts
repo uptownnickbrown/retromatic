@@ -196,7 +196,7 @@ export function useValidatePortrait() {
 export function useRegenerateOptionPortrait() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ optionId }: { optionId: number; challengeId: number }) =>
+    mutationFn: ({ optionId }: { optionId: number; challengeId: number; playerName: string }) =>
       adminApi.regenerateOptionPortrait(optionId),
     onSuccess: (_data, { challengeId }) => {
       qc.invalidateQueries({ queryKey: ['admin', 'challenge', challengeId] });

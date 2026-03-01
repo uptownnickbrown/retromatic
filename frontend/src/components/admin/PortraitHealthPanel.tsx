@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Image, Loader2, RefreshCw, Check, RotateCcw } from 'lucide-react';
+import { Image, Loader2, RefreshCw, Check, RotateCcw, ImageOff } from 'lucide-react';
 import { PaperCard } from '../ui/PaperCard';
 import {
   streamAuditPortraits,
@@ -16,6 +16,7 @@ interface AuditResult {
   playerId: string;
   playerName: string;
   pass: boolean;
+  missing?: boolean;
   reason: string;
 }
 
@@ -66,6 +67,7 @@ export function PortraitHealthPanel() {
             playerId: event.playerId!,
             playerName: event.playerName!,
             pass: event.pass!,
+            missing: event.missing,
             reason: event.reason!,
           };
           return {
@@ -77,8 +79,9 @@ export function PortraitHealthPanel() {
       } else if (event.type === 'complete' || event.type === 'error') {
         setAudit(prev => {
           if (!prev) return prev;
-          // Sort: failures first
-          const sorted = [...prev.results].sort((a, b) => (a.pass === b.pass ? 0 : a.pass ? 1 : -1));
+          // Sort: failures first, then missing, then passed
+          const sortKey = (r: AuditResult) => r.pass ? 2 : r.missing ? 1 : 0;
+          const sorted = [...prev.results].sort((a, b) => sortKey(a) - sortKey(b));
           return { ...prev, running: false, results: sorted };
         });
         auditAbortRef.current = null;
@@ -176,7 +179,8 @@ export function PortraitHealthPanel() {
     }
   }, []);
 
-  const failedCount = audit?.results.filter(r => !r.pass).length ?? 0;
+  const failedCount = audit?.results.filter(r => !r.pass && !r.missing).length ?? 0;
+  const missingCount = audit?.results.filter(r => r.missing).length ?? 0;
   const passedCount = audit?.results.filter(r => r.pass).length ?? 0;
   const regenableFailedCount = audit?.results.filter(r => !r.pass && r.optionId != null).length ?? 0;
 
@@ -240,7 +244,7 @@ export function PortraitHealthPanel() {
       {/* Results */}
       {audit && !audit.running && audit.results.length > 0 && (
         <PaperCard noPadding>
-          {failedCount === 0 ? (
+          {failedCount === 0 && missingCount === 0 ? (
             <div className="px-4 py-3 font-mono text-xs text-emerald-700">
               All {passedCount} portrait{passedCount !== 1 ? 's' : ''} passed
               {audit.skipped > 0 && ` (${audit.skipped} skipped)`}
@@ -251,6 +255,7 @@ export function PortraitHealthPanel() {
               <div className="px-4 py-3 flex items-center justify-between border-b border-navy/8">
                 <span className="font-mono text-xs text-navy/70">
                   {failedCount} failed / {passedCount} passed
+                  {missingCount > 0 && ` / ${missingCount} missing`}
                   {audit.skipped > 0 && ` / ${audit.skipped} skipped`}
                 </span>
                 {regenableFailedCount > 0 && (
@@ -296,16 +301,22 @@ export function PortraitHealthPanel() {
                     {/* Status dot */}
                     <div className={cn(
                       'w-2.5 h-2.5 rounded-full flex-shrink-0',
-                      r.pass ? 'bg-emerald-500' : 'bg-red-500',
+                      r.pass ? 'bg-emerald-500' : r.missing ? 'bg-gray-400' : 'bg-red-500',
                     )} />
 
                     {/* Portrait — enlarged */}
                     <div className="w-20 h-24 rounded overflow-hidden bg-bone flex-shrink-0 border border-navy/10">
-                      <img
-                        src={`/portraits/${r.playerId}.webp?v=${versions[r.playerId] ?? 0}`}
-                        alt={r.playerName}
-                        className="w-full h-full object-cover"
-                      />
+                      {r.missing ? (
+                        <div className="w-full h-full flex items-center justify-center bg-navy/5">
+                          <ImageOff className="w-6 h-6 text-navy/20" />
+                        </div>
+                      ) : (
+                        <img
+                          src={`/portraits/${r.playerId}.webp?v=${versions[r.playerId] ?? 0}`}
+                          alt={r.playerName}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
                     </div>
 
                     {/* Info */}
