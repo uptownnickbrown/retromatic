@@ -153,14 +153,6 @@ export function Home() {
                 {today.theme && (
                   <p className="text-xl text-navy font-editorial italic mt-1">"{today.theme}"</p>
                 )}
-                {currentStreak > 0 && (
-                  <div className="flex items-center justify-center gap-1.5 mt-2">
-                    <Flame size={14} className={currentStreak >= 7 ? 'text-gold' : 'text-navy/40'} />
-                    <span className="font-mono text-xs text-muted">
-                      {currentStreak} day streak
-                    </span>
-                  </div>
-                )}
               </div>
 
               <VintageButton
@@ -175,12 +167,84 @@ export function Home() {
         </PaperCard>
       </motion.div>
 
+      {/* Pre-draft: Streak display (when user has a streak and hasn't played today) */}
+      {!isCompleted && currentStreak > 0 && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.25, type: 'spring', stiffness: 200, damping: 18 }}
+          className="w-full mb-4"
+        >
+          <PaperCard>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2">
+                <Flame size={22} className={currentStreak >= 7 ? 'text-gold' : 'text-navy'} />
+                <span className="text-2xl font-editorial font-bold text-navy">
+                  {currentStreak}
+                </span>
+                <span className="font-mono text-sm text-muted uppercase tracking-wider">
+                  day streak
+                </span>
+              </div>
+
+              {(streakData?.longest ?? 0) > currentStreak && (
+                <p className="font-mono text-xs text-muted mt-1">
+                  Personal best: {streakData?.longest} days
+                </p>
+              )}
+            </div>
+          </PaperCard>
+        </motion.div>
+      )}
+
+      {/* Pre-draft: Your Season stats (when user has played before but hasn't played today) */}
+      {!isCompleted && gamesPlayed > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="w-full mb-4"
+        >
+          <PaperCard>
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted mb-3 text-center">
+              Your Season
+            </p>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="font-editorial font-bold text-xl text-navy">
+                  {averageScore.toFixed(1)}
+                </p>
+                <p className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                  Avg Score
+                </p>
+              </div>
+              <div>
+                <p className="font-editorial font-bold text-xl text-navy">
+                  {Math.round(averagePercentile)}%
+                </p>
+                <p className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                  Avg Percentile
+                </p>
+              </div>
+              <div>
+                <p className="font-editorial font-bold text-xl text-navy">
+                  {gamesPlayed}
+                </p>
+                <p className="font-mono text-[10px] text-muted uppercase tracking-wider">
+                  Games Played
+                </p>
+              </div>
+            </div>
+          </PaperCard>
+        </motion.div>
+      )}
+
       {/* How to Play — only when game is NOT completed */}
       {!isLoading && today && !isCompleted && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
+          transition={{ delay: gamesPlayed > 0 ? 0.4 : 0.25 }}
           className="w-full mb-4"
         >
           <PaperCard>
@@ -321,7 +385,7 @@ export function Home() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: isCompleted ? 0.55 : 0.3 }}
+            transition={{ delay: isCompleted ? 0.55 : gamesPlayed > 0 ? 0.5 : 0.3 }}
             className="w-full mb-3"
           >
             <div className="flex items-baseline gap-3">
@@ -337,7 +401,7 @@ export function Home() {
               key={challenge.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: (isCompleted ? 0.6 : 0.35) + index * 0.05 }}
+              transition={{ delay: (isCompleted ? 0.6 : gamesPlayed > 0 ? 0.55 : 0.35) + index * 0.05 }}
               className="w-full mb-2"
             >
               <PaperCard>
