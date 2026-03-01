@@ -871,31 +871,42 @@ TEAM CODES: ${teamCodes}
 SQL QUERIES (query_players):
 For complex themes that search_players can't express (career-relative constraints, window functions, cross-season comparisons), use query_players to write SQL against the players table.
 
+CRITICAL GROUPING RULE: Each row in the players table is a player-season. A player's primary_position, positions_eligible, team, and stats all change from season to season. When writing career-spanning queries:
+- ALWAYS GROUP BY player_id only (and player_type if mixing batters/pitchers). NEVER include per-season columns like primary_position, positions_eligible, team, or name in the GROUP BY — this splits one player's career into multiple groups and silently breaks the query.
+- Use MAX(name_first), MAX(name_last) to retrieve names in aggregated queries.
+- Use BOOL_OR(positions_eligible LIKE '%1B%') to check if a player was EVER eligible at a position across their career.
+- Use STRING_AGG(DISTINCT primary_position, ',') if you need to see all positions played.
+
 Example patterns:
 
-1. Late bloomers — no season above Score 5 (z<3.33) in first 7 years, then a 7+ season (z>=6) later:
+1. Late bloomers — mediocre first 7 seasons (z<3.33 = Score 5), great season later (z>=6 = Score 7):
 WITH career AS (
-  SELECT player_id, name_first, name_last, year, primary_position, player_type,
-    z_score_position::numeric as z, positions_eligible,
-    ROW_NUMBER() OVER (PARTITION BY player_id, player_type ORDER BY year) as season_num,
-    COUNT(*) OVER (PARTITION BY player_id, player_type) as total_seasons
-  FROM players
+  SELECT player_id, name_first, name_last, positions_eligible,
+    z_score_position::numeric as z,
+    ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY year) as season_num
+  FROM players WHERE player_type = 'batter'
 )
-SELECT DISTINCT player_id, name_first, name_last, primary_position, player_type, total_seasons
-FROM career c
-WHERE total_seasons >= 10
-  AND NOT EXISTS (SELECT 1 FROM career e WHERE e.player_id = c.player_id AND e.player_type = c.player_type AND e.season_num <= 7 AND e.z > 3.33)
-  AND EXISTS (SELECT 1 FROM career l WHERE l.player_id = c.player_id AND l.player_type = c.player_type AND l.season_num >= 10 AND l.z >= 6.0)
-ORDER BY player_id LIMIT 50
+SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
+  COUNT(*) as total_seasons,
+  ROUND(MAX(CASE WHEN season_num <= 7 THEN z END), 2) as early_best,
+  ROUND(MAX(CASE WHEN season_num >= 8 THEN z END), 2) as late_best
+FROM career
+GROUP BY player_id
+HAVING COUNT(*) >= 10
+  AND MAX(CASE WHEN season_num <= 7 THEN z END) < 3.33
+  AND MAX(CASE WHEN season_num >= 8 THEN z END) >= 6.0
+ORDER BY late_best DESC LIMIT 50
 
-2. One-hit wonders — exactly one elite season (z>7.33) in a 5+ year career:
-SELECT player_id, name_first, name_last, primary_position, player_type,
-  COUNT(*) as total_seasons, MAX(z_score_position::numeric) as best_z,
-  SUM(CASE WHEN z_score_position::numeric > 7.33 THEN 1 ELSE 0 END) as elite_count
+To filter by position, add: AND BOOL_OR(positions_eligible LIKE '%1B%')
+
+2. One-hit wonders — exactly one elite season (z>7.33 = Score 8) in a 5+ year career:
+SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
+  COUNT(*) as total_seasons, ROUND(MAX(z_score_position::numeric), 2) as best_z
 FROM players
-GROUP BY player_id, name_first, name_last, primary_position, player_type
-HAVING SUM(CASE WHEN z_score_position::numeric > 7.33 THEN 1 ELSE 0 END) = 1 AND COUNT(*) >= 5
-ORDER BY MAX(z_score_position::numeric) DESC LIMIT 50
+GROUP BY player_id
+HAVING COUNT(*) >= 5
+  AND SUM(CASE WHEN z_score_position::numeric > 7.33 THEN 1 ELSE 0 END) = 1
+ORDER BY best_z DESC LIMIT 50
 
 3. Players who hit 40+ HR in consecutive seasons:
 WITH hr AS (
@@ -908,12 +919,12 @@ SELECT * FROM hr WHERE prev_year = year - 1 AND prev_hr >= 40 ORDER BY hr DESC L
 
 4. Trade upgrades — big z-score jump after changing teams:
 WITH seasons AS (
-  SELECT player_id, name_first, name_last, year, team, z_score_position::numeric as z, primary_position,
+  SELECT player_id, name_first, name_last, year, team, z_score_position::numeric as z,
     LAG(team) OVER (PARTITION BY player_id ORDER BY year) as prev_team,
     LAG(z_score_position::numeric) OVER (PARTITION BY player_id ORDER BY year) as prev_z
   FROM players WHERE player_type = 'batter'
 )
-SELECT player_id, name_first, name_last, year, prev_team, team, primary_position,
+SELECT player_id, name_first, name_last, year, prev_team, team,
   round(prev_z, 2) as before_z, round(z, 2) as after_z
 FROM seasons WHERE prev_team IS NOT NULL AND prev_team != team AND z > prev_z + 3
 ORDER BY (z - prev_z) DESC LIMIT 50
