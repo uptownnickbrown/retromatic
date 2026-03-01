@@ -6,10 +6,10 @@ import path from 'path';
 import fs from 'fs';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players, pickStats, portraits } from '../db/schema.js';
-import { eq, and, desc, inArray, sql, asc } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, asc, gte } from 'drizzle-orm';
 import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
-import { generatePortraitsForChallenge, generatePortraitForOption, auditPortrait, POSITION_LABELS, PORTRAITS_DIR } from '../services/portraitGenerator.js';
+import { generatePortraitsForChallenge, generatePortraitForOption, generatePortraitForPlayer, auditPortrait, POSITION_LABELS, PORTRAITS_DIR } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
@@ -1374,7 +1374,42 @@ router.post('/portraits/audit', async (req, res) => {
       { retries: 1, backoffMs: 3000 },
     );
 
-    res.write(`data: ${JSON.stringify({ type: 'complete', total: tasks.length, skipped })}\n\n`);
+    // Second pass: find players in round_options with NO portrait file on disk
+    const allOptionRows = await db.select({
+      playerId: roundOptions.playerId,
+      playerName: roundOptions.playerName,
+      optionId: roundOptions.id,
+    }).from(roundOptions);
+
+    const filesOnDisk = new Set(allPlayerIds);
+    // Deduplicate by playerId, keeping first optionId seen
+    const seenPlayers = new Set<string>();
+    const missingOptions: { playerId: string; playerName: string; optionId: number }[] = [];
+    for (const row of allOptionRows) {
+      if (!filesOnDisk.has(row.playerId) && !seenPlayers.has(row.playerId)) {
+        seenPlayers.add(row.playerId);
+        missingOptions.push(row);
+      }
+    }
+
+    if (missingOptions.length > 0) {
+      console.log(`  Found ${missingOptions.length} players in challenges with no portrait on disk`);
+      for (const opt of missingOptions) {
+        doneCount++;
+        res.write(`data: ${JSON.stringify({
+          type: 'progress',
+          index: doneCount,
+          playerId: opt.playerId,
+          playerName: opt.playerName,
+          optionId: opt.optionId,
+          pass: false,
+          missing: true,
+          reason: 'No portrait on disk',
+        })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'complete', total: tasks.length, totalMissing: missingOptions.length, skipped })}\n\n`);
     res.end();
   } catch (error) {
     console.error('Portrait audit error:', error);
@@ -1454,6 +1489,208 @@ router.post('/portraits/regenerate', async (req, res) => {
   } catch (error) {
     console.error('Regenerate portraits error:', error);
     res.write(`data: ${JSON.stringify({ type: 'error', error: 'Failed to regenerate portraits' })}\n\n`);
+    res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Portrait Pre-generation — preview and batch generate
+// ---------------------------------------------------------------------------
+
+// Preview: how many players above a score threshold have/need portraits
+router.get('/portraits/pregen/preview', async (req, res) => {
+  try {
+    const minScore = parseFloat(req.query.minScore as string) || 7.0;
+    // Convert Sandlot Score to z: score = 1.0 + ((clamp(z, -2, 10) + 2) / 12) * 9.0
+    // Reverse: z = (score - 1.0) / 9.0 * 12 - 2
+    const minZ = (minScore - 1.0) / 9.0 * 12 - 2;
+
+    // Get distinct player IDs with z_score_position >= minZ (using best season per player)
+    const eligibleRows = await db
+      .select({ playerId: players.playerId })
+      .from(players)
+      .where(gte(players.zScorePosition, String(minZ)))
+      .groupBy(players.playerId);
+
+    const totalEligible = eligibleRows.length;
+
+    // Check which exist on disk
+    let alreadyGenerated = 0;
+    for (const row of eligibleRows) {
+      if (fs.existsSync(path.join(PORTRAITS_DIR, `${row.playerId}.webp`))) {
+        alreadyGenerated++;
+      }
+    }
+
+    res.json({
+      minScore,
+      minZ: Math.round(minZ * 100) / 100,
+      totalEligible,
+      alreadyGenerated,
+      toGenerate: totalEligible - alreadyGenerated,
+    });
+  } catch (error) {
+    console.error('Pregen preview error:', error);
+    res.status(500).json({ error: 'Failed to compute preview' });
+  }
+});
+
+// SSE batch pre-generation of portraits for high-scoring players
+router.post('/portraits/pregen', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let aborted = false;
+  req.on('close', () => { aborted = true; });
+
+  try {
+    const { minScore = 7.0 } = req.body as { minScore?: number };
+    const minZ = (minScore - 1.0) / 9.0 * 12 - 2;
+
+    // Get all player rows above threshold, ordered by z-score desc
+    const playerRows = await db
+      .select({
+        playerId: players.playerId,
+        nameFirst: players.nameFirst,
+        nameLast: players.nameLast,
+        year: players.year,
+        team: players.team,
+        primaryPosition: players.primaryPosition,
+        zScorePosition: players.zScorePosition,
+      })
+      .from(players)
+      .where(gte(players.zScorePosition, String(minZ)))
+      .orderBy(players.playerId, desc(players.zScorePosition));
+
+    // Group by playerId, keep only best season (first per playerId due to DESC order)
+    const playerMap = new Map<string, {
+      playerName: string;
+      year: number;
+      team: string;
+      position: string;
+    }>();
+    for (const row of playerRows) {
+      if (!playerMap.has(row.playerId)) {
+        playerMap.set(row.playerId, {
+          playerName: `${row.nameFirst ?? ''} ${row.nameLast ?? ''}`.trim(),
+          year: row.year,
+          team: row.team ?? 'Unknown',
+          position: row.primaryPosition,
+        });
+      }
+    }
+
+    // Filter to only those without a portrait on disk
+    interface PregenTask {
+      playerId: string;
+      playerName: string;
+      teamName: string;
+      year: number;
+      position: string;
+    }
+    const tasks: PregenTask[] = [];
+    let alreadyGenerated = 0;
+
+    for (const [playerId, info] of playerMap) {
+      if (fs.existsSync(path.join(PORTRAITS_DIR, `${playerId}.webp`))) {
+        alreadyGenerated++;
+        continue;
+      }
+      tasks.push({
+        playerId,
+        playerName: info.playerName,
+        teamName: getTeamName(info.team),
+        year: info.year,
+        position: info.position,
+      });
+    }
+
+    const totalEligible = playerMap.size;
+    console.log(`  Pre-generating ${tasks.length} portraits (${alreadyGenerated} already exist, ${totalEligible} eligible at minScore=${minScore})...`);
+
+    res.write(`data: ${JSON.stringify({
+      type: 'start',
+      total: totalEligible,
+      toGenerate: tasks.length,
+      alreadyGenerated,
+    })}\n\n`);
+
+    if (tasks.length === 0) {
+      res.write(`data: ${JSON.stringify({ type: 'complete', generated: 0, failed: 0, skipped: alreadyGenerated })}\n\n`);
+      res.end();
+      return;
+    }
+
+    let doneCount = 0;
+    let generated = 0;
+    let failed = 0;
+
+    const { failures } = await asyncPool(
+      tasks,
+      5,
+      async (task) => {
+        if (aborted) throw new Error('Aborted by client');
+
+        const result = await generatePortraitForPlayer(
+          task.playerId, task.playerName, task.teamName, task.year, task.position,
+        );
+
+        doneCount++;
+        generated++;
+        res.write(`data: ${JSON.stringify({
+          type: 'progress',
+          index: doneCount,
+          total: tasks.length,
+          playerId: task.playerId,
+          playerName: task.playerName,
+          pass: true,
+          attempts: result.attempts,
+        })}\n\n`);
+
+        console.log(`  ✓ [pregen ${doneCount}/${tasks.length}] ${task.playerName} (${task.year} ${task.teamName}) — ${result.attempts} attempt(s)`);
+        return task.playerId;
+      },
+      {
+        retries: 1,
+        backoffMs: 3000,
+        onProgress: (done, total) => {
+          if (aborted) return;
+          if (done % 10 === 0 || done === total) {
+            console.log(`  Pre-gen progress: ${done}/${total}`);
+          }
+        },
+      },
+    );
+
+    for (const f of failures) {
+      if (f.error.message === 'Aborted by client') continue;
+      failed++;
+      doneCount++;
+      res.write(`data: ${JSON.stringify({
+        type: 'progress',
+        index: doneCount,
+        total: tasks.length,
+        playerId: f.item.playerId,
+        playerName: f.item.playerName,
+        pass: false,
+        attempts: 0,
+        error: f.error.message,
+      })}\n\n`);
+      console.error(`  ✗ [pregen] Failed: ${f.item.playerName}: ${f.error.message}`);
+    }
+
+    res.write(`data: ${JSON.stringify({
+      type: 'complete',
+      generated,
+      failed,
+      skipped: alreadyGenerated,
+    })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('Portrait pre-generation error:', error);
+    res.write(`data: ${JSON.stringify({ type: 'error', error: 'Failed to pre-generate portraits' })}\n\n`);
     res.end();
   }
 });

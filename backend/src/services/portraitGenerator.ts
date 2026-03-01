@@ -476,6 +476,46 @@ export async function generatePortraitForOption(optionId: number): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Standalone player generation (no optionId needed — for pre-generation)
+// ---------------------------------------------------------------------------
+
+export async function generatePortraitForPlayer(
+  playerId: string,
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+): Promise<{ generated: boolean; portraitUrl: string; attempts: number }> {
+  // Ensure portraits directory exists
+  if (!fs.existsSync(PORTRAITS_DIR)) {
+    fs.mkdirSync(PORTRAITS_DIR, { recursive: true });
+  }
+
+  const posLabel = POSITION_LABELS[position] ?? position;
+
+  const { imageBuffer, attempts } = await generateValidatedPortrait(
+    playerName, teamName, year, posLabel,
+  );
+
+  // Save to disk
+  const filePath = getPortraitPath(playerId);
+  fs.writeFileSync(filePath, imageBuffer);
+  const legacyPng = path.join(PORTRAITS_DIR, `${playerId}.png`);
+  if (fs.existsSync(legacyPng)) fs.unlinkSync(legacyPng);
+
+  // Update DB
+  const portraitUrl = `/portraits/${playerId}.webp`;
+  await markValidated(playerId, portraitUrl);
+
+  // Update any round_options rows that reference this player
+  await db.update(roundOptions)
+    .set({ portraitUrl })
+    .where(eq(roundOptions.playerId, playerId));
+
+  return { generated: true, portraitUrl, attempts };
+}
+
+// ---------------------------------------------------------------------------
 // Bulk challenge generation
 // ---------------------------------------------------------------------------
 

@@ -599,12 +599,14 @@ export interface AuditStreamEvent {
   type: 'start' | 'progress' | 'complete' | 'error';
   total?: number;
   totalOnDisk?: number;
+  totalMissing?: number;
   skipped?: number;
   index?: number;
   optionId?: number;
   playerId?: string;
   playerName?: string;
   pass?: boolean;
+  missing?: boolean;
   reason?: string;
   failed?: number;
   passed?: number;
@@ -695,6 +697,43 @@ export async function validatePortrait(playerId: string, validated: boolean): Pr
     method: 'PATCH',
     body: JSON.stringify({ validated }),
   });
+}
+
+// --- Portrait Pre-generation ---
+
+export interface PregenPreview {
+  minScore: number;
+  minZ: number;
+  totalEligible: number;
+  alreadyGenerated: number;
+  toGenerate: number;
+}
+
+export interface PregenStreamEvent {
+  type: 'start' | 'progress' | 'complete' | 'error';
+  total?: number;
+  toGenerate?: number;
+  alreadyGenerated?: number;
+  index?: number;
+  playerId?: string;
+  playerName?: string;
+  pass?: boolean;
+  attempts?: number;
+  generated?: number;
+  failed?: number;
+  skipped?: number;
+  error?: string;
+}
+
+export async function getPregenPreview(minScore: number): Promise<PregenPreview> {
+  return adminFetch(`/admin/portraits/pregen/preview?minScore=${minScore}`);
+}
+
+export function streamPregenPortraits(
+  minScore: number,
+  onEvent: (event: PregenStreamEvent) => void,
+): { abort: () => void } {
+  return createSSEStream('/admin/portraits/pregen', { minScore }, onEvent);
 }
 
 // --- Single-player operations ---
