@@ -98,6 +98,43 @@ async function generatePortrait(
   throw new Error('No image generated in response');
 }
 
+/**
+ * Fallback: generate a portrait using DALL-E directly when gpt-5.2 won't
+ * trigger its image_generation tool for a specific player.
+ */
+async function generatePortraitDallE(
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+  description: string,
+): Promise<Buffer> {
+  const client = getOpenAIClient();
+  if (!client) throw new Error('OpenAI API key not configured');
+
+  const prompt = `A "hedcut" stipple portrait of MLB ${position} ${playerName} (${teamName}, ${year}).
+Known appearance: ${description}
+Style: Wall Street Journal stipple illustration with shading from varying density of small ink dots. NO halftone circles, pop-art dots, cross-hatching, or thick outlines.
+Composition: Clean head-and-shoulders silhouette, plain background, 480×640px (3:4 portrait).
+Color: Deep Midnight Navy ink (#0A1E2F) on flat Warm Cream (#FCEDCD). Generous negative space.
+Vibe: Stoic, legendary, vintage baseball card.`;
+
+  console.log(`    DALL-E fallback for ${playerName}...`);
+
+  const response = await client.images.generate({
+    model: 'dall-e-3',
+    prompt,
+    size: '1024x1024',
+    quality: 'hd',
+    response_format: 'b64_json',
+    n: 1,
+  });
+
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) throw new Error('DALL-E returned no image');
+  return Buffer.from(b64, 'base64');
+}
+
 // ---------------------------------------------------------------------------
 // Image post-processing
 // ---------------------------------------------------------------------------
@@ -245,9 +282,20 @@ async function generateValidatedPortrait(
   console.log(`    Player description: ${description.slice(0, 120)}...`);
 
   let lastResult: { imageBuffer: Buffer; reason: string } | null = null;
+  let generationFailures = 0;
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
-    const rawBuffer = await generatePortrait(playerName, teamName, year, position);
+    let rawBuffer: Buffer;
+    try {
+      rawBuffer = await generatePortrait(playerName, teamName, year, position);
+    } catch (genErr) {
+      const msg = genErr instanceof Error ? genErr.message : String(genErr);
+      console.log(`    Attempt ${attempt}: GENERATION FAILED — ${msg}`);
+      lastResult = { imageBuffer: Buffer.alloc(0), reason: msg };
+      generationFailures++;
+      continue; // retry — don't let generation failures kill the whole loop
+    }
+
     const imageBuffer = await processImage(rawBuffer);
     const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description);
 
@@ -257,6 +305,28 @@ async function generateValidatedPortrait(
 
     if (validation.pass) {
       return { imageBuffer, pass: true, reason: validation.reason, attempts: attempt };
+    }
+  }
+
+  // If generation itself kept failing (model refused to generate), try DALL-E fallback
+  if (generationFailures >= 2) {
+    console.log(`    Primary generation failed ${generationFailures}/${MAX_VALIDATION_ATTEMPTS} times — trying DALL-E fallback...`);
+    for (let fallback = 1; fallback <= 2; fallback++) {
+      try {
+        const rawBuffer = await generatePortraitDallE(playerName, teamName, year, position, description);
+        const imageBuffer = await processImage(rawBuffer);
+        const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description);
+        console.log(`    DALL-E fallback ${fallback}: ${validation.pass ? 'PASS' : 'FAIL'} — ${validation.reason}`);
+
+        if (validation.pass) {
+          return { imageBuffer, pass: true, reason: validation.reason, attempts: MAX_VALIDATION_ATTEMPTS + fallback };
+        }
+        lastResult = { imageBuffer, reason: validation.reason };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`    DALL-E fallback ${fallback}: ERROR — ${msg}`);
+        lastResult = { imageBuffer: Buffer.alloc(0), reason: msg };
+      }
     }
   }
 
