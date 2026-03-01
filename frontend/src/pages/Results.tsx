@@ -127,11 +127,30 @@ export function Results() {
         </motion.div>
       )}
 
+      {/* Home — non-playtest */}
+      {!isPlaytest && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="mb-6"
+        >
+          <VintageButton
+            variant="section"
+            onClick={() => navigate('/')}
+            className="w-full flex items-center justify-center gap-2"
+          >
+            <HomePlateIcon className="w-4 h-4" />
+            Home
+          </VintageButton>
+        </motion.div>
+      )}
+
       {/* Your lineup — interactive mini-cards */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: isPlaytest ? 0.2 : 0.3 }}
+        transition={{ delay: isPlaytest ? 0.2 : 0.4 }}
         className="mb-4"
       >
         <div className="flex items-baseline justify-between mb-3">
@@ -147,7 +166,7 @@ export function Results() {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: isPlaytest ? 0.3 : 0.4 }}
+        transition={{ delay: isPlaytest ? 0.3 : 0.5 }}
         className="mb-4"
       >
         <div className="flex items-baseline justify-between mb-3">
@@ -168,7 +187,7 @@ export function Results() {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: isPlaytest ? 0.4 : 0.5 }}
+        transition={{ delay: isPlaytest ? 0.4 : 0.6 }}
         className="mb-4"
       >
         <h3 className="font-editorial font-bold text-navy text-sm uppercase tracking-wider mb-3">
@@ -179,25 +198,6 @@ export function Results() {
           rightPicks={perfectLineup.picks}
         />
       </motion.div>
-
-      {/* Home — non-playtest */}
-      {!isPlaytest && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="mt-auto pt-4"
-        >
-          <VintageButton
-            variant="section"
-            onClick={() => navigate('/')}
-            className="w-full flex items-center justify-center gap-2"
-          >
-            <HomePlateIcon className="w-4 h-4" />
-            Home
-          </VintageButton>
-        </motion.div>
-      )}
 
       {/* Navigation — playtest gets back button */}
       {isPlaytest && (
