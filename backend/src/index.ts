@@ -12,8 +12,21 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust Railway's reverse proxy so req.ip reflects the real client IP
+// (needed for rate limiting to work correctly in production)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Middleware
-app.use(cors());
+app.use(cors(
+  process.env.NODE_ENV === 'production'
+    ? {
+        origin: ['https://sandlot.uptownnickbrown.com'],
+        methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+      }
+    : undefined
+));
 app.use(express.json());
 
 // Request logging

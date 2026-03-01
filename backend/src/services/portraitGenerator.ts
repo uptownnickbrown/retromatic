@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { db } from '../db/index.js';
 import { challengeRounds, roundOptions, players, portraits } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { getTeamName } from '../lib/teams.js';
 import { asyncPool } from '../lib/asyncPool.js';
 
@@ -36,6 +36,19 @@ export { PORTRAITS_DIR };
 
 function portraitExists(playerId: string): boolean {
   return fs.existsSync(getPortraitPath(playerId));
+}
+
+/** Batch-lookup cached portrait URLs from the portraits table. */
+export async function lookupCachedPortraits(playerIds: string[]): Promise<Map<string, string>> {
+  if (playerIds.length === 0) return new Map();
+  const rows = await db.select({ playerId: portraits.playerId, portraitUrl: portraits.portraitUrl })
+    .from(portraits)
+    .where(inArray(portraits.playerId, playerIds));
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.portraitUrl) map.set(row.playerId, row.portraitUrl);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +96,43 @@ async function generatePortrait(
   }
 
   throw new Error('No image generated in response');
+}
+
+/**
+ * Fallback: generate a portrait using DALL-E directly when gpt-5.2 won't
+ * trigger its image_generation tool for a specific player.
+ */
+async function generatePortraitDallE(
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+  description: string,
+): Promise<Buffer> {
+  const client = getOpenAIClient();
+  if (!client) throw new Error('OpenAI API key not configured');
+
+  const prompt = `A "hedcut" stipple portrait of MLB ${position} ${playerName} (${teamName}, ${year}).
+Known appearance: ${description}
+Style: Wall Street Journal stipple illustration with shading from varying density of small ink dots. NO halftone circles, pop-art dots, cross-hatching, or thick outlines.
+Composition: Clean head-and-shoulders silhouette, plain background, 480×640px (3:4 portrait).
+Color: Deep Midnight Navy ink (#0A1E2F) on flat Warm Cream (#FCEDCD). Generous negative space.
+Vibe: Stoic, legendary, vintage baseball card.`;
+
+  console.log(`    DALL-E fallback for ${playerName}...`);
+
+  const response = await client.images.generate({
+    model: 'dall-e-3',
+    prompt,
+    size: '1024x1024',
+    quality: 'hd',
+    response_format: 'b64_json',
+    n: 1,
+  });
+
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) throw new Error('DALL-E returned no image');
+  return Buffer.from(b64, 'base64');
 }
 
 // ---------------------------------------------------------------------------
@@ -232,9 +282,20 @@ async function generateValidatedPortrait(
   console.log(`    Player description: ${description.slice(0, 120)}...`);
 
   let lastResult: { imageBuffer: Buffer; reason: string } | null = null;
+  let generationFailures = 0;
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
-    const rawBuffer = await generatePortrait(playerName, teamName, year, position);
+    let rawBuffer: Buffer;
+    try {
+      rawBuffer = await generatePortrait(playerName, teamName, year, position);
+    } catch (genErr) {
+      const msg = genErr instanceof Error ? genErr.message : String(genErr);
+      console.log(`    Attempt ${attempt}: GENERATION FAILED — ${msg}`);
+      lastResult = { imageBuffer: Buffer.alloc(0), reason: msg };
+      generationFailures++;
+      continue; // retry — don't let generation failures kill the whole loop
+    }
+
     const imageBuffer = await processImage(rawBuffer);
     const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description);
 
@@ -244,6 +305,28 @@ async function generateValidatedPortrait(
 
     if (validation.pass) {
       return { imageBuffer, pass: true, reason: validation.reason, attempts: attempt };
+    }
+  }
+
+  // If generation itself kept failing (model refused to generate), try DALL-E fallback
+  if (generationFailures >= 2) {
+    console.log(`    Primary generation failed ${generationFailures}/${MAX_VALIDATION_ATTEMPTS} times — trying DALL-E fallback...`);
+    for (let fallback = 1; fallback <= 2; fallback++) {
+      try {
+        const rawBuffer = await generatePortraitDallE(playerName, teamName, year, position, description);
+        const imageBuffer = await processImage(rawBuffer);
+        const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description);
+        console.log(`    DALL-E fallback ${fallback}: ${validation.pass ? 'PASS' : 'FAIL'} — ${validation.reason}`);
+
+        if (validation.pass) {
+          return { imageBuffer, pass: true, reason: validation.reason, attempts: MAX_VALIDATION_ATTEMPTS + fallback };
+        }
+        lastResult = { imageBuffer, reason: validation.reason };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`    DALL-E fallback ${fallback}: ERROR — ${msg}`);
+        lastResult = { imageBuffer: Buffer.alloc(0), reason: msg };
+      }
     }
   }
 
@@ -393,6 +476,46 @@ export async function generatePortraitForOption(optionId: number): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Standalone player generation (no optionId needed — for pre-generation)
+// ---------------------------------------------------------------------------
+
+export async function generatePortraitForPlayer(
+  playerId: string,
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+): Promise<{ generated: boolean; portraitUrl: string; attempts: number }> {
+  // Ensure portraits directory exists
+  if (!fs.existsSync(PORTRAITS_DIR)) {
+    fs.mkdirSync(PORTRAITS_DIR, { recursive: true });
+  }
+
+  const posLabel = POSITION_LABELS[position] ?? position;
+
+  const { imageBuffer, attempts } = await generateValidatedPortrait(
+    playerName, teamName, year, posLabel,
+  );
+
+  // Save to disk
+  const filePath = getPortraitPath(playerId);
+  fs.writeFileSync(filePath, imageBuffer);
+  const legacyPng = path.join(PORTRAITS_DIR, `${playerId}.png`);
+  if (fs.existsSync(legacyPng)) fs.unlinkSync(legacyPng);
+
+  // Update DB
+  const portraitUrl = `/portraits/${playerId}.webp`;
+  await markValidated(playerId, portraitUrl);
+
+  // Update any round_options rows that reference this player
+  await db.update(roundOptions)
+    .set({ portraitUrl })
+    .where(eq(roundOptions.playerId, playerId));
+
+  return { generated: true, portraitUrl, attempts };
+}
+
+// ---------------------------------------------------------------------------
 // Bulk challenge generation
 // ---------------------------------------------------------------------------
 
@@ -423,12 +546,17 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
     for (const option of options) {
       // Skip if portrait already exists on disk
       if (portraitExists(option.playerId)) {
+        const portraitUrl = `/portraits/${option.playerId}.webp`;
         // Still update DB URL if missing
         if (!option.portraitUrl) {
           await db.update(roundOptions)
-            .set({ portraitUrl: `/portraits/${option.playerId}.webp` })
+            .set({ portraitUrl })
             .where(eq(roundOptions.id, option.id));
         }
+        // Ensure portraits table has an entry (don't overwrite validated status)
+        await db.insert(portraits)
+          .values({ playerId: option.playerId, validated: false, portraitUrl })
+          .onConflictDoNothing();
         skipped++;
         continue;
       }

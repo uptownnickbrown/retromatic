@@ -1,17 +1,19 @@
 import { Router } from 'express';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { db } from '../db/index.js';
 import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, players, pickStats, portraits } from '../db/schema.js';
-import { eq, and, desc, inArray, sql, asc } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, asc, gte } from 'drizzle-orm';
 import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
-import { generatePortraitsForChallenge, generatePortraitForOption, getPortraitPath, auditPortrait, POSITION_LABELS } from '../services/portraitGenerator.js';
+import { generatePortraitsForChallenge, generatePortraitForOption, generatePortraitForPlayer, auditPortrait, POSITION_LABELS, PORTRAITS_DIR } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
+import { runReplacementAgent, confirmReplacement } from '../services/playerReplacer.js';
 import { calculateSandlotScore } from '../services/sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
 import { asyncPool } from '../lib/asyncPool.js';
@@ -34,6 +36,16 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+const adminRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15-minute window
+  limit: 5,                  // 5 failed attempts per window per IP
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+  skipSuccessfulRequests: true, // Only count 401s, not legitimate admin work
+});
+
+router.use(adminRateLimiter);
 router.use(requireAdmin);
 
 // Background enrichment pipeline: blurbs → portraits → preseed for each challenge.
@@ -955,6 +967,49 @@ router.patch('/options/:optionId/blurb', async (req, res) => {
   }
 });
 
+// AI-powered player replacement — SSE stream
+router.post('/options/:optionId/replace', async (req, res) => {
+  const optionId = parseInt(req.params.optionId);
+  const { prompt, sessionId } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    res.status(400).json({ error: 'prompt string required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await runReplacementAgent(optionId, prompt, res, sessionId);
+  } catch (error) {
+    console.error('Replacement agent error:', error);
+    res.write(`data: ${JSON.stringify({ type: 'error', message: String(error) })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+    res.end();
+  }
+});
+
+// Confirm player replacement — swaps the player and generates assets
+router.post('/options/:optionId/replace/confirm', async (req, res) => {
+  try {
+    const optionId = parseInt(req.params.optionId);
+    const { playerId, playerName, yearOptions } = req.body;
+
+    if (!playerId || !playerName || !Array.isArray(yearOptions) || yearOptions.length !== 3) {
+      res.status(400).json({ error: 'playerId, playerName, and yearOptions (3 years) required' });
+      return;
+    }
+
+    const result = await confirmReplacement(optionId, playerId, playerName, yearOptions);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Replacement confirm error:', error);
+    res.status(500).json({ error: error.message || 'Failed to replace player' });
+  }
+});
+
 // Bake a single challenge: blurbs + portraits + preseed
 router.post('/challenges/:id/bake', async (req, res) => {
   try {
@@ -1165,124 +1220,121 @@ router.patch('/portraits/:playerId/validate', async (req, res) => {
 });
 
 router.post('/portraits/audit', async (req, res) => {
-  // SSE streaming audit
+  // SSE streaming audit — global scope (scans all portrait files on disk)
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
   try {
-    const { challengeIds } = req.body as { challengeIds?: number[] };
+    const { force } = req.body as { force?: boolean };
 
-    // Default: audit active + upcoming (scheduled) challenges
-    let targetChallengeIds: number[];
-    if (challengeIds && challengeIds.length > 0) {
-      targetChallengeIds = challengeIds;
-    } else {
-      const active = await db.select({ id: challenges.id })
-        .from(challenges)
-        .where(inArray(challenges.status, ['active', 'scheduled']));
-      targetChallengeIds = active.map(c => c.id);
-    }
-
-    if (targetChallengeIds.length === 0) {
-      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, skipped: 0 })}\n\n`);
+    // Scan portraits directory for all .webp files
+    if (!fs.existsSync(PORTRAITS_DIR)) {
+      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, totalOnDisk: 0, skipped: 0 })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'complete', total: 0, skipped: 0, failed: 0, passed: 0 })}\n\n`);
       res.end();
       return;
     }
 
-    // Get all round options for target challenges
-    const rounds = await db.select({ id: challengeRounds.id, challengeId: challengeRounds.challengeId, position: challengeRounds.position })
-      .from(challengeRounds)
-      .where(inArray(challengeRounds.challengeId, targetChallengeIds));
+    const files = fs.readdirSync(PORTRAITS_DIR).filter(f => f.endsWith('.webp'));
+    const allPlayerIds = files.map(f => f.replace('.webp', ''));
+    const totalOnDisk = allPlayerIds.length;
 
-    const roundIds = rounds.map(r => r.id);
-    if (roundIds.length === 0) {
-      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, skipped: 0 })}\n\n`);
+    if (totalOnDisk === 0) {
+      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, totalOnDisk: 0, skipped: 0 })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'complete', total: 0, skipped: 0, failed: 0, passed: 0 })}\n\n`);
       res.end();
       return;
     }
 
-    const options = await db.select()
-      .from(roundOptions)
-      .where(inArray(roundOptions.roundId, roundIds));
-
-    const roundMap = new Map(rounds.map(r => [r.id, r]));
-
-    // Check which portraits are already validated
+    // Check which portraits are already validated (skip unless force=true)
     const existingPortraits = await db.select()
       .from(portraits)
       .where(eq(portraits.validated, true));
     const validatedSet = new Set(existingPortraits.map(p => p.playerId));
 
-    // Deduplicate by playerId (same portrait file shared across challenges)
-    const seenPlayerIds = new Set<string>();
+    // Batch-lookup best season info for all players on disk
+    // DISTINCT ON (player_id) with ORDER BY z_score_position DESC gives best season per player
+    const playerInfoRows = await db.select({
+      playerId: players.playerId,
+      nameFirst: players.nameFirst,
+      nameLast: players.nameLast,
+      year: players.year,
+      team: players.team,
+      primaryPosition: players.primaryPosition,
+      zScorePosition: players.zScorePosition,
+    })
+      .from(players)
+      .where(inArray(players.playerId, allPlayerIds))
+      .orderBy(players.playerId, desc(players.zScorePosition));
+
+    // Group by playerId, keep only best season (first seen per playerId due to DESC order)
+    const playerInfoMap = new Map<string, {
+      playerName: string;
+      year: number;
+      team: string;
+      position: string;
+    }>();
+    for (const row of playerInfoRows) {
+      if (!playerInfoMap.has(row.playerId)) {
+        playerInfoMap.set(row.playerId, {
+          playerName: `${row.nameFirst ?? ''} ${row.nameLast ?? ''}`.trim(),
+          year: row.year,
+          team: row.team ?? 'Unknown',
+          position: row.primaryPosition,
+        });
+      }
+    }
+
+    // Find a representative optionId for each player (for regeneration flow)
+    const optionRows = await db.select({
+      playerId: roundOptions.playerId,
+      id: roundOptions.id,
+    })
+      .from(roundOptions)
+      .where(inArray(roundOptions.playerId, allPlayerIds));
+    const optionIdMap = new Map<string, number>();
+    for (const row of optionRows) {
+      if (!optionIdMap.has(row.playerId)) optionIdMap.set(row.playerId, row.id);
+    }
+
+    // Build audit tasks
     interface AuditTask {
-      optionId: number;
       playerId: string;
       playerName: string;
-      challengeId: number;
       teamName: string;
       year: number;
       position: string;
+      optionId: number | null;
     }
     const tasks: AuditTask[] = [];
     let skipped = 0;
 
-    for (const opt of options) {
-      if (seenPlayerIds.has(opt.playerId)) { skipped++; continue; }
-      seenPlayerIds.add(opt.playerId);
+    for (const playerId of allPlayerIds) {
+      // Skip already-validated unless force=true
+      if (!force && validatedSet.has(playerId)) { skipped++; continue; }
 
-      if (validatedSet.has(opt.playerId)) { skipped++; continue; }
-      if (!fs.existsSync(getPortraitPath(opt.playerId))) { skipped++; continue; }
-
-      const round = roundMap.get(opt.roundId);
-      const challengeId = round?.challengeId ?? 0;
-
-      // Pick best year for audit context
-      const years = opt.yearOptions as number[];
-      let bestTeam = 'Unknown';
-      let bestYear = years[0] ?? 2000;
-      let bestZ = -Infinity;
-      let bestPosition = round?.position ?? 'player';
-
-      for (const year of years) {
-        const [record] = await db.select({
-          team: players.team,
-          zScorePosition: players.zScorePosition,
-          primaryPosition: players.primaryPosition,
-        })
-          .from(players)
-          .where(and(eq(players.playerId, opt.playerId), eq(players.year, year)))
-          .limit(1);
-
-        if (record) {
-          const z = Number(record.zScorePosition);
-          if (z > bestZ) {
-            bestZ = z;
-            bestTeam = record.team ?? 'Unknown';
-            bestYear = year;
-            bestPosition = record.primaryPosition;
-          }
-        }
+      const info = playerInfoMap.get(playerId);
+      if (!info) {
+        // Portrait file exists but player not in DB — skip
+        skipped++;
+        continue;
       }
 
       tasks.push({
-        optionId: opt.id,
-        playerId: opt.playerId,
-        playerName: opt.playerName,
-        challengeId,
-        teamName: getTeamName(bestTeam),
-        year: bestYear,
-        position: POSITION_LABELS[bestPosition] ?? bestPosition,
+        playerId,
+        playerName: info.playerName,
+        teamName: getTeamName(info.team),
+        year: info.year,
+        position: POSITION_LABELS[info.position] ?? info.position,
+        optionId: optionIdMap.get(playerId) ?? null,
       });
     }
 
-    console.log(`  Auditing ${tasks.length} portraits (${skipped} skipped)...`);
+    console.log(`  Auditing ${tasks.length} portraits (${skipped} skipped, ${totalOnDisk} total on disk, force=${!!force})...`);
 
-    res.write(`data: ${JSON.stringify({ type: 'start', total: tasks.length, skipped })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'start', total: tasks.length, totalOnDisk, skipped })}\n\n`);
 
     let doneCount = 0;
 
@@ -1309,10 +1361,9 @@ router.post('/portraits/audit', async (req, res) => {
           type: 'progress',
           index: doneCount,
           total: tasks.length,
-          optionId: task.optionId,
           playerId: task.playerId,
           playerName: task.playerName,
-          challengeId: task.challengeId,
+          optionId: task.optionId,
           pass: result.pass,
           reason: result.reason,
         })}\n\n`);
@@ -1323,7 +1374,42 @@ router.post('/portraits/audit', async (req, res) => {
       { retries: 1, backoffMs: 3000 },
     );
 
-    res.write(`data: ${JSON.stringify({ type: 'complete', total: tasks.length, skipped })}\n\n`);
+    // Second pass: find players in round_options with NO portrait file on disk
+    const allOptionRows = await db.select({
+      playerId: roundOptions.playerId,
+      playerName: roundOptions.playerName,
+      optionId: roundOptions.id,
+    }).from(roundOptions);
+
+    const filesOnDisk = new Set(allPlayerIds);
+    // Deduplicate by playerId, keeping first optionId seen
+    const seenPlayers = new Set<string>();
+    const missingOptions: { playerId: string; playerName: string; optionId: number }[] = [];
+    for (const row of allOptionRows) {
+      if (!filesOnDisk.has(row.playerId) && !seenPlayers.has(row.playerId)) {
+        seenPlayers.add(row.playerId);
+        missingOptions.push(row);
+      }
+    }
+
+    if (missingOptions.length > 0) {
+      console.log(`  Found ${missingOptions.length} players in challenges with no portrait on disk`);
+      for (const opt of missingOptions) {
+        doneCount++;
+        res.write(`data: ${JSON.stringify({
+          type: 'progress',
+          index: doneCount,
+          playerId: opt.playerId,
+          playerName: opt.playerName,
+          optionId: opt.optionId,
+          pass: false,
+          missing: true,
+          reason: 'No portrait on disk',
+        })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'complete', total: tasks.length, totalMissing: missingOptions.length, skipped })}\n\n`);
     res.end();
   } catch (error) {
     console.error('Portrait audit error:', error);
@@ -1403,6 +1489,208 @@ router.post('/portraits/regenerate', async (req, res) => {
   } catch (error) {
     console.error('Regenerate portraits error:', error);
     res.write(`data: ${JSON.stringify({ type: 'error', error: 'Failed to regenerate portraits' })}\n\n`);
+    res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Portrait Pre-generation — preview and batch generate
+// ---------------------------------------------------------------------------
+
+// Preview: how many players above a score threshold have/need portraits
+router.get('/portraits/pregen/preview', async (req, res) => {
+  try {
+    const minScore = parseFloat(req.query.minScore as string) || 7.0;
+    // Convert Sandlot Score to z: score = 1.0 + ((clamp(z, -2, 10) + 2) / 12) * 9.0
+    // Reverse: z = (score - 1.0) / 9.0 * 12 - 2
+    const minZ = (minScore - 1.0) / 9.0 * 12 - 2;
+
+    // Get distinct player IDs with z_score_position >= minZ (using best season per player)
+    const eligibleRows = await db
+      .select({ playerId: players.playerId })
+      .from(players)
+      .where(gte(players.zScorePosition, String(minZ)))
+      .groupBy(players.playerId);
+
+    const totalEligible = eligibleRows.length;
+
+    // Check which exist on disk
+    let alreadyGenerated = 0;
+    for (const row of eligibleRows) {
+      if (fs.existsSync(path.join(PORTRAITS_DIR, `${row.playerId}.webp`))) {
+        alreadyGenerated++;
+      }
+    }
+
+    res.json({
+      minScore,
+      minZ: Math.round(minZ * 100) / 100,
+      totalEligible,
+      alreadyGenerated,
+      toGenerate: totalEligible - alreadyGenerated,
+    });
+  } catch (error) {
+    console.error('Pregen preview error:', error);
+    res.status(500).json({ error: 'Failed to compute preview' });
+  }
+});
+
+// SSE batch pre-generation of portraits for high-scoring players
+router.post('/portraits/pregen', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let aborted = false;
+  req.on('close', () => { aborted = true; });
+
+  try {
+    const { minScore = 7.0 } = req.body as { minScore?: number };
+    const minZ = (minScore - 1.0) / 9.0 * 12 - 2;
+
+    // Get all player rows above threshold, ordered by z-score desc
+    const playerRows = await db
+      .select({
+        playerId: players.playerId,
+        nameFirst: players.nameFirst,
+        nameLast: players.nameLast,
+        year: players.year,
+        team: players.team,
+        primaryPosition: players.primaryPosition,
+        zScorePosition: players.zScorePosition,
+      })
+      .from(players)
+      .where(gte(players.zScorePosition, String(minZ)))
+      .orderBy(players.playerId, desc(players.zScorePosition));
+
+    // Group by playerId, keep only best season (first per playerId due to DESC order)
+    const playerMap = new Map<string, {
+      playerName: string;
+      year: number;
+      team: string;
+      position: string;
+    }>();
+    for (const row of playerRows) {
+      if (!playerMap.has(row.playerId)) {
+        playerMap.set(row.playerId, {
+          playerName: `${row.nameFirst ?? ''} ${row.nameLast ?? ''}`.trim(),
+          year: row.year,
+          team: row.team ?? 'Unknown',
+          position: row.primaryPosition,
+        });
+      }
+    }
+
+    // Filter to only those without a portrait on disk
+    interface PregenTask {
+      playerId: string;
+      playerName: string;
+      teamName: string;
+      year: number;
+      position: string;
+    }
+    const tasks: PregenTask[] = [];
+    let alreadyGenerated = 0;
+
+    for (const [playerId, info] of playerMap) {
+      if (fs.existsSync(path.join(PORTRAITS_DIR, `${playerId}.webp`))) {
+        alreadyGenerated++;
+        continue;
+      }
+      tasks.push({
+        playerId,
+        playerName: info.playerName,
+        teamName: getTeamName(info.team),
+        year: info.year,
+        position: info.position,
+      });
+    }
+
+    const totalEligible = playerMap.size;
+    console.log(`  Pre-generating ${tasks.length} portraits (${alreadyGenerated} already exist, ${totalEligible} eligible at minScore=${minScore})...`);
+
+    res.write(`data: ${JSON.stringify({
+      type: 'start',
+      total: totalEligible,
+      toGenerate: tasks.length,
+      alreadyGenerated,
+    })}\n\n`);
+
+    if (tasks.length === 0) {
+      res.write(`data: ${JSON.stringify({ type: 'complete', generated: 0, failed: 0, skipped: alreadyGenerated })}\n\n`);
+      res.end();
+      return;
+    }
+
+    let doneCount = 0;
+    let generated = 0;
+    let failed = 0;
+
+    const { failures } = await asyncPool(
+      tasks,
+      5,
+      async (task) => {
+        if (aborted) throw new Error('Aborted by client');
+
+        const result = await generatePortraitForPlayer(
+          task.playerId, task.playerName, task.teamName, task.year, task.position,
+        );
+
+        doneCount++;
+        generated++;
+        res.write(`data: ${JSON.stringify({
+          type: 'progress',
+          index: doneCount,
+          total: tasks.length,
+          playerId: task.playerId,
+          playerName: task.playerName,
+          pass: true,
+          attempts: result.attempts,
+        })}\n\n`);
+
+        console.log(`  ✓ [pregen ${doneCount}/${tasks.length}] ${task.playerName} (${task.year} ${task.teamName}) — ${result.attempts} attempt(s)`);
+        return task.playerId;
+      },
+      {
+        retries: 1,
+        backoffMs: 3000,
+        onProgress: (done, total) => {
+          if (aborted) return;
+          if (done % 10 === 0 || done === total) {
+            console.log(`  Pre-gen progress: ${done}/${total}`);
+          }
+        },
+      },
+    );
+
+    for (const f of failures) {
+      if (f.error.message === 'Aborted by client') continue;
+      failed++;
+      doneCount++;
+      res.write(`data: ${JSON.stringify({
+        type: 'progress',
+        index: doneCount,
+        total: tasks.length,
+        playerId: f.item.playerId,
+        playerName: f.item.playerName,
+        pass: false,
+        attempts: 0,
+        error: f.error.message,
+      })}\n\n`);
+      console.error(`  ✗ [pregen] Failed: ${f.item.playerName}: ${f.error.message}`);
+    }
+
+    res.write(`data: ${JSON.stringify({
+      type: 'complete',
+      generated,
+      failed,
+      skipped: alreadyGenerated,
+    })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('Portrait pre-generation error:', error);
+    res.write(`data: ${JSON.stringify({ type: 'error', error: 'Failed to pre-generate portraits' })}\n\n`);
     res.end();
   }
 });

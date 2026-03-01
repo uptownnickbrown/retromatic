@@ -380,7 +380,7 @@ function addMsg(state: AgentSessionState, msg: Omit<AgentChatMessage, 'id'>): Ag
 }
 
 function phaseFromTool(toolName: string): AgentPhase {
-  if (toolName === 'search_players') return 'searching';
+  if (toolName === 'search_players' || toolName === 'query_players') return 'searching';
   if (toolName === 'preview_challenge') return 'building';
   if (toolName === 'submit_challenge') return 'submitting';
   return 'thinking';
@@ -598,13 +598,15 @@ export function streamAgentContinue(
 export interface AuditStreamEvent {
   type: 'start' | 'progress' | 'complete' | 'error';
   total?: number;
+  totalOnDisk?: number;
+  totalMissing?: number;
   skipped?: number;
   index?: number;
   optionId?: number;
   playerId?: string;
   playerName?: string;
-  challengeId?: number;
   pass?: boolean;
+  missing?: boolean;
   reason?: string;
   failed?: number;
   passed?: number;
@@ -678,9 +680,9 @@ function createSSEStream<T>(
 
 export function streamAuditPortraits(
   onEvent: (event: AuditStreamEvent) => void,
-  challengeIds?: number[],
+  options?: { force?: boolean },
 ): { abort: () => void } {
-  return createSSEStream('/admin/portraits/audit', { challengeIds }, onEvent);
+  return createSSEStream('/admin/portraits/audit', { force: options?.force }, onEvent);
 }
 
 export function streamRegeneratePortraits(
@@ -697,6 +699,43 @@ export async function validatePortrait(playerId: string, validated: boolean): Pr
   });
 }
 
+// --- Portrait Pre-generation ---
+
+export interface PregenPreview {
+  minScore: number;
+  minZ: number;
+  totalEligible: number;
+  alreadyGenerated: number;
+  toGenerate: number;
+}
+
+export interface PregenStreamEvent {
+  type: 'start' | 'progress' | 'complete' | 'error';
+  total?: number;
+  toGenerate?: number;
+  alreadyGenerated?: number;
+  index?: number;
+  playerId?: string;
+  playerName?: string;
+  pass?: boolean;
+  attempts?: number;
+  generated?: number;
+  failed?: number;
+  skipped?: number;
+  error?: string;
+}
+
+export async function getPregenPreview(minScore: number): Promise<PregenPreview> {
+  return adminFetch(`/admin/portraits/pregen/preview?minScore=${minScore}`);
+}
+
+export function streamPregenPortraits(
+  minScore: number,
+  onEvent: (event: PregenStreamEvent) => void,
+): { abort: () => void } {
+  return createSSEStream('/admin/portraits/pregen', { minScore }, onEvent);
+}
+
 // --- Single-player operations ---
 
 export async function regenerateOptionPortrait(optionId: number): Promise<{ generated: boolean; portraitUrl: string }> {
@@ -711,5 +750,101 @@ export async function updateOptionBlurb(optionId: number, year: number, blurb: s
   return adminFetch(`/admin/options/${optionId}/blurb`, {
     method: 'PATCH',
     body: JSON.stringify({ year, blurb }),
+  });
+}
+
+// --- Player Replacement ---
+
+export interface ReplacementSuggestionYear {
+  year: number;
+  team: string;
+  zScore: number;
+  sandlotScore: number;
+}
+
+export interface ReplacementSuggestion {
+  playerId: string;
+  playerName: string;
+  years: ReplacementSuggestionYear[];
+  reasoning: string;
+  hasExistingPortrait: boolean;
+}
+
+export interface ReplacementEvent {
+  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'suggestion' | 'error' | 'error_recoverable' | 'complete' | 'awaiting_feedback' | 'session';
+  message?: string;
+  delta?: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  suggestion?: ReplacementSuggestion;
+  sessionId?: string;
+}
+
+export function streamReplacementAgent(
+  optionId: number,
+  prompt: string,
+  onEvent: (event: ReplacementEvent) => void,
+  sessionId?: string,
+): { abort: () => void } {
+  const secret = getAdminSecret();
+  if (!secret) throw new Error('Not authenticated');
+
+  const controller = new AbortController();
+
+  fetch(`${API_BASE}/admin/options/${optionId}/replace`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+    body: JSON.stringify({ prompt, sessionId }),
+    signal: controller.signal,
+  }).then(async (res) => {
+    if (!res.ok || !res.body) {
+      onEvent({ type: 'error', message: `HTTP ${res.status}` });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', message: String(err) });
+    }
+  });
+
+  return { abort: () => controller.abort() };
+}
+
+export interface ReplacementResult {
+  option: { id: number; playerId: string; playerName: string; yearOptions: number[] };
+  blurbs: { generated: number; failed: number };
+  portrait: { generated: boolean; skipped: boolean; portraitUrl: string | null };
+}
+
+export async function confirmReplacement(
+  optionId: number,
+  playerId: string,
+  playerName: string,
+  yearOptions: number[],
+): Promise<ReplacementResult> {
+  return adminFetch(`/admin/options/${optionId}/replace/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ playerId, playerName, yearOptions }),
   });
 }

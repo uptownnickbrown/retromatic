@@ -93,22 +93,7 @@ cd backend && npm run lint && npx tsc --noEmit && npm test
 - `GET /api/challenge/:id/results` — completed game results with community stats
 - `GET /api/challenge/streak` — current user's play streak
 
-**Admin (requires `x-admin-secret` header)**:
-- `POST /api/admin/challenges/generate` — generate challenge(s), optional `{count, theme, date}`
-- `POST /api/admin/challenges/generate-themed` — generate batch of themed challenges with auto-scheduling
-- `POST /api/admin/challenges/schedule` — assign dates to challenges `{challengeIds, startDate}`
-- `GET /api/admin/challenges/pipeline` — all challenges with health summaries (blurbs/portraits/rounds status)
-- `GET /api/admin/challenges` — list all challenges
-- `GET /api/admin/challenges/:id` — challenge detail with rounds, players, z-scores, Sandlot Scores
-- `GET /api/admin/challenges/:id/health` — detailed health check (blurb/portrait/score counts)
-- `PATCH /api/admin/challenges/:id` — update status, theme, date, position order
-- `DELETE /api/admin/challenges/:id` — delete a challenge
-- `POST /api/admin/challenges/:id/blurbs` — generate AI blurbs via OpenAI (parallelized, ~45s)
-- `POST /api/admin/challenges/:id/portraits` — generate AI portraits via Gemini
-- `POST /api/admin/challenges/:id/preseed` — pre-seed community pick stats (200 synthetic picks)
-- `POST /api/admin/challenges/:id/playtest` — start playtest session (no real session, any challenge status)
-- `DELETE /api/admin/challenges/:id/reset` — reset a user's session (requires `x-guest-token` header)
-- `POST /api/admin/activate-today` — activate today's scheduled challenge, complete yesterday's
+**Admin**: Protected by auth + rate limiting. See `backend/src/routes/admin.ts` for endpoints.
 
 ### Frontend Game State Machine
 ```
@@ -120,7 +105,7 @@ Picks are computed client-side (Sandlot Score from z-scores). Game state saved t
 - `/` — Home (daily challenge launcher)
 - `/play` — Game (10-round draft); supports `?playtest=<challengeId>` for admin playtest mode
 - `/results/:challengeId` — Results page
-- `/admin/login` — Admin login (enter `ADMIN_SECRET`)
+- `/admin/login` — Admin login
 - `/admin` — Admin "Front Office" dashboard (pipeline overview, calendar strip, generation controls)
 - `/admin/challenge/:id` — Challenge detail (health, rounds, players, blurbs, playtest button)
 
@@ -144,11 +129,7 @@ A fully baked challenge requires these steps (can be done from admin UI or API):
 
 ## Environment Configuration
 
-Copy `backend/.env.example` to `backend/.env`:
-- `DATABASE_URL` — PostgreSQL connection string
-- `OPENAI_API_KEY` — for AI-generated player blurbs (optional, falls back to templates)
-- `ADMIN_SECRET` — protects admin API routes (used in admin UI login and `x-admin-secret` header)
-- `PORT` — backend port (default 3001)
+Copy `backend/.env.example` to `backend/.env`. See that file for required variables.
 
 ### Network / Mobile Testing
 - Vite dev server listens on all interfaces (`host: true` in vite.config.ts)
@@ -165,30 +146,13 @@ Do not use `font-hand`, `font-sans`, or other undefined font classes.
 ### Data Model: Players Table
 Each row in `players` is a **player-season** (e.g., "Mike Trout 2019" and "Mike Trout 2020" are separate rows with different IDs). This means `playerRecordId` is unique per player-year, not per player name. When matching across year options for the same player, use the set of all `playerRecordId` values, not a single ID.
 
-## Deployment (Railway)
+## Deployment
 
-Hosted on Railway with Nixpacks. Key files:
-- `railway.toml` — build/deploy configuration
-- `backend/src/scripts/migrate.ts` — idempotent SQL migrations (compiled to `dist/scripts/migrate.js`)
-
-### Deploy pipeline
-1. **Build**: Nixpacks runs `npm run build` (installs deps, builds frontend + backend)
-2. **Pre-deploy**: `preDeployCommand` runs the compiled migration script (`node backend/dist/scripts/migrate.js`). Runs in a separate ephemeral container with access to env vars (including `DATABASE_URL`). If it fails, the deploy is aborted and the old version keeps running.
-3. **Start**: `npm start` launches the Express server
-4. **Healthcheck**: Railway pings `/api/health` (60s timeout)
-
-### Migration rules
-- Migrations run via `preDeployCommand` in `railway.toml`, not in the start command
-- All migrations must be **idempotent** (use `IF NOT EXISTS`, `IF EXISTS`, `DO $$ ... END $$` blocks)
-- Migration script uses raw `postgres` (production dependency), not `drizzle-kit` (devDependency, unavailable at runtime)
-- On failure, `process.exitCode = 1` aborts the deploy cleanly
-
-### Important: devDependencies are pruned at runtime
-Nixpacks prunes devDependencies after the build phase. Never use devDependency tools (`tsx`, `drizzle-kit`, `vitest`, etc.) in `startCommand` or `preDeployCommand`. Use compiled JS (`node dist/...`) instead.
+Hosted on Railway. See `.claude/PRIVATE_NOTES.md` for deploy pipeline details (not tracked in git).
 
 ## Working Principles
 
-- **Check docs before inventing solutions.** When facing infrastructure, deployment, or tooling problems, research the platform's documentation first (Railway docs, Nixpacks/Railpack docs, library docs). These platforms have solved common problems — use their built-in primitives (`preDeployCommand`, healthchecks, etc.) rather than building custom workarounds.
+- **Check docs before inventing solutions.** When facing infrastructure, deployment, or tooling problems, research the platform's documentation first. Use built-in primitives rather than building custom workarounds.
 - **One change at a time for infrastructure.** Don't switch the builder, migration strategy, and deploy config all at once. Make incremental changes so failures are easy to diagnose.
 
 ## Design Principles

@@ -38,6 +38,7 @@ import { clearAdminSecret } from '../lib/adminApi';
 import { streamBakeAll } from '../lib/adminApi';
 import { AgentChatPanel } from '../components/admin/AgentChatPanel';
 import { PortraitHealthPanel } from '../components/admin/PortraitHealthPanel';
+import { PortraitPregenPanel } from '../components/admin/PortraitPregenPanel';
 import { INITIAL_SESSION_STATE, agentReducer } from '../lib/adminApi';
 import { cn } from '../lib/utils';
 import type { PipelineChallenge, HistoryChallenge } from '../lib/adminApi';
@@ -408,6 +409,9 @@ export function AdminDashboard() {
 
         {/* Portrait Health */}
         <PortraitHealthPanel />
+
+        {/* Portrait Pre-generation */}
+        <PortraitPregenPanel />
 
         {/* Previous Games */}
         {history.length > 0 && (

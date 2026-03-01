@@ -1,11 +1,12 @@
 import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 import type { Response as SSEResponse } from 'express';
-import { db } from '../db/index.js';
+import { db, executeRawReadOnlyQuery } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
 import { eq, and, desc, gte, lte, like, or, ilike, sql } from 'drizzle-orm';
 import { queueChallenges } from './challengeGenerator.js';
 import { calculateSandlotScore } from './sandlotScore.js';
+import { lookupCachedPortraits } from './portraitGenerator.js';
 import { toNum } from '../lib/numeric.js';
 
 // Lazy-load OpenAI client
@@ -71,7 +72,7 @@ const TEAM_NAMES: Record<string, string> = {
   TBA: 'Rays', TEX: 'Rangers', TOR: 'Blue Jays', WAS: 'Nationals', WSN: 'Nationals',
 };
 
-async function getTeamCodesForPrompt(): Promise<string> {
+export async function getTeamCodesForPrompt(): Promise<string> {
   if (cachedTeamCodes) return cachedTeamCodes;
 
   const rows = await db.selectDistinct({ team: players.team })
@@ -220,11 +221,51 @@ Rules:
 - No duplicate player-year combinations`,
     parameters: challengeParamsSchema,
   },
+  {
+    type: 'function' as const,
+    name: 'query_players',
+    strict: false,
+    description: `Run a read-only SQL SELECT query against the players table for complex searches that search_players can't express — career-relative constraints, window functions, cross-season comparisons, JSONB stat extraction, etc.
+
+The players table has ~36,500 rows (one per player-season, 1961-2025). Columns:
+- player_id (varchar) — Lahman ID, stable across seasons (e.g. "troutmi01")
+- name_first, name_last (varchar)
+- year (integer) — season year
+- team (varchar) — 3-letter code (NYA, BOS, LAN, etc.)
+- player_type (varchar) — 'batter' or 'pitcher'
+- primary_position (varchar) — C, 1B, 2B, SS, 3B, OF, SP, RP, UTIL
+- positions_eligible (varchar) — comma-separated, e.g. "SS,2B,OF"
+- stats (jsonb) — raw stats. Access with: (stats->>'HR')::int, (stats->>'ERA')::numeric, etc.
+  Batter keys: R, HR, RBI, SB, H, AB, AVG, BB. Pitcher keys: W, SV, K, ERA, WHIP, IP, G, GS.
+- z_score_overall (decimal) — overall z-score
+- z_score_position (decimal) — position-relative z-score, THE key metric for Sandlot Score
+- category_zscores (jsonb) — individual stat z-scores
+
+z_score_position → Sandlot Score: score = 1.0 + ((clamp(z, -2, 10) + 2) / 12) * 9.0
+Key thresholds (use z values in queries, not Sandlot Scores):
+  z ≈ 3.33 → Score 5.0 | z ≈ 6.0 → Score 7.0 | z ≈ 7.33 → Score 8.0 | z ≈ 9.33 → Score 9.5
+
+Rules: SELECT only. Only the "players" table. Always include LIMIT (max 200). 10-second timeout.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        sql: {
+          type: 'string',
+          description: 'A SELECT query against the players table. Must include LIMIT (max 200).',
+        },
+        explanation: {
+          type: 'string',
+          description: 'Brief explanation of what this query is looking for.',
+        },
+      },
+      required: ['sql', 'explanation'],
+    },
+  },
 ];
 
 // ─── Tool execution ──────────────────────────────────────────
 
-function buildPositionFilter(pos: string) {
+export function buildPositionFilter(pos: string) {
   if (pos === 'UTIL') return eq(players.playerType, 'batter');
   if (pos === 'P') return eq(players.playerType, 'pitcher');
   if (pos === 'OF') {
@@ -241,7 +282,7 @@ function buildPositionFilter(pos: string) {
   );
 }
 
-async function executeFindEligiblePlayers(args: Record<string, unknown>): Promise<string> {
+export async function executeFindEligiblePlayers(args: Record<string, unknown>): Promise<string> {
   const conditions = [];
 
   if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
@@ -357,7 +398,7 @@ async function executeFindEligiblePlayers(args: Record<string, unknown>): Promis
   })));
 }
 
-async function executeLookupPlayer(args: Record<string, unknown>): Promise<string> {
+export async function executeLookupPlayer(args: Record<string, unknown>): Promise<string> {
   const conditions = [];
   if (args.lastName) conditions.push(ilike(players.nameLast, `%${args.lastName}%`));
   if (args.firstName) conditions.push(ilike(players.nameFirst, `%${args.firstName}%`));
@@ -423,6 +464,88 @@ async function executeLookupPlayer(args: Record<string, unknown>): Promise<strin
     .slice(0, 10);
 
   return JSON.stringify(results);
+}
+
+// ─── SQL query validation and execution ──────────────────────
+
+const SQL_FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|DO\b|CALL|SET|BEGIN|COMMIT|ROLLBACK|LOCK|NOTIFY|LISTEN|VACUUM|ANALYZE|CLUSTER|REINDEX|EXPLAIN)\b/i;
+const MAX_QUERY_ROWS = 200;
+const QUERY_TIMEOUT_MS = 10_000;
+
+export function validateSqlQuery(query: string): { valid: true } | { valid: false; error: string } {
+  if (!query.trim()) {
+    return { valid: false, error: 'sql parameter is required' };
+  }
+
+  // Must start with SELECT or WITH (CTEs)
+  if (!/^\s*(SELECT|WITH)\b/i.test(query)) {
+    return { valid: false, error: 'Query must start with SELECT or WITH (CTEs). Only read operations allowed.' };
+  }
+
+  // Reject forbidden keywords
+  const forbidden = query.match(SQL_FORBIDDEN_KEYWORDS);
+  if (forbidden) {
+    return { valid: false, error: `Forbidden SQL keyword: ${forbidden[0]}. Only SELECT queries are allowed.` };
+  }
+
+  // Only allow querying the players table (check FROM and JOIN targets)
+  // First, collect CTE names defined by WITH ... AS so we don't flag them as real tables
+  const cteNames = new Set<string>();
+  const cteRegex = /\bWITH\b|\b(\w+)\s+AS\s*\(/gi;
+  let match;
+  while ((match = cteRegex.exec(query)) !== null) {
+    if (match[1]) cteNames.add(match[1].toLowerCase());
+  }
+
+  const tables: string[] = [];
+  const fromRegex = /\bFROM\s+(\w+)/gi;
+  const joinRegex = /\bJOIN\s+(\w+)/gi;
+  while ((match = fromRegex.exec(query)) !== null) tables.push(match[1].toLowerCase());
+  while ((match = joinRegex.exec(query)) !== null) tables.push(match[1].toLowerCase());
+  const disallowed = tables.filter(t => t !== 'players' && !cteNames.has(t));
+  if (disallowed.length > 0) {
+    return { valid: false, error: `Only the "players" table can be queried. Found references to: ${disallowed.join(', ')}` };
+  }
+
+  // Must include LIMIT
+  if (!/\bLIMIT\b/i.test(query)) {
+    return { valid: false, error: 'Query must include a LIMIT clause (max 200).' };
+  }
+
+  return { valid: true };
+}
+
+export async function executeQueryPlayers(args: Record<string, unknown>): Promise<string> {
+  const query = String(args.sql || '').trim();
+  const explanation = String(args.explanation || '');
+
+  const validation = validateSqlQuery(query);
+  if (!validation.valid) {
+    return JSON.stringify({ error: validation.error });
+  }
+
+  console.log(JSON.stringify({
+    event: 'agent_sql_query',
+    explanation,
+    queryLength: query.length,
+    queryPreview: query.slice(0, 300),
+  }));
+
+  try {
+    const rows = await executeRawReadOnlyQuery(query, QUERY_TIMEOUT_MS, MAX_QUERY_ROWS);
+    return JSON.stringify({ rowCount: rows.length, rows });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(JSON.stringify({
+      event: 'agent_sql_error',
+      explanation,
+      error: message,
+    }));
+    return JSON.stringify({
+      error: `Query failed: ${message}`,
+      hint: 'Check column names (snake_case), JSONB syntax (stats->>\'HR\'), and ensure valid PostgreSQL.',
+    });
+  }
 }
 
 interface SubmitRound {
@@ -659,6 +782,10 @@ async function executeSubmitChallenge(
   const result = await validateAndBuildRounds(args, send, true); // submit requires all 10 positions
   if ('error' in result) return result;
 
+  // Pre-fill cached portrait URLs
+  const allPlayerIds = result.finalRounds.flatMap(r => r.players.map(p => p.playerId));
+  const cachedPortraits = await lookupCachedPortraits(allPlayerIds);
+
   // Insert challenge
   const [challenge] = await db.insert(challenges).values({
     challengeDate: `agent-${Date.now()}`,
@@ -683,6 +810,7 @@ async function executeSubmitChallenge(
         playerId: p.playerId,
         playerName: p.playerName,
         yearOptions: p.years,
+        portraitUrl: cachedPortraits.get(p.playerId) ?? null,
       });
     }
   }
@@ -699,6 +827,13 @@ function buildSystemPrompt(teamCodes: string): string {
   return `You are an expert baseball challenge builder for the Sandlot daily game.
 
 Your job: Create a 10-round draft challenge based on the user's prompt. Each challenge has a theme, 10 positions, and 3 players per position with 3 year options each.
+
+AUTONOMY:
+- NEVER ask the user clarifying questions like "strict or loose?", "shall I proceed?", "do you want X or Y?" unless the prompt is genuinely ambiguous about what challenge to build.
+- Make reasonable creative decisions yourself. You are the baseball expert.
+- If a search returns too few results, broaden your criteria or try a different angle. Don't ask the user what to do.
+- If a theme is slightly ambiguous, pick the most interesting interpretation and go with it.
+- Only pause for user input AFTER presenting a preview via preview_challenge. Between searches, just keep working.
 
 COMMUNICATION:
 - Before your first search, explain your interpretation of the theme and your strategy in 1-2 sentences.
@@ -737,7 +872,70 @@ EDITING WORKFLOW:
 
 POSITIONS: Batters = C, 1B, 2B, SS, 3B, OF, UTIL. Pitchers = SP, RP, P.
 DATABASE: 1961-2025, MLB only. Players need 3+ qualifying seasons to appear in search.
-TEAM CODES: ${teamCodes}`;
+TEAM CODES: ${teamCodes}
+
+SQL QUERIES (query_players):
+For complex themes that search_players can't express (career-relative constraints, window functions, cross-season comparisons), use query_players to write SQL against the players table.
+
+CRITICAL GROUPING RULE: Each row in the players table is a player-season. A player's primary_position, positions_eligible, team, and stats all change from season to season. When writing career-spanning queries:
+- ALWAYS GROUP BY player_id only (and player_type if mixing batters/pitchers). NEVER include per-season columns like primary_position, positions_eligible, team, or name in the GROUP BY — this splits one player's career into multiple groups and silently breaks the query.
+- Use MAX(name_first), MAX(name_last) to retrieve names in aggregated queries.
+- Use BOOL_OR(positions_eligible LIKE '%1B%') to check if a player was EVER eligible at a position across their career.
+- Use STRING_AGG(DISTINCT primary_position, ',') if you need to see all positions played.
+
+Example patterns:
+
+1. Late bloomers — mediocre first 7 seasons (z<3.33 = Score 5), great season later (z>=6 = Score 7):
+WITH career AS (
+  SELECT player_id, name_first, name_last, positions_eligible,
+    z_score_position::numeric as z,
+    ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY year) as season_num
+  FROM players WHERE player_type = 'batter'
+)
+SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
+  COUNT(*) as total_seasons,
+  ROUND(MAX(CASE WHEN season_num <= 7 THEN z END), 2) as early_best,
+  ROUND(MAX(CASE WHEN season_num >= 8 THEN z END), 2) as late_best
+FROM career
+GROUP BY player_id
+HAVING COUNT(*) >= 10
+  AND MAX(CASE WHEN season_num <= 7 THEN z END) < 3.33
+  AND MAX(CASE WHEN season_num >= 8 THEN z END) >= 6.0
+ORDER BY late_best DESC LIMIT 50
+
+To filter by position, add: AND BOOL_OR(positions_eligible LIKE '%1B%')
+
+2. One-hit wonders — exactly one elite season (z>7.33 = Score 8) in a 5+ year career:
+SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
+  COUNT(*) as total_seasons, ROUND(MAX(z_score_position::numeric), 2) as best_z
+FROM players
+GROUP BY player_id
+HAVING COUNT(*) >= 5
+  AND SUM(CASE WHEN z_score_position::numeric > 7.33 THEN 1 ELSE 0 END) = 1
+ORDER BY best_z DESC LIMIT 50
+
+3. Players who hit 40+ HR in consecutive seasons:
+WITH hr AS (
+  SELECT player_id, name_first, name_last, year, (stats->>'HR')::int as hr,
+    LAG(year) OVER (PARTITION BY player_id ORDER BY year) as prev_year,
+    LAG((stats->>'HR')::int) OVER (PARTITION BY player_id ORDER BY year) as prev_hr
+  FROM players WHERE player_type = 'batter' AND (stats->>'HR')::int >= 40
+)
+SELECT * FROM hr WHERE prev_year = year - 1 AND prev_hr >= 40 ORDER BY hr DESC LIMIT 50
+
+4. Trade upgrades — big z-score jump after changing teams:
+WITH seasons AS (
+  SELECT player_id, name_first, name_last, year, team, z_score_position::numeric as z,
+    LAG(team) OVER (PARTITION BY player_id ORDER BY year) as prev_team,
+    LAG(z_score_position::numeric) OVER (PARTITION BY player_id ORDER BY year) as prev_z
+  FROM players WHERE player_type = 'batter'
+)
+SELECT player_id, name_first, name_last, year, prev_team, team,
+  round(prev_z, 2) as before_z, round(z, 2) as after_z
+FROM seasons WHERE prev_team IS NOT NULL AND prev_team != team AND z > prev_z + 3
+ORDER BY (z - prev_z) DESC LIMIT 50
+
+WORKFLOW WITH SQL: Use query_players to discover candidate player_ids matching complex criteria, then use search_players with name filters to get their full grouped career data for year selection and challenge assembly.`;
 }
 
 export async function runAgentBuilder(
@@ -925,6 +1123,21 @@ export async function runAgentBuilder(
           result = JSON.stringify(submitResult);
           console.log(JSON.stringify({ event: 'agent_validation_error', sessionId: sid, tool: 'submit_challenge', error: (submitResult as { error: string }).error }));
           send({ type: 'error_recoverable', message: (submitResult as { error: string }).error });
+        } else if (toolCall.name === 'query_players') {
+          result = await executeQueryPlayers(args);
+          const parsed = JSON.parse(result);
+          console.log(JSON.stringify({
+            event: 'agent_tool_result',
+            sessionId: sid,
+            tool: 'query_players',
+            rowCount: parsed.rowCount ?? 0,
+            error: parsed.error ?? null,
+          }));
+          if (parsed.error) {
+            send({ type: 'thinking', message: `SQL error: ${parsed.error}` });
+          } else {
+            send({ type: 'thinking', message: `Query returned ${parsed.rowCount} rows` });
+          }
         } else {
           result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
         }

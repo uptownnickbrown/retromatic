@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
 import { eq, and, desc, gte, like, or, sql } from 'drizzle-orm';
 import { getTeamName, THEME_TEAMS } from '../lib/teams.js';
+import { lookupCachedPortraits } from './portraitGenerator.js';
 
 // Lazy-load OpenAI client
 let openai: OpenAI | null = null;
@@ -183,30 +184,40 @@ export async function generateChallenge(options: GenerateChallengeOptions = {}):
     theme: options.theme || null,
   }).returning();
 
-  // Generate rounds
+  // Select players for all rounds first so we can batch-lookup cached portraits
+  const roundSelections: Array<{
+    position: string;
+    roundNumber: number;
+    players: Array<{ playerId: string; playerName: string; yearOptions: number[] }>;
+  }> = [];
+
   for (let i = 0; i < positionOrder.length; i++) {
     const position = positionOrder[i];
-    const roundNumber = i + 1;
+    const selectedPlayers = await selectBalancedPlayers(position);
+    roundSelections.push({ position, roundNumber: i + 1, players: selectedPlayers });
+  }
 
-    // Create round
+  // Pre-fill cached portrait URLs
+  const allPlayerIds = roundSelections.flatMap(r => r.players.map(p => p.playerId));
+  const cachedPortraits = await lookupCachedPortraits(allPlayerIds);
+
+  // Generate rounds
+  for (const sel of roundSelections) {
     const [round] = await db.insert(challengeRounds).values({
       challengeId: challenge.id,
-      roundNumber,
-      position,
+      roundNumber: sel.roundNumber,
+      position: sel.position,
     }).returning();
 
-    // Select 3 players for this round
-    const selectedPlayers = await selectBalancedPlayers(position);
-
-    // Create round options
-    for (let j = 0; j < selectedPlayers.length; j++) {
-      const player = selectedPlayers[j];
+    for (let j = 0; j < sel.players.length; j++) {
+      const player = sel.players[j];
       await db.insert(roundOptions).values({
         roundId: round.id,
         playerSlot: j + 1,
         playerId: player.playerId,
         playerName: player.playerName,
         yearOptions: player.yearOptions,
+        portraitUrl: cachedPortraits.get(player.playerId) ?? null,
       });
     }
   }
@@ -495,27 +506,40 @@ export async function generateThemedChallenge(strategy: ThemeStrategy, date?: st
 
   const playerSummaries: string[] = [];
 
-  // Generate rounds
+  // Select players for all rounds first so we can batch-lookup cached portraits
+  const themedSelections: Array<{
+    position: string;
+    roundNumber: number;
+    players: Array<{ playerId: string; playerName: string; yearOptions: number[] }>;
+  }> = [];
+
   for (let i = 0; i < positionOrder.length; i++) {
     const position = positionOrder[i];
-    const roundNumber = i + 1;
+    const selectedPlayers = await selectThemedPlayers(position, strategy);
+    themedSelections.push({ position, roundNumber: i + 1, players: selectedPlayers });
+  }
 
+  // Pre-fill cached portrait URLs
+  const allPlayerIds = themedSelections.flatMap(r => r.players.map(p => p.playerId));
+  const cachedPortraits = await lookupCachedPortraits(allPlayerIds);
+
+  // Generate rounds
+  for (const sel of themedSelections) {
     const [round] = await db.insert(challengeRounds).values({
       challengeId: challenge.id,
-      roundNumber,
-      position,
+      roundNumber: sel.roundNumber,
+      position: sel.position,
     }).returning();
 
-    const selectedPlayers = await selectThemedPlayers(position, strategy);
-
-    for (let j = 0; j < selectedPlayers.length; j++) {
-      const player = selectedPlayers[j];
+    for (let j = 0; j < sel.players.length; j++) {
+      const player = sel.players[j];
       await db.insert(roundOptions).values({
         roundId: round.id,
         playerSlot: j + 1,
         playerId: player.playerId,
         playerName: player.playerName,
         yearOptions: player.yearOptions,
+        portraitUrl: cachedPortraits.get(player.playerId) ?? null,
       });
 
       playerSummaries.push(`${player.playerName} (${player.yearOptions.join(', ')})`);

@@ -78,5 +78,8 @@ frontend/public/portraits/
 # Portrait test output
 backend/portrait-test/
 
+# Deployment docs (private)
+RAILWAY_DEPLOYMENT.md
+
 # Claude
 .claude/

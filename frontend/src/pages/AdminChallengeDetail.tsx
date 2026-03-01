@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Pencil,
   Save,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   useAdminChallengeDetail,
@@ -38,6 +39,15 @@ import { StatusBadge } from '../components/admin/StatusBadge';
 import { cn } from '../lib/utils';
 import { getTeamNickname } from '../lib/teams';
 import type { AdminRound, AdminRoundOption } from '../lib/adminApi';
+import { ReplacePlayerModal } from '../components/admin/ReplacePlayerModal';
+
+interface PortraitNotification {
+  id: number;
+  optionId: number;
+  playerName: string;
+  status: 'generating' | 'success' | 'error';
+  message: string;
+}
 
 function formatDateLong(dateStr: string): string {
   if (!dateStr || dateStr === 'unassigned') return 'Unassigned';
@@ -65,8 +75,63 @@ export function AdminChallengeDetail() {
 
   const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
   const [preseedCount, setPreseedCount] = useState(20);
+  const [notifications, setNotifications] = useState<PortraitNotification[]>([]);
+  const notifIdRef = useRef(0);
 
   const justPlaytested = searchParams.get('playtested') === 'true';
+
+  const addNotification = useCallback((optionId: number, playerName: string) => {
+    const id = ++notifIdRef.current;
+    setNotifications(prev => [...prev, {
+      id, optionId, playerName, status: 'generating',
+      message: 'Generating portrait... (safe to navigate away)',
+    }]);
+    return id;
+  }, []);
+
+  const updateNotification = useCallback((id: number, update: Partial<PortraitNotification>) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, ...update } : n));
+  }, []);
+
+  const dismissNotification = useCallback((id: number) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  // Auto-dismiss success notifications after 5s
+  useEffect(() => {
+    const successes = notifications.filter(n => n.status === 'success');
+    if (successes.length === 0) return;
+    const timers = successes.map(n =>
+      setTimeout(() => dismissNotification(n.id), 5000),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [notifications, dismissNotification]);
+
+  const handleRegenPortrait = useCallback((option: AdminRoundOption) => {
+    if (!challengeId) return;
+    const notifId = addNotification(option.id, option.playerName);
+    regenPortraitMutation.mutate(
+      { optionId: option.id, challengeId, playerName: option.playerName },
+      {
+        onSuccess: (data) => {
+          updateNotification(notifId, {
+            status: 'success',
+            message: `Portrait generated${data.generated ? '' : ' (skipped)'}`,
+          });
+        },
+        onError: (err) => {
+          updateNotification(notifId, {
+            status: 'error',
+            message: `Failed — ${err.message}`,
+          });
+        },
+      },
+    );
+  }, [challengeId, addNotification, updateNotification, regenPortraitMutation]);
+
+  const generatingOptionIds = new Set(
+    notifications.filter(n => n.status === 'generating').map(n => n.optionId),
+  );
 
   const toggleRound = (roundNum: number) => {
     setExpandedRounds(prev => {
@@ -386,6 +451,39 @@ export function AdminChallengeDetail() {
         )}
       </AnimatePresence>
 
+      {/* ═══ PORTRAIT NOTIFICATIONS ═══ */}
+      <AnimatePresence>
+        {notifications.map(n => (
+          <motion.div
+            key={n.id}
+            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+            animate={{ opacity: 1, height: 'auto', marginBottom: 12 }}
+            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+            className="overflow-hidden"
+          >
+            <div className={cn(
+              'px-4 py-2.5 rounded border text-xs font-mono flex items-center gap-2',
+              n.status === 'generating' && 'bg-amber-500/10 border-amber-500/20 text-amber-700',
+              n.status === 'success' && 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700',
+              n.status === 'error' && 'bg-red/10 border-red/20 text-red',
+            )}>
+              {n.status === 'generating' && <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />}
+              {n.status === 'success' && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+              {n.status === 'error' && <X className="w-3.5 h-3.5 flex-shrink-0" />}
+              <span className="flex-1">{n.playerName}: {n.message}</span>
+              {n.status !== 'generating' && (
+                <button
+                  onClick={() => dismissNotification(n.id)}
+                  className="p-0.5 hover:opacity-70 transition-opacity"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
       {/* ═══ ROUNDS ═══ */}
       <div className="mb-4 flex items-baseline justify-between">
         <h2 className="font-editorial font-bold text-xl text-navy">Rounds</h2>
@@ -415,6 +513,8 @@ export function AdminChallengeDetail() {
               regenPortraitMutation={regenPortraitMutation}
               regenBlurbsMutation={regenBlurbsMutation}
               updateBlurbMutation={updateBlurbMutation}
+              onRegenPortrait={handleRegenPortrait}
+              generatingOptionIds={generatingOptionIds}
             />
           </motion.div>
         ))}
@@ -472,6 +572,8 @@ interface PlayerCardMutations {
   regenPortraitMutation: ReturnType<typeof useRegenerateOptionPortrait>;
   regenBlurbsMutation: ReturnType<typeof useRegenerateOptionBlurbs>;
   updateBlurbMutation: ReturnType<typeof useUpdateOptionBlurb>;
+  onRegenPortrait: (option: AdminRoundOption) => void;
+  generatingOptionIds: Set<number>;
 }
 
 function RoundSection({
@@ -482,6 +584,8 @@ function RoundSection({
   regenPortraitMutation,
   regenBlurbsMutation,
   updateBlurbMutation,
+  onRegenPortrait,
+  generatingOptionIds,
 }: {
   round: AdminRound;
   isExpanded: boolean;
@@ -555,10 +659,13 @@ function RoundSection({
                   <PlayerCard
                     key={option.id}
                     option={option}
+                    position={round.position}
                     challengeId={challengeId}
                     regenPortraitMutation={regenPortraitMutation}
                     regenBlurbsMutation={regenBlurbsMutation}
                     updateBlurbMutation={updateBlurbMutation}
+                    onRegenPortrait={onRegenPortrait}
+                    generatingOptionIds={generatingOptionIds}
                   />
                 ))}
               </div>
@@ -574,18 +681,22 @@ function RoundSection({
 
 function PlayerCard({
   option,
+  position,
   challengeId,
   regenPortraitMutation,
   regenBlurbsMutation,
   updateBlurbMutation,
-}: { option: AdminRoundOption } & PlayerCardMutations) {
+  onRegenPortrait,
+  generatingOptionIds,
+}: { option: AdminRoundOption; position: string } & PlayerCardMutations) {
   const [expandedBlurbs, setExpandedBlurbs] = useState<Set<number>>(new Set());
   const [editingBlurb, setEditingBlurb] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+  const [replaceModalOpen, setReplaceModalOpen] = useState(false);
   const blurbs = option.blurbs ?? {};
 
-  const isRegenningPortrait = regenPortraitMutation.isPending
-    && regenPortraitMutation.variables?.optionId === option.id;
+  const isRegenningPortrait = generatingOptionIds.has(option.id)
+    || (regenPortraitMutation.isPending && regenPortraitMutation.variables?.optionId === option.id);
   const isRegenningBlurbs = regenBlurbsMutation.isPending
     && regenBlurbsMutation.variables?.optionId === option.id;
   const isSavingBlurb = updateBlurbMutation.isPending
@@ -623,7 +734,7 @@ function PlayerCard({
       <div className="flex items-start gap-3 mb-3">
         {/* Portrait + regen button */}
         <div className="flex-shrink-0 relative group">
-          <div className="w-28 h-36 bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center">
+          <div className="w-28 h-36 bg-paper rounded overflow-hidden border border-navy/8 flex items-center justify-center relative">
             {option.portraitUrl ? (
               <img
                 src={option.portraitUrl}
@@ -637,9 +748,23 @@ function PlayerCard({
                 className="w-14 h-16 opacity-15"
               />
             )}
+            {/* Generating overlay */}
+            <AnimatePresence>
+              {isRegenningPortrait && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-paper/80 flex flex-col items-center justify-center gap-1.5"
+                >
+                  <Loader2 className="w-5 h-5 animate-spin text-navy/60" />
+                  <span className="text-[9px] font-mono text-navy/60">Generating...</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           <button
-            onClick={() => regenPortraitMutation.mutate({ optionId: option.id, challengeId })}
+            onClick={() => onRegenPortrait(option)}
             disabled={isRegenningPortrait}
             className="absolute -bottom-1 -right-1 p-1 rounded-full bg-paper border border-navy/15
                        text-muted hover:text-navy hover:border-navy/30 transition-colors
@@ -659,25 +784,35 @@ function PlayerCard({
           <p className="font-mono text-[9px] text-muted mt-0.5">
             ID: {option.playerId} · Slot {option.playerSlot}
           </p>
-          {/* Regen all blurbs button */}
-          <button
-            onClick={() => regenBlurbsMutation.mutate({ optionId: option.id, challengeId })}
-            disabled={isRegenningBlurbs}
-            className="mt-1.5 flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors disabled:opacity-50"
-            title="Regenerate all blurbs for this player"
-          >
-            {isRegenningBlurbs ? (
-              <>
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Wand2 className="w-3 h-3" />
-                Regen blurbs
-              </>
-            )}
-          </button>
+          {/* Action buttons */}
+          <div className="mt-1.5 flex items-center gap-3">
+            <button
+              onClick={() => regenBlurbsMutation.mutate({ optionId: option.id, challengeId })}
+              disabled={isRegenningBlurbs}
+              className="flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors disabled:opacity-50"
+              title="Regenerate all blurbs for this player"
+            >
+              {isRegenningBlurbs ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-3 h-3" />
+                  Regen blurbs
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setReplaceModalOpen(true)}
+              className="flex items-center gap-1 text-[10px] font-mono text-muted hover:text-navy transition-colors"
+              title="Replace this player"
+            >
+              <ArrowRightLeft className="w-3 h-3" />
+              Replace
+            </button>
+          </div>
         </div>
       </div>
 
@@ -800,6 +935,15 @@ function PlayerCard({
           );
         })}
       </div>
+
+      {/* Replace Player Modal */}
+      <ReplacePlayerModal
+        open={replaceModalOpen}
+        onClose={() => setReplaceModalOpen(false)}
+        option={option}
+        position={position}
+        challengeId={challengeId}
+      />
     </div>
   );
 }

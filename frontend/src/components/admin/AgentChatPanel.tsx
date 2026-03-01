@@ -36,6 +36,9 @@ function formatToolCall(tool: string, args?: Record<string, unknown>): string {
     const parts = [args?.firstName, args?.lastName].filter(Boolean).map(String);
     return `Looking up: ${parts.join(' ')}`;
   }
+  if (tool === 'query_players') {
+    return `SQL: ${args?.explanation ? String(args.explanation) : 'Running query...'}`;
+  }
   if (tool === 'preview_challenge') return 'Building preview...';
   if (tool === 'submit_challenge') return 'Submitting challenge...';
   return tool;
@@ -328,6 +331,11 @@ function MessageBubble({
                   </span>
                 ))}
             </div>
+          )}
+          {message.toolArgs && message.toolName === 'query_players' && !!message.toolArgs.sql && (
+            <pre className="font-mono text-[10px] text-muted/60 whitespace-pre-wrap break-all max-h-24 overflow-y-auto mt-0.5">
+              {String(message.toolArgs.sql)}
+            </pre>
           )}
         </div>
       </div>
