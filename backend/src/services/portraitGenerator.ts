@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { db } from '../db/index.js';
 import { challengeRounds, roundOptions, players, portraits } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { getTeamName } from '../lib/teams.js';
 import { asyncPool } from '../lib/asyncPool.js';
 
@@ -36,6 +36,19 @@ export { PORTRAITS_DIR };
 
 function portraitExists(playerId: string): boolean {
   return fs.existsSync(getPortraitPath(playerId));
+}
+
+/** Batch-lookup cached portrait URLs from the portraits table. */
+export async function lookupCachedPortraits(playerIds: string[]): Promise<Map<string, string>> {
+  if (playerIds.length === 0) return new Map();
+  const rows = await db.select({ playerId: portraits.playerId, portraitUrl: portraits.portraitUrl })
+    .from(portraits)
+    .where(inArray(portraits.playerId, playerIds));
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.portraitUrl) map.set(row.playerId, row.portraitUrl);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -423,12 +436,17 @@ export async function generatePortraitsForChallenge(challengeId: number): Promis
     for (const option of options) {
       // Skip if portrait already exists on disk
       if (portraitExists(option.playerId)) {
+        const portraitUrl = `/portraits/${option.playerId}.webp`;
         // Still update DB URL if missing
         if (!option.portraitUrl) {
           await db.update(roundOptions)
-            .set({ portraitUrl: `/portraits/${option.playerId}.webp` })
+            .set({ portraitUrl })
             .where(eq(roundOptions.id, option.id));
         }
+        // Ensure portraits table has an entry (don't overwrite validated status)
+        await db.insert(portraits)
+          .values({ playerId: option.playerId, validated: false, portraitUrl })
+          .onConflictDoNothing();
         skipped++;
         continue;
       }

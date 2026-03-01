@@ -598,12 +598,12 @@ export function streamAgentContinue(
 export interface AuditStreamEvent {
   type: 'start' | 'progress' | 'complete' | 'error';
   total?: number;
+  totalOnDisk?: number;
   skipped?: number;
   index?: number;
   optionId?: number;
   playerId?: string;
   playerName?: string;
-  challengeId?: number;
   pass?: boolean;
   reason?: string;
   failed?: number;
@@ -678,9 +678,9 @@ function createSSEStream<T>(
 
 export function streamAuditPortraits(
   onEvent: (event: AuditStreamEvent) => void,
-  challengeIds?: number[],
+  options?: { force?: boolean },
 ): { abort: () => void } {
-  return createSSEStream('/admin/portraits/audit', { challengeIds }, onEvent);
+  return createSSEStream('/admin/portraits/audit', { force: options?.force }, onEvent);
 }
 
 export function streamRegeneratePortraits(

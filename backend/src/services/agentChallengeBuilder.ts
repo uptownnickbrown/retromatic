@@ -6,6 +6,7 @@ import { players, challenges, challengeRounds, roundOptions } from '../db/schema
 import { eq, and, desc, gte, lte, like, or, ilike, sql } from 'drizzle-orm';
 import { queueChallenges } from './challengeGenerator.js';
 import { calculateSandlotScore } from './sandlotScore.js';
+import { lookupCachedPortraits } from './portraitGenerator.js';
 import { toNum } from '../lib/numeric.js';
 
 // Lazy-load OpenAI client
@@ -781,6 +782,10 @@ async function executeSubmitChallenge(
   const result = await validateAndBuildRounds(args, send, true); // submit requires all 10 positions
   if ('error' in result) return result;
 
+  // Pre-fill cached portrait URLs
+  const allPlayerIds = result.finalRounds.flatMap(r => r.players.map(p => p.playerId));
+  const cachedPortraits = await lookupCachedPortraits(allPlayerIds);
+
   // Insert challenge
   const [challenge] = await db.insert(challenges).values({
     challengeDate: `agent-${Date.now()}`,
@@ -805,6 +810,7 @@ async function executeSubmitChallenge(
         playerId: p.playerId,
         playerName: p.playerName,
         yearOptions: p.years,
+        portraitUrl: cachedPortraits.get(p.playerId) ?? null,
       });
     }
   }

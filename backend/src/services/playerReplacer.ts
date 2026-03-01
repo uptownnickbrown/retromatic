@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 import type { Response as SSEResponse } from 'express';
 import { db } from '../db/index.js';
-import { players, roundOptions, challengeRounds } from '../db/schema.js';
+import { players, roundOptions, challengeRounds, portraits } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { calculateSandlotScore } from './sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
@@ -255,6 +255,10 @@ export async function confirmReplacement(
     await db.update(roundOptions)
       .set({ portraitUrl })
       .where(eq(roundOptions.id, optionId));
+    // Ensure portraits table entry exists
+    await db.insert(portraits)
+      .values({ playerId, validated: false, portraitUrl })
+      .onConflictDoNothing();
     portraitResult = { generated: false, skipped: true, portraitUrl };
   } else {
     try {

@@ -9,7 +9,7 @@ import { challenges, challengeRounds, roundOptions, gameSessions, userPicks, pla
 import { eq, and, desc, inArray, sql, asc } from 'drizzle-orm';
 import { generateBatch, queueChallenges, generateThemedBatch } from '../services/challengeGenerator.js';
 import { generateBlurbsForChallenge, generateBlurbsForOption } from '../services/challengeBlurbs.js';
-import { generatePortraitsForChallenge, generatePortraitForOption, getPortraitPath, auditPortrait, POSITION_LABELS } from '../services/portraitGenerator.js';
+import { generatePortraitsForChallenge, generatePortraitForOption, auditPortrait, POSITION_LABELS, PORTRAITS_DIR } from '../services/portraitGenerator.js';
 import { preseedStatsForChallenge } from '../services/statsPreseeder.js';
 import { promoteNextChallenge } from '../services/dailyScheduler.js';
 import { runAgentBuilder } from '../services/agentChallengeBuilder.js';
@@ -1220,124 +1220,121 @@ router.patch('/portraits/:playerId/validate', async (req, res) => {
 });
 
 router.post('/portraits/audit', async (req, res) => {
-  // SSE streaming audit
+  // SSE streaming audit — global scope (scans all portrait files on disk)
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
   try {
-    const { challengeIds } = req.body as { challengeIds?: number[] };
+    const { force } = req.body as { force?: boolean };
 
-    // Default: audit active + upcoming (scheduled) challenges
-    let targetChallengeIds: number[];
-    if (challengeIds && challengeIds.length > 0) {
-      targetChallengeIds = challengeIds;
-    } else {
-      const active = await db.select({ id: challenges.id })
-        .from(challenges)
-        .where(inArray(challenges.status, ['active', 'scheduled']));
-      targetChallengeIds = active.map(c => c.id);
-    }
-
-    if (targetChallengeIds.length === 0) {
-      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, skipped: 0 })}\n\n`);
+    // Scan portraits directory for all .webp files
+    if (!fs.existsSync(PORTRAITS_DIR)) {
+      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, totalOnDisk: 0, skipped: 0 })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'complete', total: 0, skipped: 0, failed: 0, passed: 0 })}\n\n`);
       res.end();
       return;
     }
 
-    // Get all round options for target challenges
-    const rounds = await db.select({ id: challengeRounds.id, challengeId: challengeRounds.challengeId, position: challengeRounds.position })
-      .from(challengeRounds)
-      .where(inArray(challengeRounds.challengeId, targetChallengeIds));
+    const files = fs.readdirSync(PORTRAITS_DIR).filter(f => f.endsWith('.webp'));
+    const allPlayerIds = files.map(f => f.replace('.webp', ''));
+    const totalOnDisk = allPlayerIds.length;
 
-    const roundIds = rounds.map(r => r.id);
-    if (roundIds.length === 0) {
-      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, skipped: 0 })}\n\n`);
+    if (totalOnDisk === 0) {
+      res.write(`data: ${JSON.stringify({ type: 'start', total: 0, totalOnDisk: 0, skipped: 0 })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'complete', total: 0, skipped: 0, failed: 0, passed: 0 })}\n\n`);
       res.end();
       return;
     }
 
-    const options = await db.select()
-      .from(roundOptions)
-      .where(inArray(roundOptions.roundId, roundIds));
-
-    const roundMap = new Map(rounds.map(r => [r.id, r]));
-
-    // Check which portraits are already validated
+    // Check which portraits are already validated (skip unless force=true)
     const existingPortraits = await db.select()
       .from(portraits)
       .where(eq(portraits.validated, true));
     const validatedSet = new Set(existingPortraits.map(p => p.playerId));
 
-    // Deduplicate by playerId (same portrait file shared across challenges)
-    const seenPlayerIds = new Set<string>();
+    // Batch-lookup best season info for all players on disk
+    // DISTINCT ON (player_id) with ORDER BY z_score_position DESC gives best season per player
+    const playerInfoRows = await db.select({
+      playerId: players.playerId,
+      nameFirst: players.nameFirst,
+      nameLast: players.nameLast,
+      year: players.year,
+      team: players.team,
+      primaryPosition: players.primaryPosition,
+      zScorePosition: players.zScorePosition,
+    })
+      .from(players)
+      .where(inArray(players.playerId, allPlayerIds))
+      .orderBy(players.playerId, desc(players.zScorePosition));
+
+    // Group by playerId, keep only best season (first seen per playerId due to DESC order)
+    const playerInfoMap = new Map<string, {
+      playerName: string;
+      year: number;
+      team: string;
+      position: string;
+    }>();
+    for (const row of playerInfoRows) {
+      if (!playerInfoMap.has(row.playerId)) {
+        playerInfoMap.set(row.playerId, {
+          playerName: `${row.nameFirst ?? ''} ${row.nameLast ?? ''}`.trim(),
+          year: row.year,
+          team: row.team ?? 'Unknown',
+          position: row.primaryPosition,
+        });
+      }
+    }
+
+    // Find a representative optionId for each player (for regeneration flow)
+    const optionRows = await db.select({
+      playerId: roundOptions.playerId,
+      id: roundOptions.id,
+    })
+      .from(roundOptions)
+      .where(inArray(roundOptions.playerId, allPlayerIds));
+    const optionIdMap = new Map<string, number>();
+    for (const row of optionRows) {
+      if (!optionIdMap.has(row.playerId)) optionIdMap.set(row.playerId, row.id);
+    }
+
+    // Build audit tasks
     interface AuditTask {
-      optionId: number;
       playerId: string;
       playerName: string;
-      challengeId: number;
       teamName: string;
       year: number;
       position: string;
+      optionId: number | null;
     }
     const tasks: AuditTask[] = [];
     let skipped = 0;
 
-    for (const opt of options) {
-      if (seenPlayerIds.has(opt.playerId)) { skipped++; continue; }
-      seenPlayerIds.add(opt.playerId);
+    for (const playerId of allPlayerIds) {
+      // Skip already-validated unless force=true
+      if (!force && validatedSet.has(playerId)) { skipped++; continue; }
 
-      if (validatedSet.has(opt.playerId)) { skipped++; continue; }
-      if (!fs.existsSync(getPortraitPath(opt.playerId))) { skipped++; continue; }
-
-      const round = roundMap.get(opt.roundId);
-      const challengeId = round?.challengeId ?? 0;
-
-      // Pick best year for audit context
-      const years = opt.yearOptions as number[];
-      let bestTeam = 'Unknown';
-      let bestYear = years[0] ?? 2000;
-      let bestZ = -Infinity;
-      let bestPosition = round?.position ?? 'player';
-
-      for (const year of years) {
-        const [record] = await db.select({
-          team: players.team,
-          zScorePosition: players.zScorePosition,
-          primaryPosition: players.primaryPosition,
-        })
-          .from(players)
-          .where(and(eq(players.playerId, opt.playerId), eq(players.year, year)))
-          .limit(1);
-
-        if (record) {
-          const z = Number(record.zScorePosition);
-          if (z > bestZ) {
-            bestZ = z;
-            bestTeam = record.team ?? 'Unknown';
-            bestYear = year;
-            bestPosition = record.primaryPosition;
-          }
-        }
+      const info = playerInfoMap.get(playerId);
+      if (!info) {
+        // Portrait file exists but player not in DB — skip
+        skipped++;
+        continue;
       }
 
       tasks.push({
-        optionId: opt.id,
-        playerId: opt.playerId,
-        playerName: opt.playerName,
-        challengeId,
-        teamName: getTeamName(bestTeam),
-        year: bestYear,
-        position: POSITION_LABELS[bestPosition] ?? bestPosition,
+        playerId,
+        playerName: info.playerName,
+        teamName: getTeamName(info.team),
+        year: info.year,
+        position: POSITION_LABELS[info.position] ?? info.position,
+        optionId: optionIdMap.get(playerId) ?? null,
       });
     }
 
-    console.log(`  Auditing ${tasks.length} portraits (${skipped} skipped)...`);
+    console.log(`  Auditing ${tasks.length} portraits (${skipped} skipped, ${totalOnDisk} total on disk, force=${!!force})...`);
 
-    res.write(`data: ${JSON.stringify({ type: 'start', total: tasks.length, skipped })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'start', total: tasks.length, totalOnDisk, skipped })}\n\n`);
 
     let doneCount = 0;
 
@@ -1364,10 +1361,9 @@ router.post('/portraits/audit', async (req, res) => {
           type: 'progress',
           index: doneCount,
           total: tasks.length,
-          optionId: task.optionId,
           playerId: task.playerId,
           playerName: task.playerName,
-          challengeId: task.challengeId,
+          optionId: task.optionId,
           pass: result.pass,
           reason: result.reason,
         })}\n\n`);
