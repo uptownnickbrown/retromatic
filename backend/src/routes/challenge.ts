@@ -48,11 +48,13 @@ router.get('/home', async (req, res) => {
 
         if (existingSession) {
           if (existingSession.status === 'completed') {
+            const totalScore = toNum(existingSession.totalLegendScore);
+            const percentile = await calculateSessionPercentile(todayChallenge.id, totalScore);
             session = {
               id: existingSession.id,
               status: 'completed' as const,
-              totalLegendScore: toNum(existingSession.totalLegendScore),
-              percentile: toNum(existingSession.percentile, 50),
+              totalLegendScore: totalScore,
+              percentile,
             };
           } else {
             session = {
