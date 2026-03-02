@@ -164,7 +164,7 @@ function buildGenerationPrompt(
   description: string, refImageCount: number,
 ): string {
   const refImageNote = refImageCount > 0
-    ? `Use the reference photo${refImageCount > 1 ? 's' : ''} provided as visual guidance for facial features, skin tone, build, and distinctive characteristics ONLY. Ignore the uniform, team logo, and hat in the reference photo${refImageCount > 1 ? 's' : ''} — instead depict the player wearing the ${teamName} uniform and cap. Regardless of the pose in the reference photo${refImageCount > 1 ? 's' : ''}, render the portrait in a standard front-facing or slight 3/4 view, centered in the frame.`
+    ? `Use the reference photo${refImageCount > 1 ? 's' : ''} provided as visual guidance for facial features, skin tone, build, and distinctive characteristics ONLY. Ignore the uniform, team logo, and hat in the reference photo${refImageCount > 1 ? 's' : ''} — instead depict the player wearing the ${teamName} uniform and cap. Regardless of the pose in the reference photo${refImageCount > 1 ? 's' : ''}, render the portrait in a standard front-facing or slight 3/4 view, centered in the frame. IMPORTANT: The reference photo may be from a different era (e.g., as an older coach or manager). Depict the player as they would have looked in ${year} as an active player — younger, more athletic, and in playing shape.`
     : `Known appearance: ${description}`;
 
   return `Generate a stylized head-and-shoulders portrait of MLB ${position} ${playerName} (${teamName}, ${year}).
