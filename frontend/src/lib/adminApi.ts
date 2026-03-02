@@ -686,10 +686,10 @@ export function streamAuditPortraits(
 }
 
 export function streamRegeneratePortraits(
-  optionIds: number[],
+  params: { optionIds?: number[]; playerIds?: string[] },
   onEvent: (event: RegenStreamEvent) => void,
 ): { abort: () => void } {
-  return createSSEStream('/admin/portraits/regenerate', { optionIds }, onEvent);
+  return createSSEStream('/admin/portraits/regenerate', params, onEvent);
 }
 
 export async function validatePortrait(playerId: string, validated: boolean): Promise<{ playerId: string; validated: boolean }> {
@@ -740,6 +740,10 @@ export function streamPregenPortraits(
 
 export async function regenerateOptionPortrait(optionId: number): Promise<{ generated: boolean; portraitUrl: string }> {
   return adminFetch(`/admin/options/${optionId}/portrait`, { method: 'POST' });
+}
+
+export async function regeneratePlayerPortrait(playerId: string): Promise<{ generated: boolean; portraitUrl: string }> {
+  return adminFetch(`/admin/portraits/${playerId}/regenerate`, { method: 'POST' });
 }
 
 export async function regenerateOptionBlurbs(optionId: number): Promise<{ generated: number; failed: number; blurbs: Record<string, string> }> {

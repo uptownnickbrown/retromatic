@@ -1418,7 +1418,47 @@ router.post('/portraits/audit', async (req, res) => {
   }
 });
 
-// Regenerate portraits by optionId with full quality validation (SSE streaming)
+// Regenerate a single portrait by playerId (no optionId needed)
+router.post('/portraits/:playerId/regenerate', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+
+    // Look up best season for this player
+    const [bestSeason] = await db.select({
+      nameFirst: players.nameFirst,
+      nameLast: players.nameLast,
+      year: players.year,
+      team: players.team,
+      primaryPosition: players.primaryPosition,
+      zScorePosition: players.zScorePosition,
+    })
+      .from(players)
+      .where(eq(players.playerId, playerId))
+      .orderBy(desc(players.zScorePosition))
+      .limit(1);
+
+    if (!bestSeason) {
+      res.status(404).json({ error: 'Player not found' });
+      return;
+    }
+
+    const playerName = `${bestSeason.nameFirst ?? ''} ${bestSeason.nameLast ?? ''}`.trim();
+    const teamName = getTeamName(bestSeason.team ?? 'Unknown');
+    const posLabel = POSITION_LABELS[bestSeason.primaryPosition] ?? bestSeason.primaryPosition;
+
+    const result = await generatePortraitForPlayer(
+      playerId, playerName, teamName, bestSeason.year, posLabel,
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Regenerate player portrait error:', error);
+    res.status(500).json({ error: 'Failed to regenerate portrait' });
+  }
+});
+
+// Regenerate portraits with full quality validation (SSE streaming)
+// Accepts playerIds (preferred) and/or optionIds (legacy)
 router.post('/portraits/regenerate', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -1426,41 +1466,129 @@ router.post('/portraits/regenerate', async (req, res) => {
   res.flushHeaders();
 
   try {
-    const { optionIds } = req.body as { optionIds: number[] };
-    if (!Array.isArray(optionIds) || optionIds.length === 0) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'optionIds array required' })}\n\n`);
+    const { optionIds, playerIds } = req.body as { optionIds?: number[]; playerIds?: string[] };
+
+    // Build unified task list
+    interface RegenTask {
+      playerId: string;
+      playerName: string;
+      teamName: string;
+      year: number;
+      position: string;
+      optionId?: number;
+    }
+    const tasks: RegenTask[] = [];
+
+    // Resolve optionIds → tasks (legacy path)
+    if (Array.isArray(optionIds) && optionIds.length > 0) {
+      for (const optionId of optionIds) {
+        const [opt] = await db.select()
+          .from(roundOptions)
+          .where(eq(roundOptions.id, optionId))
+          .limit(1);
+        if (!opt) continue;
+
+        const [round] = await db.select({ position: challengeRounds.position })
+          .from(challengeRounds)
+          .where(eq(challengeRounds.id, opt.roundId))
+          .limit(1);
+
+        const years = opt.yearOptions as number[];
+        let bestTeam = 'Unknown';
+        let bestYear = years[0] ?? 2000;
+        let bestZ = -Infinity;
+        let bestPosition = round?.position ?? 'player';
+
+        for (const year of years) {
+          const [record] = await db.select({
+            team: players.team,
+            zScorePosition: players.zScorePosition,
+            primaryPosition: players.primaryPosition,
+          })
+            .from(players)
+            .where(and(eq(players.playerId, opt.playerId), eq(players.year, year)))
+            .limit(1);
+          if (record) {
+            const z = Number(record.zScorePosition);
+            if (z > bestZ) { bestZ = z; bestTeam = record.team ?? 'Unknown'; bestYear = year; bestPosition = record.primaryPosition; }
+          }
+        }
+
+        tasks.push({
+          playerId: opt.playerId,
+          playerName: opt.playerName,
+          teamName: getTeamName(bestTeam),
+          year: bestYear,
+          position: POSITION_LABELS[bestPosition] ?? bestPosition,
+          optionId,
+        });
+      }
+    }
+
+    // Resolve playerIds → tasks (new path — no optionId needed)
+    if (Array.isArray(playerIds) && playerIds.length > 0) {
+      // Avoid duplicates if same player was already added via optionIds
+      const existing = new Set(tasks.map(t => t.playerId));
+
+      const playerInfoRows = await db.select({
+        playerId: players.playerId,
+        nameFirst: players.nameFirst,
+        nameLast: players.nameLast,
+        year: players.year,
+        team: players.team,
+        primaryPosition: players.primaryPosition,
+        zScorePosition: players.zScorePosition,
+      })
+        .from(players)
+        .where(inArray(players.playerId, playerIds))
+        .orderBy(players.playerId, desc(players.zScorePosition));
+
+      // Keep only best season per player
+      const seen = new Set<string>();
+      for (const row of playerInfoRows) {
+        if (seen.has(row.playerId) || existing.has(row.playerId)) continue;
+        seen.add(row.playerId);
+        tasks.push({
+          playerId: row.playerId,
+          playerName: `${row.nameFirst ?? ''} ${row.nameLast ?? ''}`.trim(),
+          teamName: getTeamName(row.team ?? 'Unknown'),
+          year: row.year,
+          position: POSITION_LABELS[row.primaryPosition] ?? row.primaryPosition,
+        });
+      }
+    }
+
+    if (tasks.length === 0) {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'No valid portraits to regenerate' })}\n\n`);
       res.end();
       return;
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'start', total: optionIds.length })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'start', total: tasks.length })}\n\n`);
 
     let doneCount = 0;
 
     const { failures } = await asyncPool(
-      optionIds,
+      tasks,
       3,
-      async (optionId) => {
-        const result = await generatePortraitForOption(optionId);
-        const [opt] = await db.select({ playerName: roundOptions.playerName, playerId: roundOptions.playerId })
-          .from(roundOptions)
-          .where(eq(roundOptions.id, optionId))
-          .limit(1);
+      async (task) => {
+        const result = await generatePortraitForPlayer(
+          task.playerId, task.playerName, task.teamName, task.year, task.position,
+        );
 
         doneCount++;
         res.write(`data: ${JSON.stringify({
           type: 'progress',
           index: doneCount,
-          total: optionIds.length,
-          optionId,
-          playerId: opt?.playerId,
-          playerName: opt?.playerName ?? 'Unknown',
-          pass: result.pass,
+          total: tasks.length,
+          playerId: task.playerId,
+          playerName: task.playerName,
+          pass: true,
           attempts: result.attempts,
           portraitUrl: result.portraitUrl,
         })}\n\n`);
 
-        return optionId;
+        return task.playerId;
       },
       { retries: 1, backoffMs: 3000 },
     );
@@ -1470,9 +1598,9 @@ router.post('/portraits/regenerate', async (req, res) => {
       res.write(`data: ${JSON.stringify({
         type: 'progress',
         index: doneCount,
-        total: optionIds.length,
-        optionId: f.item,
-        playerName: 'Unknown',
+        total: tasks.length,
+        playerId: f.item.playerId,
+        playerName: f.item.playerName,
         pass: false,
         attempts: 0,
         error: f.error.message,
@@ -1481,8 +1609,8 @@ router.post('/portraits/regenerate', async (req, res) => {
 
     res.write(`data: ${JSON.stringify({
       type: 'complete',
-      total: optionIds.length,
-      regenerated: optionIds.length - failures.length,
+      total: tasks.length,
+      regenerated: tasks.length - failures.length,
       failed: failures.length,
     })}\n\n`);
     res.end();

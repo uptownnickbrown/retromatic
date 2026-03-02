@@ -7,6 +7,7 @@ import {
   streamRegeneratePortraits,
   validatePortrait,
   regenerateOptionPortrait,
+  regeneratePlayerPortrait,
 } from '../../lib/adminApi';
 import type { AuditStreamEvent, RegenStreamEvent } from '../../lib/adminApi';
 import { cn } from '../../lib/utils';
@@ -38,7 +39,7 @@ interface RegenState {
 export function PortraitHealthPanel() {
   const [audit, setAudit] = useState<AuditState | null>(null);
   const [regen, setRegen] = useState<RegenState | null>(null);
-  const [regeneratingSet, setRegeneratingSet] = useState<Set<number>>(new Set());
+  const [regeneratingSet, setRegeneratingSet] = useState<Set<string>>(new Set());
   const [validatingSet, setValidatingSet] = useState<Set<string>>(new Set());
   // version map for cache-busting portrait images after regen
   const [versions, setVersions] = useState<Record<string, number>>({});
@@ -96,15 +97,22 @@ export function PortraitHealthPanel() {
   const handleBulkRegen = useCallback(() => {
     if (!audit || regen?.running) return;
 
-    const failedWithOption = audit.results.filter(r => !r.pass && r.optionId != null);
-    if (failedWithOption.length === 0) return;
+    const allFailed = audit.results.filter(r => !r.pass);
+    if (allFailed.length === 0) return;
 
-    const failedIds = failedWithOption.map(r => r.optionId!);
-    setRegen({ running: true, done: 0, total: failedIds.length });
+    // Split into those with optionIds and those without
+    const withOption = allFailed.filter(r => r.optionId != null);
+    const withoutOption = allFailed.filter(r => r.optionId == null);
 
-    const stream = streamRegeneratePortraits(failedIds, (event: RegenStreamEvent) => {
+    const params: { optionIds?: number[]; playerIds?: string[] } = {};
+    if (withOption.length > 0) params.optionIds = withOption.map(r => r.optionId!);
+    if (withoutOption.length > 0) params.playerIds = withoutOption.map(r => r.playerId);
+
+    setRegen({ running: true, done: 0, total: allFailed.length });
+
+    const stream = streamRegeneratePortraits(params, (event: RegenStreamEvent) => {
       if (event.type === 'start') {
-        setRegen(prev => prev ? { ...prev, total: event.total ?? failedIds.length } : prev);
+        setRegen(prev => prev ? { ...prev, total: event.total ?? allFailed.length } : prev);
       } else if (event.type === 'progress') {
         setRegen(prev => prev ? { ...prev, done: event.index ?? prev.done + 1 } : prev);
 
@@ -154,10 +162,12 @@ export function PortraitHealthPanel() {
     }
   }, []);
 
-  const handleSingleRegen = useCallback(async (optionId: number, playerId: string) => {
-    setRegeneratingSet(prev => new Set(prev).add(optionId));
+  const handleSingleRegen = useCallback(async (playerId: string, optionId: number | null) => {
+    setRegeneratingSet(prev => new Set(prev).add(playerId));
     try {
-      const result = await regenerateOptionPortrait(optionId);
+      const result = optionId != null
+        ? await regenerateOptionPortrait(optionId)
+        : await regeneratePlayerPortrait(playerId);
       if (result.generated) {
         setAudit(prev => {
           if (!prev) return prev;
@@ -173,7 +183,7 @@ export function PortraitHealthPanel() {
     } finally {
       setRegeneratingSet(prev => {
         const next = new Set(prev);
-        next.delete(optionId);
+        next.delete(playerId);
         return next;
       });
     }
@@ -182,7 +192,7 @@ export function PortraitHealthPanel() {
   const failedCount = audit?.results.filter(r => !r.pass && !r.missing).length ?? 0;
   const missingCount = audit?.results.filter(r => r.missing).length ?? 0;
   const passedCount = audit?.results.filter(r => r.pass).length ?? 0;
-  const regenableFailedCount = audit?.results.filter(r => !r.pass && r.optionId != null).length ?? 0;
+  const regenableFailedCount = audit?.results.filter(r => !r.pass).length ?? 0;
 
   return (
     <motion.section
@@ -347,15 +357,15 @@ export function PortraitHealthPanel() {
                         </button>
                       )}
 
-                      {/* Regenerate single — only if we have an optionId */}
-                      {r.optionId != null && (
+                      {/* Regenerate single */}
+                      {!r.pass && (
                         <button
-                          onClick={() => handleSingleRegen(r.optionId!, r.playerId)}
-                          disabled={regeneratingSet.has(r.optionId)}
+                          onClick={() => handleSingleRegen(r.playerId, r.optionId)}
+                          disabled={regeneratingSet.has(r.playerId)}
                           className="p-1.5 rounded text-navy/40 hover:text-navy hover:bg-navy/5 transition-colors"
                           title="Regenerate portrait"
                         >
-                          {regeneratingSet.has(r.optionId) ? (
+                          {regeneratingSet.has(r.playerId) ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <RefreshCw className="w-4 h-4" />
