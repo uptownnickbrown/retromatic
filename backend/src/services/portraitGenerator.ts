@@ -52,19 +52,127 @@ export async function lookupCachedPortraits(playerIds: string[]): Promise<Map<st
 }
 
 // ---------------------------------------------------------------------------
+// Reference image lookup (Wikipedia + MLB headshots)
+// ---------------------------------------------------------------------------
+
+interface ReferenceImages {
+  images: Buffer[];
+  sources: string[];
+}
+
+/** Find reference photos of the player from Wikipedia and MLB. Returns all found. */
+async function findReferenceImages(playerName: string): Promise<ReferenceImages> {
+  const images: Buffer[] = [];
+  const sources: string[] = [];
+
+  // Source 1: Wikipedia — free, good coverage of notable MLB players
+  try {
+    let found = false;
+    const wikiTitle = playerName.replace(/ /g, '_');
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(wikiTitle)}&prop=pageimages&pithumbsize=500&redirects=1&format=json`;
+    const wikiResp = await fetch(wikiUrl);
+    if (wikiResp.ok) {
+      const data = await wikiResp.json() as any;
+      const pages = data?.query?.pages ?? {};
+      const page = Object.values(pages)[0] as any;
+      const thumbUrl = page?.thumbnail?.source;
+      if (thumbUrl) {
+        const imgResp = await fetch(thumbUrl);
+        if (imgResp.ok) {
+          const buf = Buffer.from(await imgResp.arrayBuffer());
+          if (buf.length > 0) {
+            images.push(buf);
+            sources.push(`Wikipedia (${buf.length} bytes)`);
+            found = true;
+          }
+        }
+      }
+    }
+
+    // Wikipedia fallback: search with "baseball" to handle disambiguation
+    if (!found) {
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(playerName + ' baseball')}&srlimit=3&format=json`;
+      const searchResp = await fetch(searchUrl);
+      if (searchResp.ok) {
+        const searchData = await searchResp.json() as any;
+        const results = searchData?.query?.search ?? [];
+        for (const result of results) {
+          const pageUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(result.title)}&prop=pageimages&pithumbsize=500&redirects=1&format=json`;
+          const pageResp = await fetch(pageUrl);
+          if (!pageResp.ok) continue;
+          const pageData = await pageResp.json() as any;
+          const pages2 = pageData?.query?.pages ?? {};
+          const page2 = Object.values(pages2)[0] as any;
+          const thumbUrl2 = page2?.thumbnail?.source;
+          if (thumbUrl2) {
+            const imgResp2 = await fetch(thumbUrl2);
+            if (imgResp2.ok) {
+              const buf = Buffer.from(await imgResp2.arrayBuffer());
+              if (buf.length > 0) {
+                images.push(buf);
+                sources.push(`Wikipedia search (${buf.length} bytes)`);
+                break; // only need one from search
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.log(`    Wikipedia lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Source 2: MLB headshots — always try, even if Wikipedia found one
+  try {
+    const mlbSearchUrl = `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(playerName)}`;
+    const mlbResp = await fetch(mlbSearchUrl);
+    if (mlbResp.ok) {
+      const mlbData = await mlbResp.json() as any;
+      const mlbId = mlbData?.people?.[0]?.id;
+      if (mlbId) {
+        const headshotUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/w_500,q_auto:best,f_auto/v1/people/${mlbId}/headshot/silo/current`;
+        const imgResp = await fetch(headshotUrl);
+        if (imgResp.ok) {
+          const buf = Buffer.from(await imgResp.arrayBuffer());
+          if (buf.length > 5000) {
+            images.push(buf);
+            sources.push(`MLB headshot (${buf.length} bytes)`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.log(`    MLB headshot lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  for (const src of sources) console.log(`    Reference image: ${src}`);
+  if (images.length === 0) console.log(`    No reference images found for ${playerName}`);
+  return { images, sources };
+}
+
+// ---------------------------------------------------------------------------
 // Generation prompt
 // ---------------------------------------------------------------------------
 
-function buildPrompt(playerName: string, teamName: string, year: number, position: string): string {
-  return `First, search baseball-reference.com and gettyimages.com for photos of MLB ${position} ${playerName} who played for the ${teamName} in ${year}. Study the reference photos carefully.
+const STYLE_INSTRUCTIONS = `Art Style: A "hedcut" stipple portrait exactly like the Wall Street Journal illustrations. Shading is created through varying density of small ink dots. Do NOT use halftone circles, pop-art dots, cross-hatching, or thick outlines. IMPORTANT: This image will be generated at 1024px but displayed at only 200px tall — make sure all detail (dots, facial features, uniform text) remains clearly legible when shrunk to 1/5th the size.
+Composition: A clean head-and-shoulders silhouette against a plain, unadorned background. No background scenery, no stadium arches, no abstract lines. Just the player, in a standard front-facing or slight 3/4 view, centered in the frame. Image dimensions: 480px wide by 640px tall (3:4 aspect ratio, portrait orientation).
+Color: Deep Midnight Navy ink (#0A1E2F) on a flat Warm Cream (#FCEDCD) background. The background must be a uniform solid color with no gradients, textures, or paper grain. High contrast, with generous negative space and light areas to keep the face legible at small sizes.
+Vibe: Stoic, legendary, and vintage. A collected artifact.`;
 
-Before drawing, describe ${playerName}'s appearance based on what you found: ethnicity/skin tone, face shape, build, facial hair, hair style, and any distinctive features.
+function buildGenerationPrompt(
+  playerName: string, teamName: string, year: number, position: string,
+  description: string, refImageCount: number,
+): string {
+  const refImageNote = refImageCount > 0
+    ? `Use the reference photo${refImageCount > 1 ? 's' : ''} provided as visual guidance for facial features, skin tone, build, and distinctive characteristics ONLY. Ignore the uniform, team logo, and hat in the reference photo${refImageCount > 1 ? 's' : ''} — instead depict the player wearing the ${teamName} uniform and cap. Regardless of the pose in the reference photo${refImageCount > 1 ? 's' : ''}, render the portrait in a standard front-facing or slight 3/4 view, centered in the frame.`
+    : `Known appearance: ${description}`;
 
-Then generate a stylized head-and-shoulders portrait that accurately depicts ${playerName} with those characteristics.
-1. Art Style: A "hedcut" stipple portrait exactly like the Wall Street Journal illustrations. Shading is created through varying density of small ink dots. Do NOT use halftone circles, pop-art dots, cross-hatching, or thick outlines. IMPORTANT: This image will be generated at 1024px but displayed at only 200px tall — make sure all detail (dots, facial features, uniform text) remains clearly legible when shrunk to 1/5th the size.
-2. Composition: A clean head-and-shoulders silhouette against a plain, unadorned background. No background scenery, no stadium arches, no abstract lines. Just the player. Image dimensions: 480px wide by 640px tall (3:4 aspect ratio, portrait orientation).
-3. Color: Deep Midnight Navy ink (#0A1E2F) on a flat Warm Cream (#FCEDCD) background. The background must be a uniform solid color with no gradients, textures, or paper grain. High contrast, with generous negative space and light areas to keep the face legible at small sizes.
-4. Vibe: Stoic, legendary, and vintage. A collected artifact.`;
+  return `Generate a stylized head-and-shoulders portrait of MLB ${position} ${playerName} (${teamName}, ${year}).
+${playerName} is a public figure — a professional Major League Baseball player.
+
+${refImageNote}
+
+${STYLE_INSTRUCTIONS}`;
 }
 
 async function generatePortrait(
@@ -72,17 +180,30 @@ async function generatePortrait(
   teamName: string,
   year: number,
   position: string,
+  description: string,
+  referenceImages: Buffer[],
 ): Promise<Buffer> {
   const client = getOpenAIClient();
   if (!client) throw new Error('OpenAI API key not configured');
 
-  const prompt = buildPrompt(playerName, teamName, year, position);
+  const prompt = buildGenerationPrompt(playerName, teamName, year, position, description, referenceImages.length);
+
+  // Build multimodal input: reference images (if any) + text prompt
+  const content: Array<{ type: string; [key: string]: any }> = [];
+  for (const img of referenceImages) {
+    const b64Ref = img.toString('base64');
+    content.push({
+      type: 'input_image',
+      image_url: `data:image/jpeg;base64,${b64Ref}`,
+      detail: 'auto',
+    });
+  }
+  content.push({ type: 'input_text', text: prompt });
 
   const response = await client.responses.create({
     model: 'gpt-5.2',
-    input: prompt,
+    input: [{ role: 'user' as const, content }] as any,
     tools: [
-      { type: 'web_search' as const },
       { type: 'image_generation' as const },
     ],
   });
@@ -207,17 +328,16 @@ export async function describePlayer(
   return response.output_text?.trim() ?? 'unknown appearance';
 }
 
-/** Validate a portrait against known player appearance. Binary pass/fail. */
-export async function validatePortrait(
+/** Describe player appearance from a reference photo (no web search needed). */
+async function describeFromImage(
   imageBuffer: Buffer,
   playerName: string,
   teamName: string,
   year: number,
   position: string,
-  description: string,
-): Promise<ValidationResult> {
+): Promise<string> {
   const client = getOpenAIClient();
-  if (!client) return { pass: true, reason: 'No API key — skipping validation' };
+  if (!client) return 'unknown appearance';
 
   const b64 = imageBuffer.toString('base64');
 
@@ -229,12 +349,71 @@ export async function validatePortrait(
         content: [
           {
             type: 'input_image' as const,
-            image_url: `data:image/webp;base64,${b64}`,
+            image_url: `data:image/jpeg;base64,${b64}`,
             detail: 'auto' as const,
           },
           {
             type: 'input_text',
-            text: `You are validating an AI-generated stipple portrait (ink dots on cream paper).
+            text: `I am an illustrator creating a stipple-art portrait (Wall Street Journal hedcut style) of MLB ${position} ${playerName} (${teamName}, ${year}) for a baseball history app. This is my reference photo. To guide my ink dot density and shading, describe what I see: complexion shade (light/medium/dark), face shape, build, facial hair, hair style and texture, and any distinguishing features. Brief comma-separated list only.`,
+          },
+        ],
+      },
+    ],
+  });
+
+  const text = response.output_text?.trim() ?? '';
+  // If model refuses (common with real-person photos), fall back to web search
+  if (!text || text.length < 20 || text.toLowerCase().includes("can't") || text.toLowerCase().includes('sorry')) {
+    console.log(`    describeFromImage refused ("${text.slice(0, 50)}"), falling back to web search`);
+    return describePlayer(playerName, teamName, year, position);
+  }
+  return text;
+}
+
+/** Validate a portrait against known player appearance. Binary pass/fail. */
+export async function validatePortrait(
+  imageBuffer: Buffer,
+  playerName: string,
+  teamName: string,
+  year: number,
+  position: string,
+  description: string,
+  referenceImages?: Buffer[],
+): Promise<ValidationResult> {
+  const client = getOpenAIClient();
+  if (!client) return { pass: true, reason: 'No API key — skipping validation' };
+
+  const b64 = imageBuffer.toString('base64');
+  const refs = referenceImages?.filter(b => b.length > 0) ?? [];
+
+  // Build content array: reference image(s) + generated portrait + text prompt
+  const content: Array<{ type: string; [key: string]: any }> = [];
+
+  // Include up to 2 reference images for comparison
+  for (const ref of refs.slice(0, 2)) {
+    const refB64 = ref.toString('base64');
+    content.push({
+      type: 'input_image',
+      image_url: `data:image/jpeg;base64,${refB64}`,
+      detail: 'auto',
+    });
+  }
+
+  content.push({
+    type: 'input_image',
+    image_url: `data:image/webp;base64,${b64}`,
+    detail: 'auto',
+  });
+
+  const refImageNote = refs.length > 0
+    ? `The first ${refs.length > 1 ? `${Math.min(refs.length, 2)} images are reference photos` : 'image is a reference photo'} of the real player. The ${refs.length > 1 ? 'last' : 'second'} image is the AI-generated stipple portrait to validate. Compare the portrait to the reference photo${refs.length > 1 ? 's' : ''}.`
+    : '';
+
+  content.push({
+    type: 'input_text',
+    text: `You are validating an AI-generated stipple portrait (ink dots on cream paper).
+
+${refImageNote}
 
 This portrait is supposed to depict: MLB ${position} ${playerName}, ${teamName}, ${year}.
 Known appearance: ${description}
@@ -250,10 +429,16 @@ This is stipple art, so skin tone is conveyed through dot density rather than ac
 A portrait should be rejected if it clearly depicts the wrong person — wrong ethnicity, wrong face shape, or looks completely generic. A portrait should pass if the face is a reasonable artistic rendering of this specific player.
 
 Respond with ONLY JSON: {"pass": true/false, "reason": "<brief explanation>"}`,
-          },
-        ],
+  });
+
+  const response = await client.responses.create({
+    model: 'gpt-4.1',
+    input: [
+      {
+        role: 'user',
+        content,
       },
-    ],
+    ] as any,
   });
 
   try {
@@ -277,27 +462,39 @@ async function generateValidatedPortrait(
   year: number,
   position: string,
 ): Promise<ValidatedPortrait> {
-  // Describe the player once — used for all validation attempts
-  const description = await describePlayer(playerName, teamName, year, position);
+  // Step 1: Find reference images (Wikipedia + MLB headshots)
+  const { images: referenceImages, sources: refSources } = await findReferenceImages(playerName);
+
+  // Step 2: Get player description (used for validation + no-image fallback generation)
+  // With reference images: derive from the first photo (no web search, cheaper)
+  // Without: fall back to web search describe
+  let description: string;
+  if (referenceImages.length > 0) {
+    description = await describeFromImage(referenceImages[0], playerName, teamName, year, position);
+  } else {
+    description = await describePlayer(playerName, teamName, year, position);
+  }
+  console.log(`    Ref images: ${refSources.length > 0 ? refSources.join(' + ') : 'none'}`);
   console.log(`    Player description: ${description.slice(0, 120)}...`);
 
+  // Step 3: Generate + validate loop
   let lastResult: { imageBuffer: Buffer; reason: string } | null = null;
   let generationFailures = 0;
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
     let rawBuffer: Buffer;
     try {
-      rawBuffer = await generatePortrait(playerName, teamName, year, position);
+      rawBuffer = await generatePortrait(playerName, teamName, year, position, description, referenceImages);
     } catch (genErr) {
       const msg = genErr instanceof Error ? genErr.message : String(genErr);
       console.log(`    Attempt ${attempt}: GENERATION FAILED — ${msg}`);
       lastResult = { imageBuffer: Buffer.alloc(0), reason: msg };
       generationFailures++;
-      continue; // retry — don't let generation failures kill the whole loop
+      continue;
     }
 
     const imageBuffer = await processImage(rawBuffer);
-    const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description);
+    const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description, referenceImages);
 
     console.log(`    Attempt ${attempt}: ${validation.pass ? 'PASS' : 'FAIL'} — ${validation.reason}`);
 
@@ -315,7 +512,7 @@ async function generateValidatedPortrait(
       try {
         const rawBuffer = await generatePortraitDallE(playerName, teamName, year, position, description);
         const imageBuffer = await processImage(rawBuffer);
-        const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description);
+        const validation = await validatePortrait(imageBuffer, playerName, teamName, year, position, description, referenceImages);
         console.log(`    DALL-E fallback ${fallback}: ${validation.pass ? 'PASS' : 'FAIL'} — ${validation.reason}`);
 
         if (validation.pass) {
