@@ -38,11 +38,14 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 const adminRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15-minute window
-  limit: 5,                  // 5 failed attempts per window per IP
+  limit: 20,                 // 20 failed auth attempts per window per IP
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
-  skipSuccessfulRequests: true, // Only count 401s, not legitimate admin work
+  skipSuccessfulRequests: true,
+  // Only count 401s (auth failures) against the limit — not 400/404/500
+  // from legitimate admin work like validation errors or generation failures
+  requestWasSuccessful: (_req, res) => res.statusCode !== 401,
 });
 
 router.use(adminRateLimiter);
