@@ -345,6 +345,11 @@ RULES:
 - Do NOT suggest players already in this round: ${otherNames}
 - Be concise in your messages. This is a quick replacement, not a full challenge build.
 
+POSITION NOTES:
+- If position is UTIL: any batter qualifies. Search with playerType="batter", not position="UTIL".
+- If position is P: any pitcher qualifies. Search with playerType="pitcher", not position="P".
+- For all other positions: search with the specific position code.
+
 TEAM CODES: ${teamCodes}`;
 }
 

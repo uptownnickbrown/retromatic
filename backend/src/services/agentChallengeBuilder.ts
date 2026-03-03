@@ -3,7 +3,7 @@ import type { Stream } from 'openai/streaming';
 import type { Response as SSEResponse } from 'express';
 import { db, executeRawReadOnlyQuery } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { eq, and, desc, gte, lte, like, or, ilike, sql } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, like, or, ilike, sql, inArray } from 'drizzle-orm';
 import { queueChallenges } from './challengeGenerator.js';
 import { calculateSandlotScore } from './sandlotScore.js';
 import { lookupCachedPortraits } from './portraitGenerator.js';
@@ -96,6 +96,7 @@ export async function getTeamCodesForPrompt(): Promise<string> {
 interface AgentSession {
   responseId: string;
   challengeTitle: string | null;
+  themeDescription: string | null;
   createdAt: number;
 }
 
@@ -653,6 +654,40 @@ async function validateAndBuildRounds(
     return { error: `Player-years not in database:\n${missingInfo.join('\n')}` };
   }
 
+  // Validate position-type eligibility (pitchers in pitcher slots, batters in batter slots)
+  const PITCHER_POSITIONS = new Set(['SP', 'RP', 'P']);
+  const allPlayerIds = [...new Set(aiRounds.flatMap(r => r.players.map(p => p.playerId)))];
+  const playerTypeMap = new Map<string, string>();
+  if (allPlayerIds.length > 0) {
+    const typeRecords = await db.selectDistinct({
+      playerId: players.playerId,
+      playerType: players.playerType,
+    })
+      .from(players)
+      .where(inArray(players.playerId, allPlayerIds));
+    for (const r of typeRecords) {
+      playerTypeMap.set(r.playerId, r.playerType);
+    }
+  }
+
+  const positionErrors: string[] = [];
+  for (const round of aiRounds) {
+    const isPitcherSlot = PITCHER_POSITIONS.has(round.position);
+    for (const p of round.players) {
+      const pType = playerTypeMap.get(p.playerId);
+      if (!pType) continue; // already caught by existence check above
+      if (isPitcherSlot && pType !== 'pitcher') {
+        positionErrors.push(`${p.playerName} (${p.playerId}) is a ${pType} but placed in pitcher position ${round.position}`);
+      } else if (!isPitcherSlot && pType !== 'batter') {
+        positionErrors.push(`${p.playerName} (${p.playerId}) is a ${pType} but placed in batter position ${round.position}`);
+      }
+    }
+  }
+
+  if (positionErrors.length > 0) {
+    return { error: `Position-type mismatch:\n${positionErrors.join('\n')}` };
+  }
+
   // Assemble rounds in shuffled position order
   const roundsByPosition = new Map<string, SubmitRound>();
   for (const round of aiRounds) {
@@ -842,9 +877,23 @@ COMMUNICATION:
 - Track your progress: after searches, note which positions you've filled and which remain (e.g. "Covered: C, 1B, OF, SP. Still need: 2B, SS, 3B, UTIL, RP, P.").
 
 THEME VALIDATION:
-- Use your world knowledge to validate every pick against the theme. Search results are keyword matches — they need YOUR judgment to determine actual theme fit.
-- A search by last name returns everyone with that name, not just the person you want. A search by team returns everyone who played there, not just the ones relevant to your theme.
-- If a search returns players who don't fit, exclude them. If uncertain, use lookup_player to verify or skip them.
+- CRITICAL: Search results confirm DATABASE matches, not THEME fit. A name search returns everyone with that substring. A team search returns everyone who played there. A stat filter returns anyone above the threshold. YOU must bridge the gap between "matched the filter" and "fits the theme" using your baseball knowledge.
+- Before including any player, ask: "Does this specific person genuinely satisfy the theme's intent, or did they just happen to match a keyword?" If you're not sure, skip them.
+- Examples of this gap:
+  • Searching last name "Bell" for a baseball families theme returns Jay Bell, Albert Belle, Mark Bellhorn — none are related to the Buddy Bell family.
+  • Searching team "NYA" for a "1998 Yankees" theme returns anyone who ever wore pinstripes — you must verify they were actually on that specific roster.
+  • Searching for "40 HR" finds the stat line, but a "monster seasons" theme might need more context about whether the season was truly dominant.
+- If a search returns 15 players and only 3 genuinely fit the theme, use those 3 and exclude the rest.
+
+POSITION RULES (STRICT):
+- SP, RP, and P rounds MUST contain pitchers (player_type = 'pitcher'). Batters will be rejected.
+- C, 1B, 2B, SS, 3B, OF, and UTIL rounds MUST contain batters (player_type = 'batter').
+- The system validates this — placing a batter in a pitcher slot will fail.
+
+UNDERSTANDING UTIL AND P (FLEX POSITIONS):
+- UTIL is a wildcard batter slot — ANY batter qualifies regardless of their fielding position. Do NOT search with position="UTIL" (almost no results). Instead search with playerType="batter" and optionally filter by name, team, stats, etc.
+- P is a wildcard pitcher slot — ANY pitcher qualifies (starters and relievers alike). Do NOT search with position="P" (almost no results). Instead search with playerType="pitcher".
+- Think of UTIL and P as overflow/flex positions for when you need to place a themed player who doesn't fit neatly into a specific fielding position.
 
 WORKFLOW:
 1. Use search_players to find players fitting the theme. Each result shows the player with ALL qualifying seasons.
@@ -956,6 +1005,8 @@ export async function runAgentBuilder(
 
   const existingSession = sessionId ? agentSessions.get(sessionId) : null;
   let challengeTitle = existingSession?.challengeTitle ?? null;
+  // Store the user's original prompt as theme description for context reinforcement
+  const themeDescription = existingSession?.themeDescription ?? (existingSession ? null : prompt.slice(0, 200));
 
   // Send existing title immediately so the frontend can show it
   if (challengeTitle) {
@@ -987,9 +1038,9 @@ export async function runAgentBuilder(
     };
     let response: OpenAI.Responses.Response;
     if (existingSession) {
-      // Prefix continuation with challenge title to reinforce context
+      // Prefix continuation with challenge title + description to reinforce context
       const contextPrefix = challengeTitle
-        ? `[Continuing work on challenge: "${challengeTitle}"]\n\nUser feedback: `
+        ? `[Continuing work on challenge: "${challengeTitle}"${themeDescription ? ` — ${themeDescription}` : ''}]\n\nUser feedback: `
         : '[Continuing conversation]\n\nUser feedback: ';
       response = await streamOpenAICall(
         { ...baseParams, previous_response_id: existingSession.responseId, input: contextPrefix + prompt },
@@ -1079,7 +1130,7 @@ export async function runAgentBuilder(
           if ('preview' in previewResult) {
             console.log(JSON.stringify({ event: 'agent_preview_sent', sessionId: sid, theme: args.theme }));
             // Save session for continuation
-            agentSessions.set(sid, { responseId: response.id, challengeTitle, createdAt: Date.now() });
+            agentSessions.set(sid, { responseId: response.id, challengeTitle, themeDescription, createdAt: Date.now() });
             // Tell the agent the preview was sent, including quality metrics
             result = JSON.stringify({ success: true, message: `Preview sent to user. ${previewResult.qualitySummary}. Waiting for approval or feedback.` });
             toolResults.push({
@@ -1098,7 +1149,7 @@ export async function runAgentBuilder(
               tool_choice: 'none',
               max_output_tokens: 256,
             });
-            agentSessions.set(sid, { responseId: updatedResponse.id, challengeTitle, createdAt: Date.now() });
+            agentSessions.set(sid, { responseId: updatedResponse.id, challengeTitle, themeDescription, createdAt: Date.now() });
 
             // Send awaiting_feedback and end the stream
             send({ type: 'awaiting_feedback', sessionId: sid });
@@ -1142,6 +1193,11 @@ export async function runAgentBuilder(
           result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
         }
 
+        // Append theme reminder to tool results to prevent drift over long conversations
+        if (themeDescription && challengeTitle) {
+          result += `\n\n[Reminder: Building challenge "${challengeTitle}" — ${themeDescription}]`;
+        }
+
         toolResults.push({
           type: 'function_call_output',
           call_id: toolCall.call_id,
@@ -1161,7 +1217,7 @@ export async function runAgentBuilder(
           tool_choice: 'none',
           max_output_tokens: 256,
         });
-        agentSessions.set(sid, { responseId: checkpointResponse.id, challengeTitle, createdAt: Date.now() });
+        agentSessions.set(sid, { responseId: checkpointResponse.id, challengeTitle, themeDescription, createdAt: Date.now() });
 
         console.log(JSON.stringify({ event: 'agent_checkpoint', sessionId: sid, iterations }));
         send({ type: 'message', message: 'This is taking a while — I\'ve done a lot of searching. Want me to keep going, or should I work with what I\'ve found so far?' });
@@ -1180,7 +1236,7 @@ export async function runAgentBuilder(
 
     // Save session so the user can continue the conversation
     // (the agent may have asked a clarifying question, or hit max iterations)
-    agentSessions.set(sid, { responseId: response.id, challengeTitle, createdAt: Date.now() });
+    agentSessions.set(sid, { responseId: response.id, challengeTitle, themeDescription, createdAt: Date.now() });
 
     if (iterations >= maxIterations) {
       console.log(JSON.stringify({ event: 'agent_max_iterations', sessionId: sid, iterations }));
