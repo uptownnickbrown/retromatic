@@ -123,8 +123,8 @@ function CommunityPicks({
         <p className="flex-1 text-[9px] uppercase tracking-widest text-muted font-mono text-center">
           Community Picks
         </p>
-        <p className="w-11 text-[8px] uppercase tracking-wider text-muted font-mono text-center leading-none flex-shrink-0">
-          Sandlot<br />Score
+        <p className="w-9 text-[8px] uppercase tracking-wider text-muted font-mono text-center leading-none flex-shrink-0">
+          Score
         </p>
       </div>
       {roundPlayers.map((player, pi) => {
@@ -190,10 +190,10 @@ function CommunityPicks({
                       </div>
                     </div>
                     {/* Right: Sandlot Score */}
-                    <div className="w-11 flex-shrink-0 flex items-center justify-center">
+                    <div className="w-9 flex-shrink-0 flex items-center justify-center">
                       <span className={cn(
-                        'font-mono text-sm font-bold tabular-nums',
-                        sandlotScore >= 9.5 ? 'text-gold' : 'text-navy/50',
+                        'font-mono text-xs font-bold tabular-nums',
+                        sandlotScore >= 9.5 ? 'text-gold' : 'text-navy/40',
                       )}>
                         {sandlotScore.toFixed(1)}
                       </span>
@@ -314,7 +314,7 @@ export function RevealCard({ reveal }: RevealCardProps) {
               <span className="font-mono text-[10px] text-muted tracking-wide">
                 {reveal.playerType === 'batter'
                   ? `${reveal.stats.AB ?? '--'} AB`
-                  : `${reveal.stats.IP != null ? Number(reveal.stats.IP).toFixed(1) : '--'} IP · ${reveal.stats.GS ?? 0} GS`}
+                  : `${reveal.stats.IP != null ? Number(reveal.stats.IP).toFixed(1) : '--'} IP${reveal.stats.GS ? ` · ${reveal.stats.GS} GS` : ''}`}
                 {' · percentiles among '}
                 {reveal.position === 'UTIL' ? 'all batters'
                   : reveal.position === 'P' ? 'all pitchers'
