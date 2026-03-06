@@ -290,7 +290,8 @@ def compute_batting_zscores(df: pd.DataFrame) -> pd.DataFrame:
             df[f'{col}_POS_Z'] = df[f'{col}_Z']
 
     # Combined position-based total (AVG intentionally NOT included)
-    df['Total_POS_Z'] = (
+    # This equal-weight sum is used as the reference distribution for rescaling.
+    df['Total_POS_Z_raw'] = (
         df['R_POS_Z'] + df['HR_POS_Z'] + df['RBI_POS_Z']
         + df['SB_POS_Z'] + df['H_POS_Z'] - df['Outs_POS_Z']
     )
@@ -300,12 +301,49 @@ def compute_batting_zscores(df: pd.DataFrame) -> pd.DataFrame:
     if util_mask.any():
         for col in stats_for_z + ['Outs', 'AVG']:
             df.loc[util_mask, f'{col}_POS_Z'] = df.loc[util_mask, f'{col}_Z']
-        df.loc[util_mask, 'Total_POS_Z'] = (
+        df.loc[util_mask, 'Total_POS_Z_raw'] = (
             df.loc[util_mask, 'R_Z'] + df.loc[util_mask, 'HR_Z']
             + df.loc[util_mask, 'RBI_Z'] + df.loc[util_mask, 'SB_Z']
             + df.loc[util_mask, 'H_Z'] - df.loc[util_mask, 'Outs_Z']
         )
         print(f"  Fixed {util_mask.sum()} UTIL rows to use overall z-scores")
+
+    # --- Sandlot Score v2: Ridge-learned weights ---
+    # Weights trained on 10K roto league simulations (MWC targets).
+    # Uses blended z-scores (positional + overall) and position intercepts.
+    BAT_Z_WEIGHTS = {
+        'R_POS_Z': 0.0042541090, 'HR_POS_Z': 0.0001804693,
+        'RBI_POS_Z': -0.0030860144, 'SB_POS_Z': -0.0007819776,
+        'H_POS_Z': 0.0121463055, 'Outs_POS_Z': -0.0018166693,
+        'R_Z': 0.0286810962, 'HR_Z': 0.0186327589,
+        'RBI_Z': 0.0279486400, 'SB_Z': 0.0150640643,
+        'H_Z': 0.0269301703, 'Outs_Z': -0.0337607253,
+    }
+    BAT_POS_INTERCEPTS = {
+        '1B': -0.0300813669, '2B': 0.0118123338, '3B': -0.0096130789,
+        'C': 0.0516567643, 'OF': -0.0334551484, 'SS': 0.0122306331,
+        'UTIL': -0.0025501370,
+    }
+    BAT_MODEL_INTERCEPT = -0.1545814680
+    BATTER_SCALE = 1.10
+
+    # Compute weighted prediction
+    weighted = np.zeros(len(df))
+    for col, w in BAT_Z_WEIGHTS.items():
+        weighted += df[col].fillna(0).values * w
+    for pos, intercept in BAT_POS_INTERCEPTS.items():
+        weighted[df['POS'].values == pos] += intercept
+    weighted += BAT_MODEL_INTERCEPT
+
+    # Rescale to match the equal-weight z-score distribution, then apply type scaling
+    ref_mean = df['Total_POS_Z_raw'].mean()
+    ref_std = df['Total_POS_Z_raw'].std()
+    w_mean = weighted.mean()
+    w_std = weighted.std()
+    df['Total_POS_Z'] = ((weighted - w_mean) / w_std * ref_std + ref_mean) * BATTER_SCALE
+
+    print(f"  Applied v2 batter weights (scale={BATTER_SCALE})")
+    print(f"  Z-score distribution: mean={df['Total_POS_Z'].mean():.3f}, std={df['Total_POS_Z'].std():.3f}")
 
     return df
 
@@ -528,7 +566,7 @@ def compute_pitching_zscores(df: pd.DataFrame) -> pd.DataFrame:
     # SPs rarely save and RPs rarely win — position-specific z-scores for these
     # cross-position stats have near-zero variance, creating extreme outliers.
     # SO, ER_saved, BR_saved use position-specific z-scores as intended.
-    df['Total_POS_Z'] = (
+    df['Total_POS_Z_raw'] = (
         df['W_Z'] + df['SV_Z'] + df['SO_POS_Z']
         + df['ER_saved_POS_Z'] + df['BR_saved_POS_Z']
     )
@@ -542,12 +580,80 @@ def compute_pitching_zscores(df: pd.DataFrame) -> pd.DataFrame:
             df.loc[p_mask, f'{col}_POS_Z'] = df.loc[p_mask, f'{col}_Z']
         df.loc[p_mask, 'ER_saved_POS_Z'] = df.loc[p_mask, 'ER_saved_Z']
         df.loc[p_mask, 'BR_saved_POS_Z'] = df.loc[p_mask, 'BR_saved_Z']
-        df.loc[p_mask, 'Total_POS_Z'] = (
+        df.loc[p_mask, 'Total_POS_Z_raw'] = (
             df.loc[p_mask, 'W_Z'] + df.loc[p_mask, 'SV_Z']
             + df.loc[p_mask, 'SO_Z']
             + df.loc[p_mask, 'ER_saved_Z'] + df.loc[p_mask, 'BR_saved_Z']
         )
         print(f"  Fixed {p_mask.sum()} P rows to use overall z-scores")
+
+    # --- Sandlot Score v2: SP/RP split Ridge-learned weights ---
+    # Weights trained on 10K roto league simulations (MWC targets).
+    # Uses blended z-scores (positional + overall) and raw stats.
+    # W_Z and SV_Z are overall z-scores in both positional and overall composites.
+    SP_WEIGHTS = {
+        'W_Z': 0.0017317283, 'SV_Z': 0.0011318548,
+        'SO_POS_Z': 0.0000087076, 'ER_saved_POS_Z': 0.0118322915,
+        'BR_saved_POS_Z': 0.0115064973,
+        'SO_Z': 0.0000089912, 'ER_saved_Z': 0.0157068963,
+        'BR_saved_Z': 0.0149767556,
+        'W': 0.0040981743, 'SV': 0.0005196098, 'K': 0.0004419874,
+        'ERA': -0.0093908330, 'WHIP': -0.0275629035, 'IP': -0.0005245712,
+    }
+    SP_INTERCEPT = -0.0875780008
+
+    RP_WEIGHTS = {
+        'W_Z': 0.0022250521, 'SV_Z': 0.0004299197,
+        'SO_POS_Z': 0.0000186696, 'ER_saved_POS_Z': 0.0142829540,
+        'BR_saved_POS_Z': 0.0105495634,
+        'SO_Z': 0.0000088010, 'ER_saved_Z': 0.0094208956,
+        'BR_saved_Z': 0.0069661907,
+        'W': 0.0038062520, 'SV': 0.0018913143, 'K': 0.0004326382,
+        'ERA': 0.0004360493, 'WHIP': -0.0163512394, 'IP': -0.0005013563,
+    }
+    RP_INTERCEPT = -0.1116429825
+
+    PITCHER_SCALE = 1.00
+
+    # Map raw stat column names (pipeline uses 'SO' not 'K')
+    stat_col_map = {'K': 'SO'}
+
+    def compute_weighted(mask, weights, intercept):
+        n = mask.sum()
+        pred = np.full(n, intercept)
+        for col, w in weights.items():
+            actual_col = stat_col_map.get(col, col)
+            pred += df.loc[mask, actual_col].fillna(0).values * w
+        return pred
+
+    sp_mask = df['POS'] == 'SP'
+    rp_mask = df['POS'] == 'RP'
+
+    # Reference distribution for rescaling (equal-weight sum)
+    ref_mean = df['Total_POS_Z_raw'].mean()
+    ref_std = df['Total_POS_Z_raw'].std()
+
+    # Initialize with raw equal-weight values (fallback for P position)
+    df['Total_POS_Z'] = df['Total_POS_Z_raw'].copy()
+
+    # SP weighted prediction
+    if sp_mask.any():
+        sp_pred = compute_weighted(sp_mask, SP_WEIGHTS, SP_INTERCEPT)
+        sp_scaled = (sp_pred - sp_pred.mean()) / sp_pred.std() * ref_std + ref_mean
+        df.loc[sp_mask, 'Total_POS_Z'] = sp_scaled * PITCHER_SCALE
+
+    # RP weighted prediction
+    if rp_mask.any():
+        rp_pred = compute_weighted(rp_mask, RP_WEIGHTS, RP_INTERCEPT)
+        rp_scaled = (rp_pred - rp_pred.mean()) / rp_pred.std() * ref_std + ref_mean
+        df.loc[rp_mask, 'Total_POS_Z'] = rp_scaled * PITCHER_SCALE
+
+    # P position: keep raw equal-weight values with scaling
+    if p_mask.any():
+        df.loc[p_mask, 'Total_POS_Z'] = df.loc[p_mask, 'Total_POS_Z_raw'] * PITCHER_SCALE
+
+    print(f"  Applied v2 pitcher weights (scale={PITCHER_SCALE})")
+    print(f"  Z-score distribution: mean={df['Total_POS_Z'].mean():.3f}, std={df['Total_POS_Z'].std():.3f}")
 
     return df
 

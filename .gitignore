@@ -25,6 +25,9 @@ data-preprocessing/lahman_*/
 # Generated exports
 data-preprocessing/*.pdf
 
+# Simulation data cache (pulled from prod DB)
+data-preprocessing/sim-data/
+
 !.env.example
 
 # Environment variables
