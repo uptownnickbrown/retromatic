@@ -25,6 +25,10 @@ data-preprocessing/lahman_*/
 # Generated exports
 data-preprocessing/*.pdf
 
+# Exploration notebooks & sim results
+data-preprocessing/*.ipynb
+data-preprocessing/sim-results/
+
 # Simulation data cache (pulled from prod DB)
 data-preprocessing/sim-data/
 

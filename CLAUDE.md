@@ -19,16 +19,19 @@ This file provides guidance to Claude Code when working with this repository.
 The game's signature 1.0–10.0 metric. Measures how dominant a player-season was relative to others at the same position.
 
 **How it's computed** (data pipeline, `preprocess-to-postgres.py`):
-1. **Individual stat z-scores** — each counting stat is z-scored within the player's position group (e.g., HR for catchers only). `zscore = (value - position_mean) / position_std_dev`.
-2. **Composite z-score** — the individual z-scores are **summed** into a single `z_score_position`:
-   - Batters: `R_z + HR_z + RBI_z + SB_z + H_z − Outs_z` (6 components)
-   - Pitchers: `W_z + SV_z + SO_z + ER_saved_z + BR_saved_z` (5 components; W and SV use overall z-scores to avoid degenerate variance within SP/RP)
+1. **Individual stat z-scores** — each counting stat is z-scored both within its position group (positional z) and across all players (overall z).
+   - Batters: R, HR, RBI, SB, H, Outs (where `Outs = AB - H`, encoding AVG in volume-weighted form)
+   - Pitchers: W, SV (overall z only), SO, ER_saved, BR_saved (where `ER_saved = IP × (mean_ERA − ERA) / 9`)
+2. **Composite z-score (v2)** — Ridge-learned weights combine **blended z-scores** (positional + overall) into `z_score_position`. Trained on 10K simulated roto leagues to predict Marginal Win Contribution (MWC). See `data-preprocessing/SANDLOT_SCORE_CALIBRATION.md` for the full methodology.
+   - **Batters**: 19-feature model (12 blended z-scores + 7 position intercepts), rescaled × `BATTER_SCALE = 1.10`
+   - **Pitchers**: separate SP and RP models (16 features each: 10 blended z-scores + 6 raw stats), `PITCHER_SCALE = 1.00`
+   - The blend lets the model learn how much each stat should be position-relative vs league-wide (e.g., SB leans ~75% overall to fix catcher SB inflation)
 3. **Linear mapping** — `z_score_position` is mapped to 1.0–10.0 (clamped at z=−2 and z=10):
    `sandlotScore = 1.0 + ((clamp(z, -2, 10) + 2) / 12) × 9.0`
 
-Because it's a **sum of multiple z-scores**, values well above 10 are possible. A `z_score_position` of 18 doesn't mean "18 standard deviations above the mean" — it means the player averaged ~3σ above their position's mean across each of the 6 stat categories. Scores ≥ 9.5 (z ≥ 9.33) earn "Sandlot Legend" status.
+Scores ≥ 9.5 (z ≥ 9.33) earn "Sandlot Legend" status. The 10.0 cap costs only Δr=0.005 in predictive accuracy — a good UX tradeoff.
 
-**Special cases**: UTIL batters and P-position pitchers have tiny pools, so they z-score against all batters / all pitchers respectively.
+**Special cases**: UTIL batters and P-position pitchers have tiny pools, so they use overall z-scores (not position-relative) and fall back to equal-weight sums (no Ridge model).
 
 ## Commands
 
