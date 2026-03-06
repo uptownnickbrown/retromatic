@@ -119,9 +119,14 @@ function CommunityPicks({
 
   return (
     <div className="space-y-3">
-      <p className="text-[9px] uppercase tracking-widest text-muted font-mono text-center">
-        Community Picks
-      </p>
+      <div className="flex items-baseline">
+        <p className="flex-1 text-[9px] uppercase tracking-widest text-muted font-mono text-center">
+          Community Picks
+        </p>
+        <p className="w-11 text-[8px] uppercase tracking-wider text-muted font-mono text-center leading-none flex-shrink-0">
+          Sandlot<br />Score
+        </p>
+      </div>
       {roundPlayers.map((player, pi) => {
         const isChosenPlayer = player.name === chosenPlayerName;
 
@@ -155,36 +160,43 @@ function CommunityPicks({
                 const sandlotScore = calculateSandlotScore(yo.zScorePosition);
                 const isChosenYearRow = isChosenPlayer && yo.year === chosenYear;
                 return (
-                  <div key={yo.year} className="mt-1">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className={cn(
-                        'font-mono text-[10px] truncate leading-tight',
-                        isChosenYearRow ? 'text-navy font-bold' : 'text-muted',
-                      )}>
-                        {yo.year} {getTeamFullName(yo.team)}
-                      </span>
-                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                        <span className="text-[10px] font-mono tabular-nums text-muted/60">
-                          {sandlotScore.toFixed(1)}
+                  <div key={yo.year} className="mt-1 flex items-center gap-2">
+                    {/* Left: year/team, pct label, and bar */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className={cn(
+                          'font-mono text-[10px] truncate leading-tight',
+                          isChosenYearRow ? 'text-navy font-bold' : 'text-muted',
+                        )}>
+                          {yo.year} {getTeamFullName(yo.team)}
                         </span>
                         <span className={cn(
-                          'text-[10px] font-mono font-bold tabular-nums',
+                          'text-[10px] font-mono font-bold tabular-nums flex-shrink-0 ml-2',
                           isChosenYearRow ? 'text-red' : 'text-muted',
                         )}>
                           {pct}%
                         </span>
                       </div>
+                      <div className="h-2.5 bg-navy/8 rounded overflow-hidden mt-0.5">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(pct / maxPct) * 85}%` }}
+                          transition={{ delay: 1.4 + pi * 0.1, duration: 0.5, ease: 'easeOut' }}
+                          className={cn(
+                            'h-full rounded',
+                            isChosenYearRow ? 'bg-red' : 'bg-navy/20',
+                          )}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2.5 bg-navy/8 rounded overflow-hidden mt-0.5">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(pct / maxPct) * 100}%` }}
-                        transition={{ delay: 1.4 + pi * 0.1, duration: 0.5, ease: 'easeOut' }}
-                        className={cn(
-                          'h-full rounded',
-                          isChosenYearRow ? 'bg-red' : 'bg-navy/20',
-                        )}
-                      />
+                    {/* Right: Sandlot Score */}
+                    <div className="w-11 flex-shrink-0 flex items-center justify-center">
+                      <span className={cn(
+                        'font-mono text-sm font-bold tabular-nums',
+                        sandlotScore >= 9.5 ? 'text-gold' : 'text-navy/50',
+                      )}>
+                        {sandlotScore.toFixed(1)}
+                      </span>
                     </div>
                   </div>
                 );
@@ -303,10 +315,10 @@ export function RevealCard({ reveal }: RevealCardProps) {
                 {reveal.playerType === 'batter'
                   ? `${reveal.stats.AB ?? '--'} AB`
                   : `${reveal.stats.IP != null ? Number(reveal.stats.IP).toFixed(1) : '--'} IP · ${reveal.stats.GS ?? 0} GS`}
-                {' · %\u2019s vs '}
+                {' · percentiles among '}
                 {reveal.position === 'UTIL' ? 'all batters'
                   : reveal.position === 'P' ? 'all pitchers'
-                  : `all ${reveal.position}`}
+                  : `eligible ${reveal.position}`}
               </span>
             </motion.div>
           </motion.div>
