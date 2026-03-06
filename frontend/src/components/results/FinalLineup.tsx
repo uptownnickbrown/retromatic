@@ -122,8 +122,16 @@ function ExpandedPickStats({ pick }: { pick: ResultsPick }) {
         <div className="grid grid-cols-5 divide-x divide-navy/10 bg-paper">
           {statConfigs.map((cfg) => {
             const rawValue = pick.stats[cfg.statKey] ?? pick.stats[cfg.statKey.toLowerCase()];
+            const realPct = pick.categoryPercentiles?.[cfg.key] ?? pick.categoryPercentiles?.[cfg.key.toLowerCase()];
             const zScore = categoryZscores[cfg.key] ?? categoryZscores[cfg.key.toLowerCase()];
-            const percentile = cfg.hasPercentile && zScore !== undefined ? zToPercentile(zScore) : null;
+            let percentile: number | null = null;
+            if (cfg.hasPercentile) {
+              if (realPct !== undefined && realPct !== null) {
+                percentile = Math.round(realPct);
+              } else if (zScore !== undefined) {
+                percentile = zToPercentile(zScore);
+              }
+            }
             return (
               <div key={cfg.key} className="flex flex-col items-center gap-0.5 py-2 px-1">
                 <span className="text-[9px] uppercase tracking-wider text-muted font-mono leading-none">

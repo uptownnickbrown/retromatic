@@ -248,7 +248,7 @@ export function useGame() {
       const roundPlayers = round.players.map(p => ({
         name: p.name,
         portraitUrl: p.portraitUrl,
-        yearOptions: p.yearOptions.map(yo => ({ year: yo.year, team: yo.team, playerRecordId: yo.playerRecordId })),
+        yearOptions: p.yearOptions.map(yo => ({ year: yo.year, team: yo.team, playerRecordId: yo.playerRecordId, zScorePosition: yo.zScorePosition })),
       }));
 
       const reveal: RevealData = {
@@ -256,11 +256,13 @@ export function useGame() {
         blurb,
         stats: selectedYearOption.stats,
         categoryZscores: selectedYearOption.categoryZscores,
+        categoryPercentiles: selectedYearOption.categoryPercentiles,
         playerType: selectedYearOption.playerType,
         playerName: selectedPlayer.name,
         portraitUrl: selectedPlayer.portraitUrl,
         year,
         team: selectedYearOption.team,
+        position: round.position,
         pickPercentages: adjustedPicks,
         roundPlayers,
       };

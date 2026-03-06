@@ -88,6 +88,83 @@ async function migrate() {
     `;
     console.log('[migrate] ✓ portraits table');
 
+    // Add category_percentiles column to players (rank-based stat percentiles)
+    await sql`
+      ALTER TABLE players
+      ADD COLUMN IF NOT EXISTS category_percentiles JSONB
+    `;
+    console.log('[migrate] ✓ category_percentiles column');
+
+    // Backfill rank-based percentiles if any are NULL
+    const nullCount = await sql`SELECT COUNT(*) as c FROM players WHERE category_percentiles IS NULL`;
+    if (Number(nullCount[0].c) > 0) {
+      console.log(`[migrate] Backfilling ${nullCount[0].c} category_percentiles...`);
+
+      // Batters (non-UTIL): position-relative percentiles
+      await sql`
+        WITH pcts AS (
+          SELECT id,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'HR')::numeric) * 100)::int AS hr,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'R')::numeric) * 100)::int AS r,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'RBI')::numeric) * 100)::int AS rbi,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'SB')::numeric) * 100)::int AS sb,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'AVG')::numeric) * 100)::int AS avg
+          FROM players WHERE player_type = 'batter' AND primary_position != 'UTIL'
+        )
+        UPDATE players SET category_percentiles = jsonb_build_object('HR',pcts.hr,'R',pcts.r,'RBI',pcts.rbi,'SB',pcts.sb,'AVG',pcts.avg)
+        FROM pcts WHERE players.id = pcts.id
+      `;
+
+      // UTIL batters: percentiles vs all batters
+      await sql`
+        WITH pcts AS (
+          SELECT id,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'HR')::numeric) * 100)::int AS hr,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'R')::numeric) * 100)::int AS r,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'RBI')::numeric) * 100)::int AS rbi,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'SB')::numeric) * 100)::int AS sb,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'AVG')::numeric) * 100)::int AS avg
+          FROM players WHERE player_type = 'batter'
+        )
+        UPDATE players SET category_percentiles = jsonb_build_object('HR',pcts.hr,'R',pcts.r,'RBI',pcts.rbi,'SB',pcts.sb,'AVG',pcts.avg)
+        FROM pcts WHERE players.id = pcts.id AND players.primary_position = 'UTIL'
+      `;
+
+      // Pitchers (SP/RP): W/SV overall, K/ERA/WHIP position-relative
+      await sql`
+        WITH pcts AS (
+          SELECT id,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'W')::numeric) * 100)::int AS w,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'SV')::numeric) * 100)::int AS sv,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'SO')::numeric) * 100)::int AS k,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'ERA')::numeric DESC) * 100)::int AS era,
+            ROUND(PERCENT_RANK() OVER (PARTITION BY primary_position ORDER BY (stats->>'WHIP')::numeric DESC) * 100)::int AS whip
+          FROM players WHERE player_type = 'pitcher' AND primary_position IN ('SP', 'RP')
+        )
+        UPDATE players SET category_percentiles = jsonb_build_object('W',pcts.w,'SV',pcts.sv,'K',pcts.k,'ERA',pcts.era,'WHIP',pcts.whip)
+        FROM pcts WHERE players.id = pcts.id
+      `;
+
+      // P pitchers: all stats vs all pitchers
+      await sql`
+        WITH pcts AS (
+          SELECT id,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'W')::numeric) * 100)::int AS w,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'SV')::numeric) * 100)::int AS sv,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'SO')::numeric) * 100)::int AS k,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'ERA')::numeric DESC) * 100)::int AS era,
+            ROUND(PERCENT_RANK() OVER (ORDER BY (stats->>'WHIP')::numeric DESC) * 100)::int AS whip
+          FROM players WHERE player_type = 'pitcher'
+        )
+        UPDATE players SET category_percentiles = jsonb_build_object('W',pcts.w,'SV',pcts.sv,'K',pcts.k,'ERA',pcts.era,'WHIP',pcts.whip)
+        FROM pcts WHERE players.id = pcts.id AND players.primary_position = 'P'
+      `;
+
+      console.log('[migrate] ✓ category_percentiles backfilled');
+    } else {
+      console.log('[migrate] ✓ category_percentiles already populated');
+    }
+
     console.log('[migrate] Done.');
   } catch (err) {
     console.error('[migrate] FAILED:', (err as Error).message || err);

@@ -45,9 +45,9 @@ function makeRound(roundNumber: number, position: string): RoundData {
         playerId: 'player1',
         portraitUrl: null,
         yearOptions: [
-          { year: 2020, playerRecordId: 1001, zScorePosition: 2.0, team: 'NYA', stats: { HR: 30 }, categoryZscores: { HR: 1.5 }, playerType: 'batter' },
-          { year: 2021, playerRecordId: 1002, zScorePosition: 1.5, team: 'NYA', stats: {}, categoryZscores: {}, playerType: 'batter' },
-          { year: 2022, playerRecordId: 1003, zScorePosition: 0.5, team: 'NYA', stats: {}, categoryZscores: {}, playerType: 'batter' },
+          { year: 2020, playerRecordId: 1001, zScorePosition: 2.0, team: 'NYA', stats: { HR: 30 }, categoryZscores: { HR: 1.5 }, categoryPercentiles: null, playerType: 'batter' },
+          { year: 2021, playerRecordId: 1002, zScorePosition: 1.5, team: 'NYA', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
+          { year: 2022, playerRecordId: 1003, zScorePosition: 0.5, team: 'NYA', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
         ],
         blurbs: { '2020': 'Great season', '2021': 'Solid year', '2022': 'Decent' },
       },
@@ -57,9 +57,9 @@ function makeRound(roundNumber: number, position: string): RoundData {
         playerId: 'player2',
         portraitUrl: null,
         yearOptions: [
-          { year: 2019, playerRecordId: 2001, zScorePosition: 3.0, team: 'BOS', stats: {}, categoryZscores: {}, playerType: 'batter' },
-          { year: 2020, playerRecordId: 2002, zScorePosition: 1.0, team: 'BOS', stats: {}, categoryZscores: {}, playerType: 'batter' },
-          { year: 2021, playerRecordId: 2003, zScorePosition: -0.5, team: 'BOS', stats: {}, categoryZscores: {}, playerType: 'batter' },
+          { year: 2019, playerRecordId: 2001, zScorePosition: 3.0, team: 'BOS', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
+          { year: 2020, playerRecordId: 2002, zScorePosition: 1.0, team: 'BOS', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
+          { year: 2021, playerRecordId: 2003, zScorePosition: -0.5, team: 'BOS', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
         ],
         blurbs: { '2019': 'MVP caliber', '2020': 'OK year', '2021': 'Down year' },
       },
@@ -69,9 +69,9 @@ function makeRound(roundNumber: number, position: string): RoundData {
         playerId: 'player3',
         portraitUrl: null,
         yearOptions: [
-          { year: 2018, playerRecordId: 3001, zScorePosition: 5.0, team: 'LAN', stats: {}, categoryZscores: {}, playerType: 'batter' },
-          { year: 2019, playerRecordId: 3002, zScorePosition: 4.0, team: 'LAN', stats: {}, categoryZscores: {}, playerType: 'batter' },
-          { year: 2020, playerRecordId: 3003, zScorePosition: 2.5, team: 'LAN', stats: {}, categoryZscores: {}, playerType: 'batter' },
+          { year: 2018, playerRecordId: 3001, zScorePosition: 5.0, team: 'LAN', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
+          { year: 2019, playerRecordId: 3002, zScorePosition: 4.0, team: 'LAN', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
+          { year: 2020, playerRecordId: 3003, zScorePosition: 2.5, team: 'LAN', stats: {}, categoryZscores: {}, categoryPercentiles: null, playerType: 'batter' },
         ],
         blurbs: { '2018': 'Legendary', '2019': 'Excellent', '2020': 'Good' },
       },
@@ -266,6 +266,7 @@ describe('useGame', () => {
         team: 'NYA',
         stats: { HR: 30 },
         playerType: 'batter',
+        position: 'C',
       }));
       expect(result.current.picks).toHaveLength(1);
       expect(result.current.picks[0].legendScore).toBe(4.0);

@@ -58,6 +58,7 @@ def create_tables(conn):
         z_score_overall DECIMAL(8, 4) NOT NULL,
         z_score_position DECIMAL(8, 4) NOT NULL,
         category_zscores JSONB NOT NULL,
+        category_percentiles JSONB,
         created_at TIMESTAMP DEFAULT NOW()
     )
     ''')
@@ -713,6 +714,32 @@ def prepare_player_data(batting_df, pitching_df):
             if z_score > pitching_best_positions[key][1]:
                 pitching_best_positions[key] = (pos, z_score, row)
 
+    # Compute rank-based percentiles (more accurate than normal CDF of z-scores)
+    print("Computing rank-based percentiles...")
+
+    # Batters: position-relative percentiles (UTIL uses all-batter pool)
+    for col in ['HR', 'R', 'RBI', 'SB', 'AVG']:
+        # Position-relative rank for non-UTIL
+        batting_df[f'{col}_PCT'] = batting_df.groupby('POS')[col].rank(pct=True) * 100
+        # UTIL: rank against all batters
+        util_mask = batting_df['POS'] == 'UTIL'
+        if util_mask.any():
+            batting_df.loc[util_mask, f'{col}_PCT'] = batting_df[col].rank(pct=True).loc[util_mask] * 100
+
+    # Pitchers: W/SV overall, K/ERA/WHIP position-relative (P uses all-pitcher pool)
+    for col in ['W', 'SV']:
+        pitching_df[f'{col}_PCT'] = pitching_df[col].rank(pct=True) * 100
+    pitching_df['K_PCT'] = pitching_df.groupby('POS')['SO'].rank(pct=True) * 100
+    # ERA/WHIP inverted (lower is better = higher percentile)
+    pitching_df['ERA_PCT'] = pitching_df.groupby('POS')['ERA'].rank(pct=True, ascending=False) * 100
+    pitching_df['WHIP_PCT'] = pitching_df.groupby('POS')['WHIP'].rank(pct=True, ascending=False) * 100
+    # P position: all stats vs all pitchers
+    p_mask = pitching_df['POS'] == 'P'
+    if p_mask.any():
+        pitching_df.loc[p_mask, 'K_PCT'] = pitching_df['SO'].rank(pct=True).loc[p_mask] * 100
+        pitching_df.loc[p_mask, 'ERA_PCT'] = pitching_df['ERA'].rank(pct=True, ascending=False).loc[p_mask] * 100
+        pitching_df.loc[p_mask, 'WHIP_PCT'] = pitching_df['WHIP'].rank(pct=True, ascending=False).loc[p_mask] * 100
+
     all_players = []
 
     # Process batters
@@ -744,6 +771,15 @@ def prepare_player_data(batting_df, pitching_df):
             'AVG': float(record.get('AVG_POS_Z', 0) or 0),
         }
 
+        # Rank-based percentiles (more accurate than normal CDF of z-scores)
+        category_percentiles = {
+            'HR': round(float(record.get('HR_PCT', 50) or 50)),
+            'R': round(float(record.get('R_PCT', 50) or 50)),
+            'RBI': round(float(record.get('RBI_PCT', 50) or 50)),
+            'SB': round(float(record.get('SB_PCT', 50) or 50)),
+            'AVG': round(float(record.get('AVG_PCT', 50) or 50)),
+        }
+
         player = {
             'player_id': player_id,
             'name_first': record.get('nameFirst', 'Unknown'),
@@ -757,6 +793,7 @@ def prepare_player_data(batting_df, pitching_df):
             'z_score_overall': float(record.get('Total_Z', 0) or 0),
             'z_score_position': float(record.get('Total_POS_Z', 0) or 0),
             'category_zscores': category_zscores,
+            'category_percentiles': category_percentiles,
         }
 
         all_players.append(player)
@@ -795,6 +832,15 @@ def prepare_player_data(batting_df, pitching_df):
             'WHIP': float(record.get('WHIP_POS_Z', 0) or 0),
         }
 
+        # Rank-based percentiles
+        category_percentiles = {
+            'W': round(float(record.get('W_PCT', 50) or 50)),
+            'SV': round(float(record.get('SV_PCT', 50) or 50)),
+            'K': round(float(record.get('K_PCT', 50) or 50)),
+            'ERA': round(float(record.get('ERA_PCT', 50) or 50)),
+            'WHIP': round(float(record.get('WHIP_PCT', 50) or 50)),
+        }
+
         player = {
             'player_id': player_id,
             'name_first': record.get('nameFirst', 'Unknown'),
@@ -808,6 +854,7 @@ def prepare_player_data(batting_df, pitching_df):
             'z_score_overall': float(record.get('Total_Z', 0) or 0),
             'z_score_position': float(record.get('Total_POS_Z', 0) or 0),
             'category_zscores': category_zscores,
+            'category_percentiles': category_percentiles,
         }
 
         all_players.append(player)
@@ -847,6 +894,7 @@ def insert_players_to_postgres(players, conn):
             player['z_score_overall'],
             player['z_score_position'],
             json.dumps(player['category_zscores']),
+            json.dumps(player['category_percentiles']),
         ))
 
     # Batch upsert — preserves existing player IDs so FKs remain valid
@@ -855,7 +903,7 @@ def insert_players_to_postgres(players, conn):
         '''INSERT INTO players
            (player_id, name_first, name_last, year, team, player_type,
             primary_position, positions_eligible, stats, z_score_overall,
-            z_score_position, category_zscores)
+            z_score_position, category_zscores, category_percentiles)
            VALUES %s
            ON CONFLICT (player_id, year, player_type) DO UPDATE SET
             name_first = EXCLUDED.name_first,
@@ -867,7 +915,8 @@ def insert_players_to_postgres(players, conn):
             stats = EXCLUDED.stats,
             z_score_overall = EXCLUDED.z_score_overall,
             z_score_position = EXCLUDED.z_score_position,
-            category_zscores = EXCLUDED.category_zscores''',
+            category_zscores = EXCLUDED.category_zscores,
+            category_percentiles = EXCLUDED.category_percentiles''',
         values,
         page_size=1000
     )

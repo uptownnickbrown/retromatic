@@ -26,6 +26,7 @@ export interface YearOption {
   team: string;
   stats: Record<string, number>;
   categoryZscores: Record<string, number>;
+  categoryPercentiles: Record<string, number> | null;
   playerType: 'batter' | 'pitcher';
 }
 
@@ -84,7 +85,7 @@ export interface CompleteResponse {
 export interface RevealRoundPlayer {
   name: string;
   portraitUrl: string | null;
-  yearOptions: { year: number; team: string; playerRecordId: number }[];
+  yearOptions: { year: number; team: string; playerRecordId: number; zScorePosition: number }[];
 }
 
 export interface RevealData {
@@ -92,11 +93,13 @@ export interface RevealData {
   blurb: string;
   stats: Record<string, number>;
   categoryZscores: Record<string, number>;
+  categoryPercentiles: Record<string, number> | null;
   playerType: 'batter' | 'pitcher';
   playerName: string;
   portraitUrl: string | null;
   year: number;
   team: string;
+  position: string;
   pickPercentages?: PickPercentage[];
   roundPlayers?: RevealRoundPlayer[];
 }
@@ -113,6 +116,7 @@ export interface ResultsPick {
   portraitUrl?: string | null;
   blurb?: string;
   categoryZscores?: Record<string, number>;
+  categoryPercentiles?: Record<string, number> | null;
   playerType?: 'batter' | 'pitcher';
 }
 
@@ -124,6 +128,7 @@ export interface PerfectLineupPick {
   legendScore: number;
   stats?: Record<string, number>;
   categoryZscores?: Record<string, number>;
+  categoryPercentiles?: Record<string, number> | null;
   playerType?: 'batter' | 'pitcher';
   team?: string;
   blurb?: string;

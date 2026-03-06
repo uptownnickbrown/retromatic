@@ -444,6 +444,7 @@ router.get('/:id/results', async (req, res) => {
       legendScore: userPicks.legendScore,
       stats: players.stats,
       categoryZscores: players.categoryZscores,
+      categoryPercentiles: players.categoryPercentiles,
       playerType: players.playerType,
       wasTimeout: userPicks.wasTimeout,
       portraitUrl: roundOptions.portraitUrl,
@@ -563,6 +564,7 @@ router.get('/:id/recap', async (req, res) => {
         team: players.team,
         stats: players.stats,
         categoryZscores: players.categoryZscores,
+        categoryPercentiles: players.categoryPercentiles,
         playerType: players.playerType,
         zScorePosition: players.zScorePosition,
       })
@@ -596,6 +598,7 @@ router.get('/:id/recap', async (req, res) => {
         legendScore,
         stats: (playerRecord.stats ?? {}) as Record<string, number>,
         categoryZscores: (playerRecord.categoryZscores ?? {}) as Record<string, number>,
+        categoryPercentiles: (playerRecord.categoryPercentiles ?? null) as Record<string, number> | null,
         playerType: (playerRecord.playerType ?? 'batter') as 'batter' | 'pitcher',
         wasTimeout: false,
         portraitUrl: option?.portraitUrl ?? null,
@@ -666,6 +669,7 @@ export async function getAllRoundData(challengeId: number) {
     zScorePosition: string;
     stats: unknown;
     categoryZscores: unknown;
+    categoryPercentiles: unknown;
     playerType: string;
     team: string | null;
     nameFirst: string | null;
@@ -685,6 +689,7 @@ export async function getAllRoundData(challengeId: number) {
       zScorePosition: players.zScorePosition,
       stats: players.stats,
       categoryZscores: players.categoryZscores,
+      categoryPercentiles: players.categoryPercentiles,
       playerType: players.playerType,
       team: players.team,
       nameFirst: players.nameFirst,
@@ -744,6 +749,7 @@ export async function getAllRoundData(challengeId: number) {
               team: record?.team ?? '',
               stats: (record?.stats ?? {}) as Record<string, number>,
               categoryZscores: (record?.categoryZscores ?? {}) as Record<string, number>,
+              categoryPercentiles: (record?.categoryPercentiles ?? null) as Record<string, number> | null,
               playerType: (record?.playerType ?? 'batter') as 'batter' | 'pitcher',
             };
           }),

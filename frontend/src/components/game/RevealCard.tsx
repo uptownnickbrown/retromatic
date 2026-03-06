@@ -7,6 +7,7 @@ import { SandlotScoreBadge } from './SandlotScoreBadge';
 import { PaperCard } from '../ui/PaperCard';
 import { PlayerPortrait } from './PlayerPortrait';
 import { zToPercentile, getDisplayStats } from '../../lib/statBenchmark';
+import { calculateSandlotScore } from '../../lib/sandlotScore';
 import { getTeamFullName } from '../../lib/teams';
 import { renderBlurb } from '../../lib/renderBlurb';
 
@@ -151,22 +152,28 @@ function CommunityPicks({
               {player.yearOptions.map(yo => {
                 // Each year option has its own playerRecordId — look up directly
                 const pct = pctMap.get(yo.playerRecordId)?.get(yo.year) ?? 0;
+                const sandlotScore = calculateSandlotScore(yo.zScorePosition);
                 const isChosenYearRow = isChosenPlayer && yo.year === chosenYear;
                 return (
                   <div key={yo.year} className="mt-1">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-1">
                       <span className={cn(
                         'font-mono text-[10px] truncate leading-tight',
                         isChosenYearRow ? 'text-navy font-bold' : 'text-muted',
                       )}>
                         {yo.year} {getTeamFullName(yo.team)}
                       </span>
-                      <span className={cn(
-                        'text-[10px] font-mono font-bold tabular-nums flex-shrink-0 ml-2',
-                        isChosenYearRow ? 'text-red' : 'text-muted',
-                      )}>
-                        {pct}%
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+                        <span className="text-[10px] font-mono tabular-nums text-muted/60">
+                          {sandlotScore.toFixed(1)}
+                        </span>
+                        <span className={cn(
+                          'text-[10px] font-mono font-bold tabular-nums',
+                          isChosenYearRow ? 'text-red' : 'text-muted',
+                        )}>
+                          {pct}%
+                        </span>
+                      </div>
                     </div>
                     <div className="h-2.5 bg-navy/8 rounded overflow-hidden mt-0.5">
                       <motion.div
@@ -198,10 +205,16 @@ export function RevealCard({ reveal }: RevealCardProps) {
     const configs = getDisplayStats(reveal.playerType);
     return configs.map(cfg => {
       const rawValue = reveal.stats[cfg.statKey] ?? reveal.stats[cfg.statKey.toLowerCase()];
+      // Use pre-computed rank percentiles when available, fall back to z-score approximation
+      const realPct = reveal.categoryPercentiles?.[cfg.key] ?? reveal.categoryPercentiles?.[cfg.key.toLowerCase()];
       const zScore = reveal.categoryZscores[cfg.key] ?? reveal.categoryZscores[cfg.key.toLowerCase()];
       let percentile: number | null = null;
-      if (cfg.hasPercentile && zScore !== undefined) {
-        percentile = zToPercentile(zScore);
+      if (cfg.hasPercentile) {
+        if (realPct !== undefined && realPct !== null) {
+          percentile = Math.round(realPct);
+        } else if (zScore !== undefined) {
+          percentile = zToPercentile(zScore);
+        }
       }
       return {
         ...cfg,
@@ -280,6 +293,22 @@ export function RevealCard({ reveal }: RevealCardProps) {
                 />
               ))}
             </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.9 }}
+              className="text-center py-1.5 border-t border-navy/8"
+            >
+              <span className="font-mono text-[10px] text-muted tracking-wide">
+                {reveal.playerType === 'batter'
+                  ? `${reveal.stats.AB ?? '--'} AB`
+                  : `${reveal.stats.IP != null ? Number(reveal.stats.IP).toFixed(1) : '--'} IP · ${reveal.stats.GS ?? 0} GS`}
+                {' · %\u2019s vs '}
+                {reveal.position === 'UTIL' ? 'all batters'
+                  : reveal.position === 'P' ? 'all pitchers'
+                  : `all ${reveal.position}`}
+              </span>
+            </motion.div>
           </motion.div>
 
           {/* Blurb box with badge floated top-right — text wraps around it */}
