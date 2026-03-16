@@ -48,6 +48,10 @@ async function streamOpenAICall(
   for await (const event of stream) {
     if (event.type === 'response.output_text.delta') {
       send({ type: 'message_delta', delta: event.delta });
+    } else if (event.type === 'response.web_search_call.in_progress') {
+      send({ type: 'thinking', message: 'Searching the web...' });
+    } else if (event.type === 'response.web_search_call.completed') {
+      send({ type: 'thinking', message: 'Web search complete.' });
     } else if (event.type === 'response.completed') {
       completedResponse = event.response;
     }
@@ -1016,9 +1020,11 @@ Your job: Create a 10-round draft challenge based on the user's prompt. Each cha
 
 ## EFFICIENCY RULES (MANDATORY)
 - NEVER call get_player_seasons by name (firstName/lastName) more than 5 times total in a session. Each name lookup is a separate database round-trip.
-- After finding players via SQL or web search, use batch lookups: get_player_seasons({ playerIds: ["benchjo01", "larkiba01", "gibsobo01", ...] })
-- For bulk name lookups, use query_players SQL: WHERE name_last IN ('Bench', 'Larkin', 'Gibson') — this finds everyone in ONE call.
-- query_players results are auto-enriched with sandlot_score (computed from z_score_position). Do NOT put sandlot_score in your SQL — it is NOT a database column. Just SELECT z_score_position and the score appears in results. You can draft directly from SQL results without calling get_player_seasons.
+- NEVER run more than 3 individual-player SQL queries in a row. If you need multiple players, use ONE query with WHERE name_last IN ('Bench', 'Larkin', 'Gibson').
+- After your broad discovery query, STOP SEARCHING and proceed to DRAFT. Do not look up individual players one at a time.
+- If a query returns 0 rows, that player is NOT in the database (covers 1961-2025 MLB only). Do NOT try alternate spellings, name variants, or different year ranges. Move on immediately.
+- After finding players via SQL or web search, use batch lookups: get_player_seasons({ playerIds: ["benchjo01", "larkiba01", ...] })
+- query_players results are auto-enriched with sandlot_score (computed from z_score_position). Do NOT put sandlot_score in your SQL — it is NOT a database column. Just SELECT z_score_position and the score appears in results. Draft directly from SQL results.
 
 ## THEME CLASSIFICATION — CHOOSE YOUR APPROACH
 Before searching, classify the theme and pick the right discovery strategy:
@@ -1041,12 +1047,14 @@ Classify the theme. Decide discovery strategy. Identify stat constraints (if any
 - SQL results are auto-enriched with sandlot_score (do NOT put sandlot_score in your SQL — it's not a DB column). Just include z_score_position in your SELECT and the score appears in results. You can go straight to DRAFT without calling get_player_seasons.
 - For knowledge-based themes: use web_search FIRST to get authoritative facts, then ONE SQL query to find matching players.
 - For subjective themes: brainstorm a list, then use ONE SQL query with WHERE name_last IN (...) to batch-verify all players at once.
+- AFTER your broad discovery query: STOP. You have enough data. Proceed immediately to DRAFT. If some players weren't found, skip them and use alternatives from your results.
 
 ### Phase 3: DRAFT
 - Assign candidates to all 10 positions. Choose 3 year options per player.
-- Use get_player_seasons if you need to see all available years for specific players.
+- Use ONLY the data from your discovery query. Do NOT search for individual players one at a time.
 - NEVER guess years — only use years from tool results.
 - Players can cross positions — use positions_eligible to assign flexibly.
+- If you don't have enough players for a position, pick the best available from your results — even if they aren't a perfect theme fit. A complete challenge is better than a perfect-but-incomplete one.
 
 ### Phase 4: EVALUATE (MANDATORY)
 - Call evaluate_challenge with your draft AND any stat constraints.
@@ -1161,6 +1169,11 @@ export async function runAgentBuilder(
   const client = getClient();
   cleanupSessions();
 
+  // SSE keepalive: send a comment every 15s to prevent connection timeouts
+  const keepaliveInterval = setInterval(() => {
+    try { res.write(': keepalive\n\n'); } catch { /* connection closed */ }
+  }, 15_000);
+
   const send = (data: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
@@ -1220,6 +1233,7 @@ export async function runAgentBuilder(
     const maxIterations = 100;
     const checkpointAt = 50;
     let serialNameLookups = 0;
+    let serialSqlLookups = 0;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -1250,9 +1264,12 @@ export async function runAgentBuilder(
       for (const toolCall of toolCalls) {
         const args = JSON.parse(toolCall.arguments);
 
-        // Reset serial name lookup counter on non-get_player_seasons tools
+        // Reset serial lookup counters when switching tool types
         if (toolCall.name !== 'get_player_seasons') {
           serialNameLookups = 0;
+        }
+        if (toolCall.name !== 'query_players') {
+          serialSqlLookups = 0;
         }
 
         // Extract challenge title from preview/submit tool calls
@@ -1330,6 +1347,7 @@ export async function runAgentBuilder(
             agentSessions.set(sid, { responseId: updatedResponse.id, challengeTitle, themeDescription, createdAt: Date.now() });
 
             // Send awaiting_feedback and end the stream
+            clearInterval(keepaliveInterval);
             send({ type: 'awaiting_feedback', sessionId: sid });
             res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
             res.end();
@@ -1343,6 +1361,7 @@ export async function runAgentBuilder(
           if ('challengeId' in submitResult) {
             console.log(JSON.stringify({ event: 'agent_challenge_submitted', sessionId: sid, challengeId: submitResult.challengeId, theme: args.theme }));
             // Clean up session
+            clearInterval(keepaliveInterval);
             agentSessions.delete(sid);
             send({ type: 'success', challengeId: submitResult.challengeId, theme: args.theme });
             res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
@@ -1366,6 +1385,25 @@ export async function runAgentBuilder(
             send({ type: 'thinking', message: `SQL error: ${parsed.error}` });
           } else {
             send({ type: 'thinking', message: `Query returned ${parsed.rowCount} rows` });
+          }
+
+          // Detect single-player SQL lookups (same antipattern as serial name lookups)
+          const sql = String(args.sql || '').toLowerCase();
+          const isSinglePlayerQuery = (parsed.rowCount ?? 0) <= 5 &&
+            (sql.includes("name_last") || sql.includes("name_first")) &&
+            !sql.includes(" in (") && !sql.includes(" in(");
+          if (isSinglePlayerQuery) {
+            serialSqlLookups++;
+          } else {
+            serialSqlLookups = 0;
+          }
+
+          if (serialSqlLookups >= 8) {
+            result += '\n\n🚨 You have run ' + serialSqlLookups + ' individual player SQL lookups in a row. STOP searching for individual players. If a player is not in the database after one try, skip them. Use the players you already found from your broad discovery query and proceed to DRAFT/EVALUATE immediately.';
+            console.log(JSON.stringify({ event: 'agent_serial_sql_warning', sessionId: sid, count: serialSqlLookups }));
+            send({ type: 'thinking', message: `Warning: ${serialSqlLookups} individual SQL lookups — redirecting to drafting` });
+          } else if (serialSqlLookups >= 4) {
+            result += '\n\n⚠️ You have run ' + serialSqlLookups + ' individual player SQL lookups. If a player returns 0 rows, they are NOT in the database — do not try alternate spellings. Work with the players you already found.';
           }
         } else if (toolCall.name === 'evaluate_challenge') {
           result = await executeEvaluateChallenge(args);
@@ -1425,6 +1463,7 @@ export async function runAgentBuilder(
         agentSessions.set(sid, { responseId: checkpointResponse.id, challengeTitle, themeDescription, createdAt: Date.now() });
 
         console.log(JSON.stringify({ event: 'agent_checkpoint', sessionId: sid, iterations }));
+        clearInterval(keepaliveInterval);
         send({ type: 'message', message: 'This is taking a while — I\'ve done a lot of searching. Want me to keep going, or should I work with what I\'ve found so far?' });
         send({ type: 'awaiting_feedback', sessionId: sid });
         res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
@@ -1455,6 +1494,7 @@ export async function runAgentBuilder(
     send({ type: 'error', message: String(error) });
   }
 
+  clearInterval(keepaliveInterval);
   res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
   res.end();
   return null;
