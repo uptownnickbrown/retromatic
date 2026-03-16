@@ -1226,6 +1226,10 @@ export async function runAgentBuilder(
 
   send({ type: 'thinking', message: resumeResponseId ? 'Continuing conversation...' : 'Starting challenge builder...' });
 
+  // Track elapsed time from connection start (includes initial OpenAI call with web search)
+  const startTime = Date.now();
+  const MAX_ELAPSED_MS = 240_000; // 4 minutes — checkpoint before Railway proxy timeout (~5 min)
+
   try {
     // Load team codes (cached after first call)
     const teamCodes = await getTeamCodesForPrompt();
@@ -1256,8 +1260,6 @@ export async function runAgentBuilder(
     let iterations = 0;
     const maxIterations = 100;
     const checkpointAt = 50;
-    const startTime = Date.now();
-    const MAX_ELAPSED_MS = 240_000; // 4 minutes — checkpoint before Railway proxy timeout (~5 min)
     let serialNameLookups = 0;
     let serialSqlLookups = 0;
 
