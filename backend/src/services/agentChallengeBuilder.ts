@@ -1452,7 +1452,12 @@ export async function runAgentBuilder(
         }
 
         // Send tool result to client for observability (test scripts, debugging)
-        send({ type: 'tool_result', tool: toolCall.name, result: JSON.parse(result) });
+        try {
+          send({ type: 'tool_result', tool: toolCall.name, result: JSON.parse(result) });
+        } catch {
+          // result may have warning text appended — send as string
+          send({ type: 'tool_result', tool: toolCall.name, result });
+        }
 
         // Append theme reminder to tool results to prevent drift over long conversations
         if (themeDescription && challengeTitle) {
