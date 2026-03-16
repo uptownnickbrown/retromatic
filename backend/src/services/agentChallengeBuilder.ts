@@ -1357,6 +1357,9 @@ export async function runAgentBuilder(
           result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
         }
 
+        // Send tool result to client for observability (test scripts, debugging)
+        send({ type: 'tool_result', tool: toolCall.name, result: JSON.parse(result) });
+
         // Append theme reminder to tool results to prevent drift over long conversations
         if (themeDescription && challengeTitle) {
           result += `\n\n[Reminder: Building challenge "${challengeTitle}" — ${themeDescription}]`;

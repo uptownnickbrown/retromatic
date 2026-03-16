@@ -482,11 +482,12 @@ export interface ProposalData {
 }
 
 export interface AgentEvent {
-  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session' | 'theme';
+  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'tool_result' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session' | 'theme';
   message?: string;
   delta?: string;
   tool?: string;
   args?: Record<string, unknown>;
+  result?: unknown;
   challengeId?: number;
   theme?: string;
   title?: string;
