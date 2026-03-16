@@ -380,8 +380,8 @@ function addMsg(state: AgentSessionState, msg: Omit<AgentChatMessage, 'id'>): Ag
 }
 
 function phaseFromTool(toolName: string): AgentPhase {
-  if (toolName === 'search_players' || toolName === 'query_players') return 'searching';
-  if (toolName === 'preview_challenge') return 'building';
+  if (toolName === 'get_player_seasons' || toolName === 'query_players') return 'searching';
+  if (toolName === 'evaluate_challenge' || toolName === 'preview_challenge') return 'building';
   if (toolName === 'submit_challenge') return 'submitting';
   return 'thinking';
 }
