@@ -228,7 +228,7 @@ z_score_position → Sandlot Score: score = 1.0 + ((clamp(z, -2, 10) + 2) / 12) 
 Key thresholds (use z values in queries, not Sandlot Scores):
   z ≈ 3.33 → Score 5.0 | z ≈ 6.0 → Score 7.0 | z ≈ 7.33 → Score 8.0 | z ≈ 9.33 → Score 9.5
 
-Results are auto-enriched: any row with z_score_position (or aliased as best_z / z) will include a computed sandlot_score field. You can draft directly from query results without calling get_player_seasons.
+IMPORTANT: sandlot_score is NOT a database column — do NOT use it in SQL queries. It is auto-computed and appended to your results for any row that includes z_score_position. Just SELECT z_score_position and you will see sandlot_score in the response.
 
 Rules: SELECT only. Only the "players" table. Always include LIMIT (max 200). 10-second timeout.`,
     parameters: {
@@ -1018,7 +1018,7 @@ Your job: Create a 10-round draft challenge based on the user's prompt. Each cha
 - NEVER call get_player_seasons by name (firstName/lastName) more than 5 times total in a session. Each name lookup is a separate database round-trip.
 - After finding players via SQL or web search, use batch lookups: get_player_seasons({ playerIds: ["benchjo01", "larkiba01", "gibsobo01", ...] })
 - For bulk name lookups, use query_players SQL: WHERE name_last IN ('Bench', 'Larkin', 'Gibson') — this finds everyone in ONE call.
-- query_players results now include computed sandlot_score. You can draft directly from SQL results without calling get_player_seasons. Only call get_player_seasons if you need additional year options not returned by your SQL query.
+- query_players results are auto-enriched with sandlot_score (computed from z_score_position). Do NOT put sandlot_score in your SQL — it is NOT a database column. Just SELECT z_score_position and the score appears in results. You can draft directly from SQL results without calling get_player_seasons.
 
 ## THEME CLASSIFICATION — CHOOSE YOUR APPROACH
 Before searching, classify the theme and pick the right discovery strategy:
@@ -1038,7 +1038,7 @@ Classify the theme. Decide discovery strategy. Identify stat constraints (if any
 ### Phase 2: DISCOVER
 - **Write ONE broad SQL query** via query_players that finds candidates across ALL positions. Avoid searching position-by-position.
 - For SQL discovery queries, ALWAYS include: player_id, name_first, name_last, year, team, primary_position, positions_eligible, player_type, z_score_position, and any theme-relevant stats. This gives you everything to draft directly from results.
-- SQL results now include computed sandlot_score for every row. You can draft directly from SQL results — go straight to DRAFT phase without calling get_player_seasons.
+- SQL results are auto-enriched with sandlot_score (do NOT put sandlot_score in your SQL — it's not a DB column). Just include z_score_position in your SELECT and the score appears in results. You can go straight to DRAFT without calling get_player_seasons.
 - For knowledge-based themes: use web_search FIRST to get authoritative facts, then ONE SQL query to find matching players.
 - For subjective themes: brainstorm a list, then use ONE SQL query with WHERE name_last IN (...) to batch-verify all players at once.
 
