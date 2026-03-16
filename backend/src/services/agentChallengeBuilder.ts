@@ -307,27 +307,17 @@ export async function executeGetPlayerSeasons(args: Record<string, unknown>): Pr
     if (lastName) nameConditions.push(ilike(players.nameLast, `%${lastName}%`));
     if (firstName) nameConditions.push(ilike(players.nameFirst, `%${firstName}%`));
 
-    const nameRows = await db.selectDistinct({
+    const nameRows = await db.select({
       playerId: players.playerId,
-      nameFirst: players.nameFirst,
-      nameLast: players.nameLast,
-      bestZ: sql<string>`MAX(${players.zScorePosition}) OVER (PARTITION BY ${players.playerId})`,
+      bestZ: sql<string>`MAX(${players.zScorePosition}::numeric)`,
     })
       .from(players)
       .where(and(...nameConditions))
-      .orderBy(desc(sql`MAX(${players.zScorePosition}) OVER (PARTITION BY ${players.playerId})`))
-      .limit(limit * 5); // over-fetch to dedup
+      .groupBy(players.playerId)
+      .orderBy(desc(sql`MAX(${players.zScorePosition}::numeric)`))
+      .limit(limit);
 
-    // Dedup to unique player IDs, take top N by best z-score
-    const seen = new Set<string>();
-    targetIds = [];
-    for (const r of nameRows) {
-      if (!seen.has(r.playerId)) {
-        seen.add(r.playerId);
-        targetIds.push(r.playerId);
-        if (targetIds.length >= limit) break;
-      }
-    }
+    targetIds = nameRows.map(r => r.playerId);
   } else {
     return JSON.stringify({ error: 'Provide playerIds or firstName/lastName' });
   }
