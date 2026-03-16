@@ -208,7 +208,7 @@ Rules:
     type: 'function' as const,
     name: 'query_players',
     strict: false,
-    description: `Run a read-only SQL SELECT query against the players table for complex searches that search_players can't express — career-relative constraints, window functions, cross-season comparisons, JSONB stat extraction, etc.
+    description: `Run a read-only SQL SELECT query against the players table. This is your PRIMARY discovery tool — use it to find candidates across all positions in one shot. Supports career-relative constraints, window functions, cross-season comparisons, JSONB stat extraction, aggregation, and more.
 
 The players table has ~36,500 rows (one per player-season, 1961-2025). Columns:
 - player_id (varchar) — Lahman ID, stable across seasons (e.g. "troutmi01")
