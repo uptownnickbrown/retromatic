@@ -67,16 +67,10 @@ describe('validateSqlQuery', () => {
     expect((result as { error: string }).error).toContain('TRUNCATE');
   });
 
-  it('rejects queries against non-players tables', () => {
-    const result = validateSqlQuery('SELECT * FROM challenges LIMIT 10');
-    expect(result.valid).toBe(false);
-    expect((result as { error: string }).error).toContain('challenges');
-  });
-
-  it('rejects JOINs to non-players tables', () => {
-    const result = validateSqlQuery('SELECT * FROM players JOIN challenges ON 1=1 LIMIT 10');
-    expect(result.valid).toBe(false);
-    expect((result as { error: string }).error).toContain('challenges');
+  it('accepts CTEs with column-list syntax', () => {
+    expect(validateSqlQuery(
+      "WITH champs(team, year) AS (VALUES ('NYA', 1998)) SELECT * FROM players p JOIN champs c ON p.team = c.team LIMIT 10"
+    )).toEqual({ valid: true });
   });
 
   it('rejects queries without LIMIT', () => {

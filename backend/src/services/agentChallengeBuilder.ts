@@ -205,6 +205,7 @@ This is NOT a discovery tool — use query_players SQL for bulk discovery. Use t
 Rules:
 - All 10 positions required, 3 players each
 - All player-years must exist in the database (only use years from search results)
+- No duplicate players across rounds (same player cannot appear in two positions, even with different years)
 - No duplicate player-year combinations`,
     parameters: challengeParamsSchema,
   },
@@ -234,7 +235,7 @@ Key thresholds (use z values in queries, not Sandlot Scores):
 
 IMPORTANT: sandlot_score is NOT a database column — do NOT use it in SQL queries. It is auto-computed and appended to your results for any row that includes z_score_position. Just SELECT z_score_position and you will see sandlot_score in the response.
 
-Rules: SELECT only. Only the "players" table. Always include LIMIT (max 200). 10-second timeout.`,
+Rules: SELECT/WITH only (read-only). The main data table is "players" — CTEs, VALUES, and subqueries are fine. Always include LIMIT (max 200). 10-second timeout.`,
     parameters: {
       type: 'object',
       properties: {
@@ -260,10 +261,12 @@ Checks:
 - Per-round quality: best/worst Sandlot Score, score spread
 - Overall: max possible total, weak rounds (best < 8.0), dead rounds (best < 5.0)
 - Stat constraint violations: flags player-years that break your theme's stat rules
-- Validation: player-years exist, position types correct, completeness
+- Validation: player-years exist, position types correct, no duplicate players across rounds
 - Fun factor: flags too-uniform rounds or unplayable rounds
+- Theme fit: echoes back your themeFitJustifications so you can review them
 
-Use statConstraints to enforce theme rules. Example for "0 steals": [{stat:"SB", max:0, applyTo:"all_batter_years"}]`,
+Use statConstraints to enforce theme rules. Example for "0 steals": [{stat:"SB", max:0, applyTo:"all_batter_years"}]
+Use themeFitJustifications for knowledge-based themes (nationality, WBC rosters, awards, etc.) to verify every player fits.`,
     parameters: {
       type: 'object',
       properties: {
@@ -285,6 +288,19 @@ Use statConstraints to enforce theme rules. Example for "0 steals": [{stat:"SB",
               },
             },
             required: ['stat', 'applyTo'],
+          },
+        },
+        themeFitJustifications: {
+          type: 'array',
+          description: 'For knowledge-based themes (nationality, WBC rosters, awards, etc.), justify why EACH player fits the theme. Echoed back for your review.',
+          items: {
+            type: 'object',
+            properties: {
+              playerId: { type: 'string' },
+              playerName: { type: 'string' },
+              justification: { type: 'string', description: 'Why this player fits (e.g., "Born in Venezuela", "Italian-American, played for Team Italy 2023")' },
+            },
+            required: ['playerId', 'playerName', 'justification'],
           },
         },
       },
@@ -467,6 +483,24 @@ async function executeEvaluateChallenge(args: Record<string, unknown>): Promise<
     }
   }
 
+  // Check for duplicate players across rounds (same player in two positions)
+  const playerPositions = new Map<string, { name: string; positions: string[] }>();
+  for (const round of aiRounds) {
+    for (const p of round.players) {
+      const entry = playerPositions.get(p.playerId);
+      if (entry) {
+        entry.positions.push(round.position);
+      } else {
+        playerPositions.set(p.playerId, { name: p.playerName, positions: [round.position] });
+      }
+    }
+  }
+  for (const [, entry] of playerPositions) {
+    if (entry.positions.length > 1) {
+      validationErrors.push(`${entry.name} appears in multiple rounds (${entry.positions.join(', ')}). Each player can only be used once.`);
+    }
+  }
+
   // Check position-type correctness
   const PITCHER_POSITIONS = new Set(['SP', 'RP', 'P']);
   for (const round of aiRounds) {
@@ -582,6 +616,27 @@ async function executeEvaluateChallenge(args: Record<string, unknown>): Promise<
     validationErrors.push(`Incomplete rounds: ${incomplete.map(r => `${r.position} (${r.players.length}/3)`).join(', ')}`);
   }
 
+  // Theme-fit justifications: echo back for model self-review, flag missing players
+  const themeFitJustifications = Array.isArray(args.themeFitJustifications) ? args.themeFitJustifications as Array<{ playerId: string; playerName: string; justification: string }> : [];
+  let themeFitReview: Record<string, unknown> | undefined;
+  if (themeFitJustifications.length > 0) {
+    const justifiedIds = new Set(themeFitJustifications.map(j => j.playerId));
+    const allIds = new Set(playerYearPairs.map(p => p.playerId));
+    const missingJustifications = [...allIds].filter(id => !justifiedIds.has(id));
+    const missingNames = missingJustifications.map(id => {
+      const py = playerYearPairs.find(p => p.playerId === id);
+      return py?.playerName ?? id;
+    });
+    if (missingNames.length > 0) {
+      funFlags.push(`Theme fit not justified for: ${missingNames.join(', ')}. Verify these players match the theme.`);
+    }
+    themeFitReview = {
+      provided: themeFitJustifications.length,
+      missing: missingNames,
+      justifications: themeFitJustifications,
+    };
+  }
+
   return JSON.stringify({
     roundEvals,
     overall: {
@@ -594,6 +649,7 @@ async function executeEvaluateChallenge(args: Record<string, unknown>): Promise<
     statViolations,
     validationErrors,
     funFlags,
+    ...(themeFitReview ? { themeFitReview } : {}),
   });
 }
 
@@ -617,25 +673,6 @@ export function validateSqlQuery(query: string): { valid: true } | { valid: fals
   const forbidden = query.match(SQL_FORBIDDEN_KEYWORDS);
   if (forbidden) {
     return { valid: false, error: `Forbidden SQL keyword: ${forbidden[0]}. Only SELECT queries are allowed.` };
-  }
-
-  // Only allow querying the players table (check FROM and JOIN targets)
-  // First, collect CTE names defined by WITH ... AS so we don't flag them as real tables
-  const cteNames = new Set<string>();
-  const cteRegex = /\bWITH\b|\b(\w+)\s+AS\s*\(/gi;
-  let match;
-  while ((match = cteRegex.exec(query)) !== null) {
-    if (match[1]) cteNames.add(match[1].toLowerCase());
-  }
-
-  const tables: string[] = [];
-  const fromRegex = /\bFROM\s+(\w+)/gi;
-  const joinRegex = /\bJOIN\s+(\w+)/gi;
-  while ((match = fromRegex.exec(query)) !== null) tables.push(match[1].toLowerCase());
-  while ((match = joinRegex.exec(query)) !== null) tables.push(match[1].toLowerCase());
-  const disallowed = tables.filter(t => t !== 'players' && !cteNames.has(t));
-  if (disallowed.length > 0) {
-    return { valid: false, error: `Only the "players" table can be queried. Found references to: ${disallowed.join(', ')}` };
   }
 
   // Must include LIMIT
@@ -729,6 +766,7 @@ async function validateAndBuildRounds(
   // Validate AI-provided rounds
   const errors: string[] = [];
   const allPlayerYears = new Set<string>();
+  const seenPlayerPositions = new Map<string, string>(); // playerId → first position seen
 
   for (const round of aiRounds) {
     if (!POSITIONS.includes(round.position as typeof POSITIONS[number])) {
@@ -739,6 +777,13 @@ async function validateAndBuildRounds(
       errors.push(`${round.position} must have exactly 3 players (has ${round.players.length})`);
     }
     for (const p of round.players) {
+      // Check for same player in multiple rounds (even with different years)
+      const existingPos = seenPlayerPositions.get(p.playerId);
+      if (existingPos) {
+        errors.push(`${p.playerName} appears in both ${existingPos} and ${round.position}. Each player can only be used once.`);
+      } else {
+        seenPlayerPositions.set(p.playerId, round.position);
+      }
       if (p.years.length !== 3) {
         errors.push(`${p.playerName} must have 3 year options (has ${p.years.length})`);
         continue;
@@ -1076,9 +1121,9 @@ Classify the theme. Decide discovery strategy. Identify stat constraints (if any
 
 ### Phase 4: EVALUATE (MANDATORY)
 - Call evaluate_challenge with your draft AND any stat constraints.
-- Review the report: fix validation errors, stat violations, weak rounds.
+- For knowledge-based themes: provide themeFitJustifications for EVERY player. Review the echoed justifications — if you cannot write a confident justification, replace that player.
+- Review the report: fix validation errors (including duplicate players across rounds), stat violations, weak rounds.
 - For stat-based themes, use statConstraints to automatically catch violations (e.g. [{stat:"SB", max:0, applyTo:"all_batter_years"}]).
-- Also do your own subjective check: does every player genuinely fit the theme?
 
 ### Phase 5: ITERATE
 - If evaluate found issues, fix them and re-evaluate.
@@ -1098,9 +1143,17 @@ Classify the theme. Decide discovery strategy. Identify stat constraints (if any
 - UTIL: wildcard batter — ANY batter qualifies. In SQL, filter player_type = 'batter'.
 - P: wildcard pitcher — ANY pitcher qualifies. In SQL, filter player_type = 'pitcher'.
 
-## THEME VALIDATION
-- CRITICAL: Database matches ≠ theme fit. YOU must verify each player genuinely fits the theme.
+## THEME VALIDATION (CRITICAL)
+- Database matches ≠ theme fit. YOU must verify each player genuinely fits the theme.
 - If a search returns 15 players and only 3 genuinely fit, use those 3.
+- For knowledge-based themes (nationality, WBC rosters, awards, etc.):
+  * Cross-reference EVERY player against your web search results before including them.
+  * If a player was NOT in your web search results and you're unsure they fit, DO NOT include them.
+  * When calling evaluate_challenge, provide themeFitJustifications for every player.
+- Common mistakes to avoid:
+  * Including American players in nationality-themed challenges (Italian surname ≠ Italian nationality — verify heritage/WBC participation)
+  * Assuming a player fits a roster (WBC, All-Star, etc.) without confirming via web search
+- A player can only appear in ONE round. Do NOT use the same player at two positions with different years.
 
 ## DRAFT QUALITY TARGETS
 - Every round should have at least one player-year with Sandlot Score 8+ (z ≥ 7.3).
