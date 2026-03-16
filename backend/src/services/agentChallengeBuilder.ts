@@ -831,6 +831,24 @@ async function validateAndBuildRounds(
     return { error: `Position-type mismatch:\n${positionErrors.join('\n')}` };
   }
 
+  // Fix player names: use DB names instead of model-provided names (avoids unicode corruption)
+  if (allPlayerIds.length > 0) {
+    const nameRecords = await db.selectDistinct({
+      playerId: players.playerId,
+      nameFirst: players.nameFirst,
+      nameLast: players.nameLast,
+    })
+      .from(players)
+      .where(inArray(players.playerId, allPlayerIds));
+    const nameMap = new Map(nameRecords.map(r => [r.playerId, `${r.nameFirst} ${r.nameLast}`]));
+    for (const round of aiRounds) {
+      for (const p of round.players) {
+        const dbName = nameMap.get(p.playerId);
+        if (dbName) p.playerName = dbName;
+      }
+    }
+  }
+
   // Assemble rounds in shuffled position order
   const roundsByPosition = new Map<string, SubmitRound>();
   for (const round of aiRounds) {
