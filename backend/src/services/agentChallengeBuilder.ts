@@ -228,6 +228,8 @@ z_score_position → Sandlot Score: score = 1.0 + ((clamp(z, -2, 10) + 2) / 12) 
 Key thresholds (use z values in queries, not Sandlot Scores):
   z ≈ 3.33 → Score 5.0 | z ≈ 6.0 → Score 7.0 | z ≈ 7.33 → Score 8.0 | z ≈ 9.33 → Score 9.5
 
+Results are auto-enriched: any row with z_score_position (or aliased as best_z / z) will include a computed sandlot_score field. You can draft directly from query results without calling get_player_seasons.
+
 Rules: SELECT only. Only the "players" table. Always include LIMIT (max 200). 10-second timeout.`,
     parameters: {
       type: 'object',
@@ -658,7 +660,20 @@ export async function executeQueryPlayers(args: Record<string, unknown>): Promis
 
   try {
     const rows = await executeRawReadOnlyQuery(query, QUERY_TIMEOUT_MS, MAX_QUERY_ROWS);
-    return JSON.stringify({ rowCount: rows.length, rows });
+
+    // Auto-enrich: compute sandlot_score for rows that have a z-score column
+    const enrichedRows = rows.map((row: Record<string, unknown>) => {
+      const zRaw = row.z_score_position ?? row.best_z ?? row.z;
+      if (zRaw != null) {
+        const z = Number(zRaw);
+        if (!Number.isNaN(z) && !('sandlot_score' in row)) {
+          return { ...row, sandlot_score: calculateSandlotScore(z) };
+        }
+      }
+      return row;
+    });
+
+    return JSON.stringify({ rowCount: enrichedRows.length, rows: enrichedRows });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.log(JSON.stringify({
@@ -999,11 +1014,17 @@ Your job: Create a 10-round draft challenge based on the user's prompt. Each cha
 - After significant discoveries, briefly note progress.
 - When presenting a preview, summarize why these players fit the theme.
 
+## EFFICIENCY RULES (MANDATORY)
+- NEVER call get_player_seasons by name (firstName/lastName) more than 5 times total in a session. Each name lookup is a separate database round-trip.
+- After finding players via SQL or web search, use batch lookups: get_player_seasons({ playerIds: ["benchjo01", "larkiba01", "gibsobo01", ...] })
+- For bulk name lookups, use query_players SQL: WHERE name_last IN ('Bench', 'Larkin', 'Gibson') — this finds everyone in ONE call.
+- query_players results now include computed sandlot_score. You can draft directly from SQL results without calling get_player_seasons. Only call get_player_seasons if you need additional year options not returned by your SQL query.
+
 ## THEME CLASSIFICATION — CHOOSE YOUR APPROACH
 Before searching, classify the theme and pick the right discovery strategy:
 
 1. **Stat-based** (e.g. "0 steals", "40 HR club", "sub-2 ERA"): Use query_players SQL with stat filters. One broad query can find candidates across ALL positions at once.
-2. **Knowledge-based** (e.g. "WBC rosters", "World Series MVPs", "Hall of Famers"): Use web_search to find rosters/lists/facts, then get_player_seasons to verify players exist in the DB.
+2. **Knowledge-based** (e.g. "WBC rosters", "World Series winners", "Hall of Famers", championship history, nationality, award winners): You MUST call web_search FIRST before any database queries. Never rely solely on your training data for factual claims about who won championships, who played for which country, etc. Get the authoritative list from the web, THEN verify players in the database.
 3. **Team-based** (e.g. "Angels legends", "90s Braves dynasty"): One SQL query with team filter across all positions.
 4. **Subjective** (e.g. "fun characters", "fan favorites"): Brainstorm players from your knowledge, then batch-verify via get_player_seasons.
 5. **Career-pattern** (e.g. "late bloomers", "one-hit wonders"): SQL with window functions and career comparisons.
@@ -1017,8 +1038,9 @@ Classify the theme. Decide discovery strategy. Identify stat constraints (if any
 ### Phase 2: DISCOVER
 - **Write ONE broad SQL query** via query_players that finds candidates across ALL positions. Avoid searching position-by-position.
 - For SQL discovery queries, ALWAYS include: player_id, name_first, name_last, year, team, primary_position, positions_eligible, player_type, z_score_position, and any theme-relevant stats. This gives you everything to draft directly from results.
-- For knowledge-based themes: use web_search first, then get_player_seasons to verify.
-- For subjective themes: brainstorm a list, then batch-lookup via get_player_seasons with playerIds.
+- SQL results now include computed sandlot_score for every row. You can draft directly from SQL results — go straight to DRAFT phase without calling get_player_seasons.
+- For knowledge-based themes: use web_search FIRST to get authoritative facts, then ONE SQL query to find matching players.
+- For subjective themes: brainstorm a list, then use ONE SQL query with WHERE name_last IN (...) to batch-verify all players at once.
 
 ### Phase 3: DRAFT
 - Assign candidates to all 10 positions. Choose 3 year options per player.
@@ -1102,9 +1124,9 @@ SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
   STRING_AGG(DISTINCT team, ',') as teams,
   COUNT(*) as seasons, ROUND(MAX(z_score_position::numeric), 2) as best_z
 FROM players
-WHERE team IN ('PIT','SLN','CHN','CIN','MIL')
 GROUP BY player_id
 HAVING COUNT(DISTINCT CASE WHEN team NOT IN ('PIT','SLN','CHN','CIN','MIL') THEN team END) = 0
+  AND COUNT(DISTINCT CASE WHEN team IN ('PIT','SLN','CHN','CIN','MIL') THEN team END) >= 1
   AND COUNT(*) >= 5
 ORDER BY best_z DESC LIMIT 100
 
@@ -1197,6 +1219,7 @@ export async function runAgentBuilder(
     let iterations = 0;
     const maxIterations = 100;
     const checkpointAt = 50;
+    let serialNameLookups = 0;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -1227,6 +1250,11 @@ export async function runAgentBuilder(
       for (const toolCall of toolCalls) {
         const args = JSON.parse(toolCall.arguments);
 
+        // Reset serial name lookup counter on non-get_player_seasons tools
+        if (toolCall.name !== 'get_player_seasons') {
+          serialNameLookups = 0;
+        }
+
         // Extract challenge title from preview/submit tool calls
         if ((toolCall.name === 'preview_challenge' || toolCall.name === 'submit_challenge') && args.theme && args.theme !== challengeTitle) {
           challengeTitle = args.theme;
@@ -1254,6 +1282,26 @@ export async function runAgentBuilder(
             send({ type: 'thinking', message: `Error: ${parsed.error}` });
           } else {
             send({ type: 'thinking', message: 'No players found.' });
+          }
+
+          // Track serial name lookups (name-based, not batch playerIds)
+          const isNameLookup = (args.firstName || args.lastName) &&
+            !(Array.isArray(args.playerIds) && args.playerIds.length > 0);
+          if (isNameLookup) {
+            serialNameLookups++;
+          } else {
+            serialNameLookups = 0;
+          }
+
+          // Inject efficiency warnings after repeated name lookups
+          if (serialNameLookups >= 15) {
+            result += '\n\n🚨 STOP: You have made ' + serialNameLookups + ' individual name lookups. This is extremely inefficient. You MUST switch to batch methods NOW: use get_player_seasons({ playerIds: ["id1", "id2", ...] }) or query_players SQL with WHERE name_last IN (...). Do NOT make any more individual name calls.';
+            console.log(JSON.stringify({ event: 'agent_serial_lookup_warning', sessionId: sid, count: serialNameLookups, level: 'critical' }));
+            send({ type: 'thinking', message: `Warning: ${serialNameLookups} individual lookups — redirecting to batch mode` });
+          } else if (serialNameLookups >= 8) {
+            result += '\n\n⚠️ You have called get_player_seasons by name ' + serialNameLookups + ' times. This is inefficient. For remaining players, either: (1) Pass multiple playerIds in a single call, or (2) Use query_players with SQL WHERE name_last IN (...) to find multiple players at once.';
+            console.log(JSON.stringify({ event: 'agent_serial_lookup_warning', sessionId: sid, count: serialNameLookups, level: 'warning' }));
+            send({ type: 'thinking', message: `Warning: ${serialNameLookups} individual lookups — nudging toward batch mode` });
           }
         } else if (toolCall.name === 'preview_challenge') {
           const previewResult = await executePreviewChallenge(args, send);
