@@ -206,7 +206,7 @@ router.post('/challenges/generate-agent', async (req, res) => {
 
 // AI agent builder — continue conversation (must be before :id routes)
 router.post('/challenges/generate-agent/continue', async (req, res) => {
-  const { sessionId, message } = req.body;
+  const { sessionId, message, responseId, challengeTitle, themeDescription } = req.body;
   if (!sessionId || typeof sessionId !== 'string') {
     res.status(400).json({ error: 'sessionId string required' });
     return;
@@ -216,7 +216,7 @@ router.post('/challenges/generate-agent/continue', async (req, res) => {
     return;
   }
 
-  console.log(JSON.stringify({ event: 'agent_request', route: 'generate-agent/continue', sessionId, messageLength: message.length }));
+  console.log(JSON.stringify({ event: 'agent_request', route: 'generate-agent/continue', sessionId, messageLength: message.length, hasFallback: !!responseId }));
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -224,7 +224,9 @@ router.post('/challenges/generate-agent/continue', async (req, res) => {
   res.flushHeaders();
 
   try {
-    const challengeId = await runAgentBuilder(message, res, sessionId);
+    // Pass frontend-provided fallback data for session recovery after server restart/TTL
+    const fallback = responseId ? { responseId, challengeTitle, themeDescription } : undefined;
+    const challengeId = await runAgentBuilder(message, res, sessionId, fallback);
     if (challengeId) {
       enrichChallengesInBackground([challengeId]);
     }

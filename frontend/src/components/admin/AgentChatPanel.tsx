@@ -39,7 +39,7 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { messages, running, awaitingFeedback, sessionId, challengeTitle, phase, startedAt } = sessionState;
+  const { messages, running, awaitingFeedback, sessionId, responseId, challengeTitle, themeDescription, phase, startedAt } = sessionState;
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -82,7 +82,7 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
         });
         break;
       case 'awaiting_feedback':
-        dispatch({ type: 'AWAITING_FEEDBACK', sessionId: event.sessionId });
+        dispatch({ type: 'AWAITING_FEEDBACK', sessionId: event.sessionId, responseId: event.responseId });
         break;
       case 'success':
         dispatch({
@@ -113,21 +113,28 @@ export function AgentChatPanel({ open, onClose, sessionState, dispatch }: AgentC
     let stream: { abort: () => void };
     if (sessionId) {
       // Always continue the existing session — "New Chat" resets if the user wants fresh
-      stream = streamAgentContinue(sessionId, text, handleEvent);
+      // Pass fallback data so backend can recover session after server restart/TTL
+      const fallback = responseId
+        ? { responseId, challengeTitle: challengeTitle ?? undefined, themeDescription: themeDescription ?? undefined }
+        : undefined;
+      stream = streamAgentContinue(sessionId, text, handleEvent, fallback);
     } else {
       stream = streamAgentBuild(text, handleEvent);
     }
 
     abortRef.current = stream;
-  }, [input, running, awaitingFeedback, sessionId, dispatch, handleEvent]);
+  }, [input, running, sessionId, responseId, challengeTitle, themeDescription, dispatch, handleEvent]);
 
   const handleApprove = useCallback(() => {
     if (!sessionId || running) return;
     dispatch({ type: 'USER_MESSAGE', text: 'Approved, submit the challenge.' });
     dispatch({ type: 'START_RUNNING' });
-    const stream = streamAgentContinue(sessionId, 'The user approved the preview. Call submit_challenge with the same lineup.', handleEvent);
+    const fallback = responseId
+      ? { responseId, challengeTitle: challengeTitle ?? undefined, themeDescription: themeDescription ?? undefined }
+      : undefined;
+    const stream = streamAgentContinue(sessionId, 'The user approved the preview. Call submit_challenge with the same lineup.', handleEvent, fallback);
     abortRef.current = stream;
-  }, [sessionId, running, dispatch, handleEvent]);
+  }, [sessionId, responseId, challengeTitle, themeDescription, running, dispatch, handleEvent]);
 
   const handleNewChat = useCallback(() => {
     abortRef.current?.abort();

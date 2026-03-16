@@ -1183,6 +1183,8 @@ export async function runAgentBuilder(
   prompt: string,
   res: SSEResponse,
   sessionId?: string,
+  /** Frontend-provided fallbacks for when in-memory session is lost (server restart, TTL) */
+  fallback?: { responseId?: string; challengeTitle?: string; themeDescription?: string },
 ): Promise<number | null> {
   const client = getClient();
   cleanupSessions();
@@ -1200,10 +1202,13 @@ export async function runAgentBuilder(
   const sid = sessionId || `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   send({ type: 'session', sessionId: sid });
 
+  // Resolve session: in-memory first, then frontend-provided fallback
   const existingSession = sessionId ? agentSessions.get(sessionId) : null;
-  let challengeTitle = existingSession?.challengeTitle ?? null;
-  // Store the user's original prompt as theme description for context reinforcement
-  const themeDescription = existingSession?.themeDescription ?? (existingSession ? null : prompt.slice(0, 200));
+  const resumeResponseId = existingSession?.responseId ?? fallback?.responseId ?? null;
+  let challengeTitle = existingSession?.challengeTitle ?? fallback?.challengeTitle ?? null;
+  const themeDescription = existingSession?.themeDescription
+    ?? fallback?.themeDescription
+    ?? (resumeResponseId ? null : prompt.slice(0, 200));
 
   // Send existing title immediately so the frontend can show it
   if (challengeTitle) {
@@ -1213,12 +1218,13 @@ export async function runAgentBuilder(
   console.log(JSON.stringify({
     event: 'agent_session_start',
     sessionId: sid,
-    isResume: !!existingSession,
+    isResume: !!resumeResponseId,
+    resumeSource: existingSession ? 'memory' : (fallback?.responseId ? 'fallback' : 'new'),
     challengeTitle,
     promptPreview: prompt.slice(0, 100),
   }));
 
-  send({ type: 'thinking', message: existingSession ? 'Continuing conversation...' : 'Starting challenge builder...' });
+  send({ type: 'thinking', message: resumeResponseId ? 'Continuing conversation...' : 'Starting challenge builder...' });
 
   try {
     // Load team codes (cached after first call)
@@ -1234,13 +1240,13 @@ export async function runAgentBuilder(
       max_output_tokens: 16384,
     };
     let response: OpenAI.Responses.Response;
-    if (existingSession) {
+    if (resumeResponseId) {
       // Prefix continuation with challenge title + description to reinforce context
       const contextPrefix = challengeTitle
         ? `[Continuing work on challenge: "${challengeTitle}"${themeDescription ? ` — ${themeDescription}` : ''}]\n\nUser feedback: `
         : '[Continuing conversation]\n\nUser feedback: ';
       response = await streamOpenAICall(
-        { ...baseParams, previous_response_id: existingSession.responseId, input: contextPrefix + prompt },
+        { ...baseParams, previous_response_id: resumeResponseId, input: contextPrefix + prompt },
         send,
       );
     } else {
@@ -1250,6 +1256,8 @@ export async function runAgentBuilder(
     let iterations = 0;
     const maxIterations = 100;
     const checkpointAt = 50;
+    const startTime = Date.now();
+    const MAX_ELAPSED_MS = 240_000; // 4 minutes — checkpoint before Railway proxy timeout (~5 min)
     let serialNameLookups = 0;
     let serialSqlLookups = 0;
 
@@ -1366,7 +1374,7 @@ export async function runAgentBuilder(
 
             // Send awaiting_feedback and end the stream
             clearInterval(keepaliveInterval);
-            send({ type: 'awaiting_feedback', sessionId: sid });
+            send({ type: 'awaiting_feedback', sessionId: sid, responseId: updatedResponse.id });
             res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
             res.end();
             return null;
@@ -1471,8 +1479,10 @@ export async function runAgentBuilder(
         });
       }
 
-      // Checkpoint: pause at 50 iterations and ask user to confirm continuing
-      if (iterations === checkpointAt) {
+      // Checkpoint: pause at 50 iterations OR 4 minutes elapsed (whichever comes first)
+      const shouldCheckpoint = iterations === checkpointAt || (Date.now() - startTime > MAX_ELAPSED_MS);
+      if (shouldCheckpoint) {
+        const reason = iterations === checkpointAt ? 'iterations' : 'elapsed_time';
         // Send tool results so the conversation state is up to date
         const checkpointResponse = await client.responses.create({
           model: AGENT_MODEL,
@@ -1485,10 +1495,14 @@ export async function runAgentBuilder(
         });
         agentSessions.set(sid, { responseId: checkpointResponse.id, challengeTitle, themeDescription, createdAt: Date.now() });
 
-        console.log(JSON.stringify({ event: 'agent_checkpoint', sessionId: sid, iterations }));
+        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+        console.log(JSON.stringify({ event: 'agent_checkpoint', sessionId: sid, iterations, reason, elapsedSec }));
         clearInterval(keepaliveInterval);
-        send({ type: 'message', message: 'This is taking a while — I\'ve done a lot of searching. Want me to keep going, or should I work with what I\'ve found so far?' });
-        send({ type: 'awaiting_feedback', sessionId: sid });
+        const msg = reason === 'elapsed_time'
+          ? 'Saving progress — this build is taking a while. Send any message to continue where I left off.'
+          : 'This is taking a while — I\'ve done a lot of searching. Want me to keep going, or should I work with what I\'ve found so far?';
+        send({ type: 'message', message: msg });
+        send({ type: 'awaiting_feedback', sessionId: sid, responseId: checkpointResponse.id });
         res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
         res.end();
         return null;
@@ -1511,7 +1525,7 @@ export async function runAgentBuilder(
     }
 
     // Let the frontend know it can continue this session
-    send({ type: 'awaiting_feedback', sessionId: sid });
+    send({ type: 'awaiting_feedback', sessionId: sid, responseId: response.id });
   } catch (error) {
     console.error(JSON.stringify({ event: 'agent_error', sessionId: sid, error: String(error) }));
     send({ type: 'error', message: String(error) });

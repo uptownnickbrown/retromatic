@@ -336,7 +336,9 @@ export interface AgentChatMessage {
 
 export interface AgentSessionState {
   sessionId: string | null;
+  responseId: string | null;
   challengeTitle: string | null;
+  themeDescription: string | null;
   messages: AgentChatMessage[];
   awaitingFeedback: boolean;
   running: boolean;
@@ -347,7 +349,9 @@ export interface AgentSessionState {
 
 export const INITIAL_SESSION_STATE: AgentSessionState = {
   sessionId: null,
+  responseId: null,
   challengeTitle: null,
+  themeDescription: null,
   messages: [],
   awaitingFeedback: false,
   running: false,
@@ -365,7 +369,7 @@ export type AgentAction =
   | { type: 'MESSAGE_DELTA'; delta: string }
   | { type: 'TOOL_CALL'; text: string; toolName: string; toolArgs?: Record<string, unknown> }
   | { type: 'PROPOSAL'; text: string; proposal: ProposalData }
-  | { type: 'AWAITING_FEEDBACK'; sessionId?: string }
+  | { type: 'AWAITING_FEEDBACK'; sessionId?: string; responseId?: string }
   | { type: 'SUCCESS'; text: string }
   | { type: 'ERROR'; text: string }
   | { type: 'ERROR_RECOVERABLE'; text: string }
@@ -432,11 +436,12 @@ export function agentReducer(state: AgentSessionState, action: AgentAction): Age
     case 'PROPOSAL':
       return addMsg(state, { type: 'proposal', text: action.text, proposal: action.proposal });
     case 'AWAITING_FEEDBACK':
-      return { ...state, awaitingFeedback: true, running: false, sessionId: action.sessionId || state.sessionId, phase: 'idle', startedAt: null };
+      return { ...state, awaitingFeedback: true, running: false, sessionId: action.sessionId || state.sessionId, responseId: action.responseId || state.responseId, phase: 'idle', startedAt: null };
     case 'SUCCESS':
-      return { ...addMsg(state, { type: 'success', text: action.text }), running: false, awaitingFeedback: false, sessionId: null, phase: 'idle', startedAt: null };
+      return { ...addMsg(state, { type: 'success', text: action.text }), running: false, awaitingFeedback: false, sessionId: null, responseId: null, phase: 'idle', startedAt: null };
     case 'ERROR':
-      return { ...addMsg(state, { type: 'error', text: action.text }), running: false, phase: 'idle', startedAt: null };
+      // If we have a session, mark as awaiting feedback so the user can continue
+      return { ...addMsg(state, { type: 'error', text: action.text }), running: false, phase: 'idle', startedAt: null, awaitingFeedback: !!state.sessionId };
     case 'ERROR_RECOVERABLE':
       return addMsg(state, { type: 'error', text: action.text });
     case 'COMPLETE':
@@ -446,7 +451,8 @@ export function agentReducer(state: AgentSessionState, action: AgentAction): Age
     case 'USER_MESSAGE': {
       // Set the first user message as the working title (replaced by model's theme on preview)
       const title = state.challengeTitle === null ? action.text.split('\n')[0].slice(0, 60) : state.challengeTitle;
-      return { ...addMsg(state, { type: 'user', text: action.text }), challengeTitle: title };
+      const desc = state.themeDescription === null ? action.text.slice(0, 200) : state.themeDescription;
+      return { ...addMsg(state, { type: 'user', text: action.text }), challengeTitle: title, themeDescription: desc };
     }
     case 'RESET':
       return { ...INITIAL_SESSION_STATE };
@@ -493,6 +499,7 @@ export interface AgentEvent {
   title?: string;
   proposal?: ProposalData;
   sessionId?: string;
+  responseId?: string;
 }
 
 export function streamAgentBuild(
@@ -537,7 +544,10 @@ export function streamAgentBuild(
     }
   }).catch((err) => {
     if (err.name !== 'AbortError') {
-      onEvent({ type: 'error', message: String(err) });
+      const isNetwork = err instanceof TypeError && /network|fetch|failed/i.test(err.message);
+      onEvent({ type: 'error', message: isNetwork
+        ? 'Connection lost — send a message to continue where the builder left off.'
+        : String(err) });
     }
   });
 
@@ -548,6 +558,8 @@ export function streamAgentContinue(
   sessionId: string,
   message: string,
   onEvent: (event: AgentEvent) => void,
+  /** Frontend-provided fallback for session recovery */
+  fallback?: { responseId?: string; challengeTitle?: string; themeDescription?: string },
 ): { abort: () => void } {
   const secret = getAdminSecret();
   if (!secret) throw new Error('Not authenticated');
@@ -560,7 +572,7 @@ export function streamAgentContinue(
       'Content-Type': 'application/json',
       'x-admin-secret': secret,
     },
-    body: JSON.stringify({ sessionId, message }),
+    body: JSON.stringify({ sessionId, message, ...fallback }),
     signal: controller.signal,
   }).then(async (res) => {
     if (!res.ok || !res.body) {
@@ -587,7 +599,10 @@ export function streamAgentContinue(
     }
   }).catch((err) => {
     if (err.name !== 'AbortError') {
-      onEvent({ type: 'error', message: String(err) });
+      const isNetwork = err instanceof TypeError && /network|fetch|failed/i.test(err.message);
+      onEvent({ type: 'error', message: isNetwork
+        ? 'Connection lost — send a message to continue where the builder left off.'
+        : String(err) });
     }
   });
 
