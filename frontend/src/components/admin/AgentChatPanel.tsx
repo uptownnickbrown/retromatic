@@ -14,31 +14,19 @@ interface AgentChatPanelProps {
 }
 
 function formatToolCall(tool: string, args?: Record<string, unknown>): string {
-  if (tool === 'search_players') {
+  if (tool === 'get_player_seasons') {
     const parts: string[] = [];
     if (args?.firstName) parts.push(String(args.firstName));
-    if (args?.name) parts.push(String(args.name));
-    if (args?.team) parts.push(String(args.team));
-    if (args?.position) parts.push(String(args.position));
-    if (args?.yearMin || args?.yearMax) {
-      parts.push(`${args.yearMin || '...'}–${args.yearMax || '...'}`);
+    if (args?.lastName) parts.push(String(args.lastName));
+    if (args?.playerIds && Array.isArray(args.playerIds)) {
+      parts.push(`${args.playerIds.length} player(s)`);
     }
-    if (args?.statFilter) {
-      const sf = args.statFilter as { stat?: string; min?: number; max?: number };
-      const statParts = [sf.stat];
-      if (sf.min != null) statParts.push(`≥${sf.min}`);
-      if (sf.max != null) statParts.push(`≤${sf.max}`);
-      parts.push(statParts.join(''));
-    }
-    return parts.length > 0 ? `Searching: ${parts.join(', ')}` : 'Searching players...';
-  }
-  if (tool === 'lookup_player') {
-    const parts = [args?.firstName, args?.lastName].filter(Boolean).map(String);
-    return `Looking up: ${parts.join(' ')}`;
+    return parts.length > 0 ? `Loading: ${parts.join(' ')}` : 'Loading player seasons...';
   }
   if (tool === 'query_players') {
     return `SQL: ${args?.explanation ? String(args.explanation) : 'Running query...'}`;
   }
+  if (tool === 'evaluate_challenge') return 'Evaluating challenge quality...';
   if (tool === 'preview_challenge') return 'Building preview...';
   if (tool === 'submit_challenge') return 'Submitting challenge...';
   return tool;
@@ -321,17 +309,6 @@ function MessageBubble({
         <Search className="w-3.5 h-3.5 text-navy/30 flex-shrink-0 mt-0.5" />
         <div className="min-w-0">
           <span className="font-mono text-[11px] text-navy/50">{message.text}</span>
-          {message.toolArgs && message.toolName === 'search_players' && (
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-              {Object.entries(message.toolArgs)
-                .filter(([, v]) => v != null)
-                .map(([k, v]) => (
-                  <span key={k} className="font-mono text-[10px] text-muted/60">
-                    {k}: {String(v)}
-                  </span>
-                ))}
-            </div>
-          )}
           {message.toolArgs && message.toolName === 'query_players' && !!message.toolArgs.sql && (
             <pre className="font-mono text-[10px] text-muted/60 whitespace-pre-wrap break-all max-h-24 overflow-y-auto mt-0.5">
               {String(message.toolArgs.sql)}

@@ -7,8 +7,7 @@ import { eq, and } from 'drizzle-orm';
 import { calculateSandlotScore } from './sandlotScore.js';
 import { toNum } from '../lib/numeric.js';
 import {
-  executeFindEligiblePlayers,
-  executeLookupPlayer,
+  executeGetPlayerSeasons,
   getTeamCodesForPrompt,
 } from './agentChallengeBuilder.js';
 import { generateBlurbsForOption } from './challengeBlurbs.js';
@@ -46,55 +45,23 @@ function cleanupSessions() {
 const replacerTools: OpenAI.Responses.Tool[] = [
   {
     type: 'function' as const,
-    name: 'search_players',
+    name: 'get_player_seasons',
     strict: false,
-    description: `Search for players eligible for the challenge. Filters find matching players, then returns ALL qualifying seasons for each player (not just seasons matching the filter). Only returns players with 3+ total qualifying seasons.
+    description: `Fetch full season-by-season data for specific players. Look up by player IDs or name.
 
-Each result includes: playerId, name, position, positions (all eligible), playerType, totalSeasons, and years[] (ALL qualifying years with year/team/zScore).`,
+Returns all seasons for each matched player with: playerId, name, playerType, position, positions, totalSeasons, and years[] (year, team, zScore, sandlotScore, stats).`,
     parameters: {
       type: 'object',
       properties: {
-        team: { type: 'string', description: '3-letter Lahman team code (e.g. NYA, BOS, LAN, PHI). Use TEAM CODES from your instructions.' },
-        position: { type: 'string', description: 'Position code (C, 1B, 2B, SS, 3B, OF, SP, RP, P, UTIL)' },
-        yearMin: { type: 'number', description: 'Minimum year (inclusive)' },
-        yearMax: { type: 'number', description: 'Maximum year (inclusive)' },
-        name: { type: 'string', description: 'Player last name (partial match, case-insensitive)' },
-        firstName: { type: 'string', description: 'Player first name (partial match, case-insensitive)' },
-        playerType: { type: 'string', enum: ['batter', 'pitcher'], description: 'Filter by player type' },
-        minSeasons: { type: 'number', description: 'Minimum total qualifying seasons (default 3, minimum 3).' },
-        minZScore: { type: 'number', description: 'Min z-score. Reference: z≈7.3 = Sandlot Score 8, z≈9.3 = Score 9.5+' },
-        maxZScore: { type: 'number', description: 'Max z-score.' },
-        statFilter: {
-          type: 'object',
-          description: 'Filter by a raw stat. Batters: R, HR, RBI, SB, H, AB, AVG, BB. Pitchers: W, SV, K, ERA, WHIP, IP, G, GS.',
-          properties: {
-            stat: { type: 'string' },
-            min: { type: 'number' },
-            max: { type: 'number' },
-          },
-          required: ['stat'],
-        },
-        excludePlayerIds: {
+        playerIds: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Player IDs to exclude from results',
+          description: 'Lahman player IDs (e.g. ["troutmi01"]). Up to 20.',
         },
-        limit: { type: 'number', description: 'Max players to return (default 15)' },
+        firstName: { type: 'string', description: 'First name partial match (case-insensitive)' },
+        lastName: { type: 'string', description: 'Last name partial match (case-insensitive)' },
+        limit: { type: 'number', description: 'Max players to return (default 10, max 20)' },
       },
-    },
-  },
-  {
-    type: 'function' as const,
-    name: 'lookup_player',
-    strict: false,
-    description: `Quick lookup to verify a specific player exists in the database. Returns matching players with their IDs, positions, and season counts.`,
-    parameters: {
-      type: 'object',
-      properties: {
-        firstName: { type: 'string', description: 'First name (partial match, case-insensitive)' },
-        lastName: { type: 'string', description: 'Last name (partial match, case-insensitive)' },
-      },
-      required: ['lastName'],
     },
   },
   {
@@ -334,7 +301,7 @@ ${challengeTheme ? `\nCHALLENGE THEME: "${challengeTheme}" — try to find a rep
 
 YOUR TASK:
 1. Understand what the user is looking for in a replacement.
-2. Use search_players and lookup_player to find candidates. The replacement MUST be eligible for position: ${currentPlayer.position}.
+2. Use get_player_seasons to find candidates by name. The replacement MUST be eligible for position: ${currentPlayer.position}.
 3. When you find a good candidate, call suggest_replacement with the playerId, playerName, exactly 3 years, and a brief reasoning.
 4. The user will see your suggestion with Sandlot Scores. They can confirm or ask for changes.
 
@@ -465,24 +432,17 @@ export async function runReplacementAgent(
 
         let result: string;
 
-        if (toolCall.name === 'search_players') {
-          result = await executeFindEligiblePlayers(args);
+        if (toolCall.name === 'get_player_seasons') {
+          result = await executeGetPlayerSeasons(args);
           const parsed = JSON.parse(result);
           if (Array.isArray(parsed) && parsed.length > 0) {
             const names = parsed.slice(0, 5).map((p: { name: string }) => p.name).join(', ');
             const suffix = parsed.length > 5 ? `, +${parsed.length - 5} more` : '';
-            send({ type: 'thinking', message: `Found ${parsed.length} players: ${names}${suffix}` });
+            send({ type: 'thinking', message: `Loaded ${parsed.length} player(s): ${names}${suffix}` });
+          } else if (parsed.error) {
+            send({ type: 'thinking', message: `Error: ${parsed.error}` });
           } else {
-            send({ type: 'thinking', message: 'No players matched this search.' });
-          }
-        } else if (toolCall.name === 'lookup_player') {
-          result = await executeLookupPlayer(args);
-          const parsed = JSON.parse(result);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const names = parsed.map((p: { name: string; totalSeasons: number }) => `${p.name} (${p.totalSeasons}s)`).join(', ');
-            send({ type: 'thinking', message: `Found: ${names}` });
-          } else {
-            send({ type: 'thinking', message: `No match for "${args.firstName || ''} ${args.lastName || ''}".` });
+            send({ type: 'thinking', message: 'No players found.' });
           }
         } else if (toolCall.name === 'suggest_replacement') {
           const suggestion = await enrichSuggestion(args);

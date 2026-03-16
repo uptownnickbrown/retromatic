@@ -380,8 +380,8 @@ function addMsg(state: AgentSessionState, msg: Omit<AgentChatMessage, 'id'>): Ag
 }
 
 function phaseFromTool(toolName: string): AgentPhase {
-  if (toolName === 'search_players' || toolName === 'query_players') return 'searching';
-  if (toolName === 'preview_challenge') return 'building';
+  if (toolName === 'get_player_seasons' || toolName === 'query_players') return 'searching';
+  if (toolName === 'evaluate_challenge' || toolName === 'preview_challenge') return 'building';
   if (toolName === 'submit_challenge') return 'submitting';
   return 'thinking';
 }
@@ -482,11 +482,12 @@ export interface ProposalData {
 }
 
 export interface AgentEvent {
-  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session' | 'theme';
+  type: 'thinking' | 'message' | 'message_delta' | 'tool_call' | 'tool_result' | 'success' | 'error' | 'error_recoverable' | 'complete' | 'proposal' | 'awaiting_feedback' | 'session' | 'theme';
   message?: string;
   delta?: string;
   tool?: string;
   args?: Record<string, unknown>;
+  result?: unknown;
   challengeId?: number;
   theme?: string;
   title?: string;

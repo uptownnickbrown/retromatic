@@ -3,11 +3,13 @@ import type { Stream } from 'openai/streaming';
 import type { Response as SSEResponse } from 'express';
 import { db, executeRawReadOnlyQuery } from '../db/index.js';
 import { players, challenges, challengeRounds, roundOptions } from '../db/schema.js';
-import { eq, and, desc, gte, lte, like, or, ilike, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, ilike, sql, inArray } from 'drizzle-orm';
 import { queueChallenges } from './challengeGenerator.js';
 import { calculateSandlotScore } from './sandlotScore.js';
 import { lookupCachedPortraits } from './portraitGenerator.js';
 import { toNum } from '../lib/numeric.js';
+
+const AGENT_MODEL = 'gpt-5';
 
 // Lazy-load OpenAI client
 let openai: OpenAI | null = null;
@@ -150,57 +152,37 @@ const challengeParamsSchema = {
 const tools: OpenAI.Responses.Tool[] = [
   {
     type: 'function' as const,
-    name: 'search_players',
+    name: 'get_player_seasons',
     strict: false,
-    description: `Search for players eligible for the challenge. Filters find matching players, then returns ALL qualifying seasons for each player (not just seasons matching the filter). Only returns players with 3+ total qualifying seasons.
+    description: `Fetch full season-by-season data for specific players. Use this AFTER discovering candidates via query_players SQL, or to look up a specific player by name.
 
-Each result includes: playerId, name, position, positions (all eligible), playerType, totalSeasons, and years[] (ALL qualifying years with year/team/zScore).
+Returns all seasons for each matched player with: playerId, name, playerType, position, positions, totalSeasons, and years[] (year, team, zScore, sandlotScore, stats).
 
-Example: searching {team:"BOS", yearMin:2015, yearMax:2019} finds players who played for BOS in that window, but shows ALL their career seasons — so you can pick any 3 years.`,
+This is NOT a discovery tool — use query_players SQL for bulk discovery. Use this to:
+- Get full season data for players found via SQL (pass their playerIds)
+- Look up a specific player by name (e.g. from web search results or your own knowledge)
+- Check what years are available for a player during iteration`,
     parameters: {
       type: 'object',
       properties: {
-        team: { type: 'string', description: '3-letter Lahman team code (e.g. NYA, BOS, LAN, PHI). Use TEAM CODES from your instructions.' },
-        position: { type: 'string', description: 'Position code (C, 1B, 2B, SS, 3B, OF, SP, RP, P, UTIL)' },
-        yearMin: { type: 'number', description: 'Minimum year (inclusive)' },
-        yearMax: { type: 'number', description: 'Maximum year (inclusive)' },
-        name: { type: 'string', description: 'Player last name (partial match, case-insensitive)' },
-        firstName: { type: 'string', description: 'Player first name (partial match, case-insensitive)' },
-        playerType: { type: 'string', enum: ['batter', 'pitcher'], description: 'Filter by player type' },
-        minSeasons: { type: 'number', description: 'Minimum total qualifying seasons in DB (default 3, minimum 3). Use higher values like 8+ for "veterans" or "late bloomers" themes.' },
-        minZScore: { type: 'number', description: 'Min z-score for matched seasons. Reference: z≈7.3 = Sandlot Score 8, z≈9.3 = Score 9.5+' },
-        maxZScore: { type: 'number', description: 'Max z-score for matched seasons.' },
-        statFilter: {
-          type: 'object',
-          description: 'Filter by a raw stat. Batters: R, HR, RBI, SB, H, AB, AVG, BB. Pitchers: W, SV, K, ERA, WHIP, IP, G, GS. Example: {stat:"HR", min:40}',
-          properties: {
-            stat: { type: 'string', description: 'Stat key (HR, RBI, SB, AVG, W, SV, K, ERA, WHIP, IP, etc.)' },
-            min: { type: 'number', description: 'Minimum value (inclusive)' },
-            max: { type: 'number', description: 'Maximum value (inclusive)' },
-          },
-          required: ['stat'],
-        },
-        excludePlayerIds: {
+        playerIds: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Player IDs to exclude from results (e.g. players already in your lineup)',
+          description: 'Lahman player IDs (e.g. ["troutmi01", "bondsba01"]). Up to 20.',
         },
-        limit: { type: 'number', description: 'Max players to return (default 15)' },
+        firstName: {
+          type: 'string',
+          description: 'First name partial match (case-insensitive). Use with or without lastName.',
+        },
+        lastName: {
+          type: 'string',
+          description: 'Last name partial match (case-insensitive).',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max players to return (default 10, max 20).',
+        },
       },
-    },
-  },
-  {
-    type: 'function' as const,
-    name: 'lookup_player',
-    strict: false,
-    description: `Quick lookup to verify a specific player exists in the database. Returns matching players with their IDs, positions, and season counts. No minimum season requirement — shows all matches. Use this to verify a player is available before including them.`,
-    parameters: {
-      type: 'object',
-      properties: {
-        firstName: { type: 'string', description: 'First name (partial match, case-insensitive)' },
-        lastName: { type: 'string', description: 'Last name (partial match, case-insensitive)' },
-      },
-      required: ['lastName'],
     },
   },
   {
@@ -226,7 +208,7 @@ Rules:
     type: 'function' as const,
     name: 'query_players',
     strict: false,
-    description: `Run a read-only SQL SELECT query against the players table for complex searches that search_players can't express — career-relative constraints, window functions, cross-season comparisons, JSONB stat extraction, etc.
+    description: `Run a read-only SQL SELECT query against the players table. This is your PRIMARY discovery tool — use it to find candidates across all positions in one shot. Supports career-relative constraints, window functions, cross-season comparisons, JSONB stat extraction, aggregation, and more.
 
 The players table has ~36,500 rows (one per player-season, 1961-2025). Columns:
 - player_id (varchar) — Lahman ID, stable across seasons (e.g. "troutmi01")
@@ -262,209 +244,361 @@ Rules: SELECT only. Only the "players" table. Always include LIMIT (max 200). 10
       required: ['sql', 'explanation'],
     },
   },
+  {
+    type: 'function' as const,
+    name: 'evaluate_challenge',
+    strict: false,
+    description: `Evaluate a draft challenge BEFORE showing it to the user. Returns quality metrics, stat constraint violations, and actionable feedback. You MUST call this before preview_challenge.
+
+Checks:
+- Per-round quality: best/worst Sandlot Score, score spread
+- Overall: max possible total, weak rounds (best < 8.0), dead rounds (best < 5.0)
+- Stat constraint violations: flags player-years that break your theme's stat rules
+- Validation: player-years exist, position types correct, completeness
+- Fun factor: flags too-uniform rounds or unplayable rounds
+
+Use statConstraints to enforce theme rules. Example for "0 steals": [{stat:"SB", max:0, applyTo:"all_batter_years"}]`,
+    parameters: {
+      type: 'object',
+      properties: {
+        theme: { type: 'string', description: 'Challenge theme name' },
+        rounds: challengeParamsSchema.properties.rounds,
+        statConstraints: {
+          type: 'array',
+          description: 'Optional stat constraints to validate against. Each checks a stat for all player-years of the specified type.',
+          items: {
+            type: 'object',
+            properties: {
+              stat: { type: 'string', description: 'Stat key (HR, SB, AVG, ERA, W, K, etc.)' },
+              min: { type: 'number', description: 'Minimum value (inclusive)' },
+              max: { type: 'number', description: 'Maximum value (inclusive)' },
+              applyTo: {
+                type: 'string',
+                enum: ['all_batter_years', 'all_pitcher_years', 'all_years'],
+                description: 'Which player-years to check',
+              },
+            },
+            required: ['stat', 'applyTo'],
+          },
+        },
+      },
+      required: ['theme', 'rounds'],
+    },
+  },
+  { type: 'web_search' as const },
 ];
 
 // ─── Tool execution ──────────────────────────────────────────
 
-export function buildPositionFilter(pos: string) {
-  if (pos === 'UTIL') return eq(players.playerType, 'batter');
-  if (pos === 'P') return eq(players.playerType, 'pitcher');
-  if (pos === 'OF') {
-    return or(
-      like(players.positionsEligible, '%LF%'),
-      like(players.positionsEligible, '%CF%'),
-      like(players.positionsEligible, '%RF%'),
-      like(players.positionsEligible, '%OF%'),
-    );
-  }
-  return or(
-    eq(players.primaryPosition, pos),
-    like(players.positionsEligible, `%${pos}%`),
-  );
-}
+export async function executeGetPlayerSeasons(args: Record<string, unknown>): Promise<string> {
+  const inputIds = Array.isArray(args.playerIds) ? (args.playerIds as string[]).slice(0, 20) : [];
+  const firstName = args.firstName ? String(args.firstName) : null;
+  const lastName = args.lastName ? String(args.lastName) : null;
+  const limit = Math.min(Number(args.limit) || 10, 20);
 
-export async function executeFindEligiblePlayers(args: Record<string, unknown>): Promise<string> {
-  const conditions = [];
+  // Determine which player IDs to fetch
+  let targetIds: string[];
 
-  if (args.name) conditions.push(ilike(players.nameLast, `%${args.name}%`));
-  if (args.firstName) conditions.push(ilike(players.nameFirst, `%${args.firstName}%`));
-  if (args.team) conditions.push(eq(players.team, String(args.team)));
-  if (args.position) conditions.push(buildPositionFilter(String(args.position))!);
-  if (args.yearMin) conditions.push(gte(players.year, Number(args.yearMin)));
-  if (args.yearMax) conditions.push(lte(players.year, Number(args.yearMax)));
-  if (args.playerType) conditions.push(eq(players.playerType, String(args.playerType)));
-  if (args.minZScore) conditions.push(gte(players.zScorePosition, String(args.minZScore)));
-  if (args.maxZScore) conditions.push(lte(players.zScorePosition, String(args.maxZScore)));
+  if (inputIds.length > 0) {
+    targetIds = inputIds;
+  } else if (firstName || lastName) {
+    // Name lookup: find matching player IDs
+    const nameConditions = [];
+    if (lastName) nameConditions.push(ilike(players.nameLast, `%${lastName}%`));
+    if (firstName) nameConditions.push(ilike(players.nameFirst, `%${firstName}%`));
 
-  // Stat filter: query JSONB stats column
-  const statFilter = args.statFilter as { stat: string; min?: number; max?: number } | undefined;
-  if (statFilter?.stat) {
-    const statKey = String(statFilter.stat);
-    if (statFilter.min != null) {
-      conditions.push(sql`(${players.stats}->>${sql.raw(`'${statKey}'`)})::numeric >= ${statFilter.min}`);
+    const nameRows = await db.selectDistinct({
+      playerId: players.playerId,
+      nameFirst: players.nameFirst,
+      nameLast: players.nameLast,
+      bestZ: sql<string>`MAX(${players.zScorePosition}) OVER (PARTITION BY ${players.playerId})`,
+    })
+      .from(players)
+      .where(and(...nameConditions))
+      .orderBy(desc(sql`MAX(${players.zScorePosition}) OVER (PARTITION BY ${players.playerId})`))
+      .limit(limit * 5); // over-fetch to dedup
+
+    // Dedup to unique player IDs, take top N by best z-score
+    const seen = new Set<string>();
+    targetIds = [];
+    for (const r of nameRows) {
+      if (!seen.has(r.playerId)) {
+        seen.add(r.playerId);
+        targetIds.push(r.playerId);
+        if (targetIds.length >= limit) break;
+      }
     }
-    if (statFilter.max != null) {
-      conditions.push(sql`(${players.stats}->>${sql.raw(`'${statKey}'`)})::numeric <= ${statFilter.max}`);
-    }
+  } else {
+    return JSON.stringify({ error: 'Provide playerIds or firstName/lastName' });
   }
 
-  // Step 1: Find player-seasons matching the filters
-  const matchingRows = await db.select({
+  if (targetIds.length === 0) return JSON.stringify([]);
+
+  // Fetch ALL seasons for these players
+  const allRows = await db.select({
     playerId: players.playerId,
     nameFirst: players.nameFirst,
     nameLast: players.nameLast,
-    position: players.primaryPosition,
-    playerType: players.playerType,
-    positionsEligible: players.positionsEligible,
-    zScore: players.zScorePosition,
-  })
-    .from(players)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(players.zScorePosition))
-    .limit(500);
-
-  // Get unique player IDs from matching rows, applying excludePlayerIds filter
-  const excludeIds = new Set(
-    Array.isArray(args.excludePlayerIds) ? (args.excludePlayerIds as string[]) : []
-  );
-  const playerIds = [...new Set(matchingRows.map(r => r.playerId))].filter(id => !excludeIds.has(id));
-  if (playerIds.length === 0) return JSON.stringify([]);
-
-  // Step 2: Fetch ALL seasons for those players (not just filtered ones)
-  // This ensures the agent sees every available year, even outside the search range
-  const allSeasons = await db.select({
-    playerId: players.playerId,
     year: players.year,
     team: players.team,
-    zScore: players.zScorePosition,
-  })
-    .from(players)
-    .where(or(...playerIds.map(id => eq(players.playerId, id))))
-    .orderBy(desc(players.zScorePosition));
-
-  // Build player info from matching rows (deduped, excluding filtered)
-  const playerInfo = new Map<string, {
-    playerId: string;
-    name: string;
-    playerType: string;
-    position: string;
-    positions: string;
-    bestZScore: number;
-  }>();
-
-  for (const r of matchingRows) {
-    if (excludeIds.has(r.playerId)) continue;
-    if (!playerInfo.has(r.playerId)) {
-      playerInfo.set(r.playerId, {
-        playerId: r.playerId,
-        name: `${r.nameFirst} ${r.nameLast}`,
-        playerType: r.playerType,
-        position: r.position,
-        positions: r.positionsEligible || r.position,
-        bestZScore: Number(r.zScore),
-      });
-    } else {
-      const info = playerInfo.get(r.playerId)!;
-      if (Number(r.zScore) > info.bestZScore) info.bestZScore = Number(r.zScore);
-    }
-  }
-
-  // Group all seasons by player
-  const yearsByPlayer = new Map<string, Array<{ year: number; team: string; zScore: number }>>();
-  for (const s of allSeasons) {
-    const arr = yearsByPlayer.get(s.playerId) || [];
-    arr.push({ year: s.year, team: s.team ?? '', zScore: Number(s.zScore) });
-    yearsByPlayer.set(s.playerId, arr);
-  }
-
-  const minSeasons = Math.max(Number(args.minSeasons) || 3, 3);
-  const limit = Number(args.limit) || 15;
-
-  // Filter to players with enough total seasons, sort by best z-score
-  const eligible = Array.from(playerInfo.values())
-    .filter(p => (yearsByPlayer.get(p.playerId)?.length ?? 0) >= minSeasons)
-    .sort((a, b) => b.bestZScore - a.bestZScore)
-    .slice(0, limit);
-
-  return JSON.stringify(eligible.map(p => ({
-    playerId: p.playerId,
-    name: p.name,
-    playerType: p.playerType,
-    position: p.position,
-    positions: p.positions,
-    totalSeasons: yearsByPlayer.get(p.playerId)?.length ?? 0,
-    years: (yearsByPlayer.get(p.playerId) || [])
-      .sort((a, b) => b.zScore - a.zScore)
-      .map(y => ({ year: y.year, team: y.team, zScore: y.zScore })),
-  })));
-}
-
-export async function executeLookupPlayer(args: Record<string, unknown>): Promise<string> {
-  const conditions = [];
-  if (args.lastName) conditions.push(ilike(players.nameLast, `%${args.lastName}%`));
-  if (args.firstName) conditions.push(ilike(players.nameFirst, `%${args.firstName}%`));
-
-  if (conditions.length === 0) return JSON.stringify({ error: 'lastName is required' });
-
-  const rows = await db.select({
-    playerId: players.playerId,
-    nameFirst: players.nameFirst,
-    nameLast: players.nameLast,
-    year: players.year,
     position: players.primaryPosition,
-    positions: players.positionsEligible,
+    positionsEligible: players.positionsEligible,
     playerType: players.playerType,
     zScore: players.zScorePosition,
+    stats: players.stats,
   })
     .from(players)
-    .where(and(...conditions))
+    .where(inArray(players.playerId, targetIds))
     .orderBy(desc(players.zScorePosition));
 
   // Group by player
   const grouped = new Map<string, {
     playerId: string;
     name: string;
+    playerType: string;
     position: string;
     positions: string;
-    playerType: string;
-    totalSeasons: number;
-    bestZScore: number;
-    yearRange: string;
+    years: Array<{ year: number; team: string; zScore: number; sandlotScore: number; stats: unknown }>;
   }>();
 
-  for (const r of rows) {
+  for (const r of allRows) {
+    const z = toNum(r.zScore);
+    const season = {
+      year: r.year,
+      team: r.team ?? '',
+      zScore: Math.round(z * 100) / 100,
+      sandlotScore: calculateSandlotScore(z),
+      stats: r.stats,
+    };
+
     const existing = grouped.get(r.playerId);
     if (existing) {
-      existing.totalSeasons++;
-      if (Number(r.zScore) > existing.bestZScore) existing.bestZScore = Number(r.zScore);
+      existing.years.push(season);
     } else {
       grouped.set(r.playerId, {
         playerId: r.playerId,
         name: `${r.nameFirst} ${r.nameLast}`,
-        position: r.position,
-        positions: r.positions || r.position,
         playerType: r.playerType,
-        totalSeasons: 1,
-        bestZScore: Number(r.zScore),
-        yearRange: '',
+        position: r.position,
+        positions: r.positionsEligible || r.position,
+        years: [season],
       });
     }
   }
 
-  // Compute year ranges
-  for (const r of rows) {
-    const g = grouped.get(r.playerId)!;
-    if (!g.yearRange) {
-      const years = rows.filter(x => x.playerId === r.playerId).map(x => x.year);
-      g.yearRange = `${Math.min(...years)}-${Math.max(...years)}`;
+  // Return in the order requested (by ID) or by best z-score (by name)
+  const results = Array.from(grouped.values()).map(p => ({
+    ...p,
+    totalSeasons: p.years.length,
+  }));
+
+  return JSON.stringify(results);
+}
+
+// ─── Challenge evaluation ────────────────────────────────────
+
+interface StatConstraint {
+  stat: string;
+  min?: number;
+  max?: number;
+  applyTo: string;
+}
+
+async function executeEvaluateChallenge(args: Record<string, unknown>): Promise<string> {
+  const aiRounds = (args.rounds as SubmitRound[]) || [];
+  const statConstraints = (args.statConstraints as StatConstraint[]) || [];
+
+  const roundEvals: Array<{
+    position: string;
+    playerCount: number;
+    bestScore: number;
+    worstScore: number;
+    scoreRange: number;
+    players: Array<{ name: string; bestYear: number; bestScore: number }>;
+  }> = [];
+
+  const statViolations: Array<{
+    player: string;
+    year: number;
+    position: string;
+    stat: string;
+    actual: number;
+    constraint: string;
+  }> = [];
+
+  const validationErrors: string[] = [];
+  const funFlags: string[] = [];
+
+  // Collect all player-year pairs
+  const playerYearPairs: Array<{ playerId: string; year: number; playerName: string; position: string }> = [];
+  for (const round of aiRounds) {
+    for (const p of round.players) {
+      for (const year of p.years) {
+        playerYearPairs.push({ playerId: p.playerId, year, playerName: p.playerName, position: round.position });
+      }
     }
   }
 
-  const results = Array.from(grouped.values())
-    .sort((a, b) => b.bestZScore - a.bestZScore)
-    .slice(0, 10);
+  // Batch fetch all player-year data
+  const dataMap = new Map<string, { z: number; score: number; stats: Record<string, unknown>; playerType: string }>();
+  if (playerYearPairs.length > 0) {
+    const whereClauses = playerYearPairs.map(
+      p => sql`(${players.playerId} = ${p.playerId} AND ${players.year} = ${p.year})`
+    );
+    const records = await db.select({
+      playerId: players.playerId,
+      year: players.year,
+      zScorePosition: players.zScorePosition,
+      stats: players.stats,
+      playerType: players.playerType,
+    }).from(players).where(sql.join(whereClauses, sql` OR `));
 
-  return JSON.stringify(results);
+    for (const r of records) {
+      const z = toNum(r.zScorePosition);
+      dataMap.set(`${r.playerId}-${r.year}`, {
+        z,
+        score: calculateSandlotScore(z),
+        stats: (r.stats ?? {}) as Record<string, unknown>,
+        playerType: r.playerType,
+      });
+    }
+  }
+
+  // Check for missing player-years
+  for (const py of playerYearPairs) {
+    if (!dataMap.has(`${py.playerId}-${py.year}`)) {
+      validationErrors.push(`${py.playerName} ${py.year} not found in database`);
+    }
+  }
+
+  // Check position-type correctness
+  const PITCHER_POSITIONS = new Set(['SP', 'RP', 'P']);
+  for (const round of aiRounds) {
+    const isPitcherSlot = PITCHER_POSITIONS.has(round.position);
+    for (const p of round.players) {
+      const data = dataMap.get(`${p.playerId}-${p.years[0]}`);
+      if (data) {
+        if (isPitcherSlot && data.playerType !== 'pitcher') {
+          validationErrors.push(`${p.playerName} is a ${data.playerType} in pitcher slot ${round.position}`);
+        } else if (!isPitcherSlot && data.playerType !== 'batter') {
+          validationErrors.push(`${p.playerName} is a ${data.playerType} in batter slot ${round.position}`);
+        }
+      }
+    }
+  }
+
+  // Per-round evaluation
+  const scoreDistribution = { legendary: 0, elite: 0, allStar: 0, solid: 0, weak: 0 };
+  let totalBestScores = 0;
+  const weakRounds: string[] = [];
+  const deadRounds: string[] = [];
+
+  for (const round of aiRounds) {
+    const playerScores: Array<{ name: string; bestYear: number; bestScore: number }> = [];
+    let roundBest = 0;
+    let roundWorst = 10;
+
+    for (const p of round.players) {
+      let pBest = 0;
+      let pBestYear = 0;
+      for (const year of p.years) {
+        const data = dataMap.get(`${p.playerId}-${year}`);
+        const score = data?.score ?? 0;
+        if (score > pBest) { pBest = score; pBestYear = year; }
+        if (score > roundBest) roundBest = score;
+        if (score < roundWorst) roundWorst = score;
+
+        if (score >= 9.5) scoreDistribution.legendary++;
+        else if (score >= 8.5) scoreDistribution.elite++;
+        else if (score >= 7.0) scoreDistribution.allStar++;
+        else if (score >= 5.0) scoreDistribution.solid++;
+        else scoreDistribution.weak++;
+      }
+      playerScores.push({ name: p.playerName, bestYear: pBestYear, bestScore: Math.round(pBest * 10) / 10 });
+    }
+
+    totalBestScores += roundBest;
+
+    roundEvals.push({
+      position: round.position,
+      playerCount: round.players.length,
+      bestScore: Math.round(roundBest * 10) / 10,
+      worstScore: Math.round(roundWorst * 10) / 10,
+      scoreRange: Math.round((roundBest - roundWorst) * 10) / 10,
+      players: playerScores,
+    });
+
+    if (roundBest < 8.0) weakRounds.push(round.position);
+    if (roundBest < 5.0) deadRounds.push(round.position);
+  }
+
+  // Stat constraint checking
+  for (const constraint of statConstraints) {
+    for (const py of playerYearPairs) {
+      const data = dataMap.get(`${py.playerId}-${py.year}`);
+      if (!data) continue;
+
+      if (constraint.applyTo === 'all_batter_years' && data.playerType !== 'batter') continue;
+      if (constraint.applyTo === 'all_pitcher_years' && data.playerType !== 'pitcher') continue;
+
+      const statVal = Number(data.stats[constraint.stat] ?? 0);
+      let violated = false;
+      let constraintDesc = '';
+      if (constraint.min != null && statVal < constraint.min) {
+        violated = true;
+        constraintDesc = `min: ${constraint.min}`;
+      }
+      if (constraint.max != null && statVal > constraint.max) {
+        violated = true;
+        constraintDesc = `max: ${constraint.max}`;
+      }
+      if (violated) {
+        statViolations.push({
+          player: py.playerName,
+          year: py.year,
+          position: py.position,
+          stat: constraint.stat,
+          actual: statVal,
+          constraint: constraintDesc,
+        });
+      }
+    }
+  }
+
+  // Fun flags
+  if (deadRounds.length > 0) {
+    funFlags.push(`Rounds with no option above 5.0: ${deadRounds.join(', ')} — these will feel bad to play`);
+  }
+  for (const re of roundEvals) {
+    if (re.playerCount === 3 && re.scoreRange < 1.0 && re.bestScore > 5.0) {
+      funFlags.push(`${re.position}: all 3 options very similar (range ${re.scoreRange}) — less interesting for drafting`);
+    }
+  }
+
+  // Missing positions
+  const providedPositions = new Set(aiRounds.map(r => r.position));
+  const missing = POSITIONS.filter(p => !providedPositions.has(p));
+  if (missing.length > 0) {
+    validationErrors.push(`Missing positions: ${missing.join(', ')}`);
+  }
+  const incomplete = aiRounds.filter(r => r.players.length < 3);
+  if (incomplete.length > 0) {
+    validationErrors.push(`Incomplete rounds: ${incomplete.map(r => `${r.position} (${r.players.length}/3)`).join(', ')}`);
+  }
+
+  return JSON.stringify({
+    roundEvals,
+    overall: {
+      filledPositions: aiRounds.length,
+      maxPossibleTotal: Math.round(totalBestScores * 10) / 10,
+      weakRounds,
+      deadRounds,
+      scoreDistribution,
+    },
+    statViolations,
+    validationErrors,
+    funFlags,
+  });
 }
 
 // ─── SQL query validation and execution ──────────────────────
@@ -861,130 +995,150 @@ async function executeSubmitChallenge(
 function buildSystemPrompt(teamCodes: string): string {
   return `You are an expert baseball challenge builder for the Sandlot daily game.
 
-Your job: Create a 10-round draft challenge based on the user's prompt. Each challenge has a theme, 10 positions, and 3 players per position with 3 year options each.
+Your job: Create a 10-round draft challenge based on the user's prompt. Each challenge has a theme, 10 positions (C, 1B, 2B, SS, 3B, OF, UTIL, SP, RP, P), and 3 players per position with 3 year options each.
 
-AUTONOMY:
-- NEVER ask the user clarifying questions like "strict or loose?", "shall I proceed?", "do you want X or Y?" unless the prompt is genuinely ambiguous about what challenge to build.
-- Make reasonable creative decisions yourself. You are the baseball expert.
-- If a search returns too few results, broaden your criteria or try a different angle. Don't ask the user what to do.
-- If a theme is slightly ambiguous, pick the most interesting interpretation and go with it.
-- Only pause for user input AFTER presenting a preview via preview_challenge. Between searches, just keep working.
+## AUTONOMY
+- NEVER ask the user clarifying questions unless the prompt is genuinely ambiguous.
+- Make creative decisions yourself — you are the baseball expert.
+- If a search returns too few results, broaden criteria or try a different angle.
+- Pick the most interesting interpretation of ambiguous themes.
+- Only pause for user input AFTER presenting a preview via preview_challenge.
 
-COMMUNICATION:
-- Before your first search, explain your interpretation of the theme and your strategy in 1-2 sentences.
-- After reviewing search results, briefly note what you found and any concerns before proceeding.
+## COMMUNICATION
+- Before your first action, explain your theme interpretation and strategy in 1-2 sentences.
+- After significant discoveries, briefly note progress.
 - When presenting a preview, summarize why these players fit the theme.
-- Track your progress: after searches, note which positions you've filled and which remain (e.g. "Covered: C, 1B, OF, SP. Still need: 2B, SS, 3B, UTIL, RP, P.").
 
-THEME VALIDATION:
-- CRITICAL: Search results confirm DATABASE matches, not THEME fit. A name search returns everyone with that substring. A team search returns everyone who played there. A stat filter returns anyone above the threshold. YOU must bridge the gap between "matched the filter" and "fits the theme" using your baseball knowledge.
-- Before including any player, ask: "Does this specific person genuinely satisfy the theme's intent, or did they just happen to match a keyword?" If you're not sure, skip them.
-- Examples of this gap:
-  • Searching last name "Bell" for a baseball families theme returns Jay Bell, Albert Belle, Mark Bellhorn — none are related to the Buddy Bell family.
-  • Searching team "NYA" for a "1998 Yankees" theme returns anyone who ever wore pinstripes — you must verify they were actually on that specific roster.
-  • Searching for "40 HR" finds the stat line, but a "monster seasons" theme might need more context about whether the season was truly dominant.
-- If a search returns 15 players and only 3 genuinely fit the theme, use those 3 and exclude the rest.
+## THEME CLASSIFICATION — CHOOSE YOUR APPROACH
+Before searching, classify the theme and pick the right discovery strategy:
 
-POSITION RULES (STRICT):
-- SP, RP, and P rounds MUST contain pitchers (player_type = 'pitcher'). Batters will be rejected.
-- C, 1B, 2B, SS, 3B, OF, and UTIL rounds MUST contain batters (player_type = 'batter').
-- The system validates this — placing a batter in a pitcher slot will fail.
+1. **Stat-based** (e.g. "0 steals", "40 HR club", "sub-2 ERA"): Use query_players SQL with stat filters. One broad query can find candidates across ALL positions at once.
+2. **Knowledge-based** (e.g. "WBC rosters", "World Series MVPs", "Hall of Famers"): Use web_search to find rosters/lists/facts, then get_player_seasons to verify players exist in the DB.
+3. **Team-based** (e.g. "Angels legends", "90s Braves dynasty"): One SQL query with team filter across all positions.
+4. **Subjective** (e.g. "fun characters", "fan favorites"): Brainstorm players from your knowledge, then batch-verify via get_player_seasons.
+5. **Career-pattern** (e.g. "late bloomers", "one-hit wonders"): SQL with window functions and career comparisons.
+6. **Hybrid**: Combine approaches. E.g. "WS ring but bad season" = web_search for WS winners + SQL for low z-scores on those teams.
 
-UNDERSTANDING UTIL AND P (FLEX POSITIONS):
-- UTIL is a wildcard batter slot — ANY batter qualifies regardless of their fielding position. Do NOT search with position="UTIL" (almost no results). Instead search with playerType="batter" and optionally filter by name, team, stats, etc.
-- P is a wildcard pitcher slot — ANY pitcher qualifies (starters and relievers alike). Do NOT search with position="P" (almost no results). Instead search with playerType="pitcher".
-- Think of UTIL and P as overflow/flex positions for when you need to place a themed player who doesn't fit neatly into a specific fielding position.
+## PHASED WORKFLOW
 
-WORKFLOW:
-1. Use search_players to find players fitting the theme. Each result shows the player with ALL qualifying seasons.
-2. Pick players and choose exactly 3 years from their "years" array. NEVER guess years — only use years from results.
-3. ALWAYS call preview_challenge first to show the user your proposed lineup. Wait for feedback.
-4. Only call submit_challenge after the user approves. If they request changes, search and preview again.
+### Phase 1: PLAN
+Classify the theme. Decide discovery strategy. Identify stat constraints (if any).
 
-COVERAGE:
-- You must curate all 10 positions with 3 players each. There is NO auto-fill. Any position you don't provide will show as UNFILLED.
-- Think about the board holistically. Players can cross positions — use the "positions" field to assign them flexibly. If you need a 2B and a themed player is listed as "SS,2B", put them at 2B.
-- When a theme involves groups (families, teammates, rivals), spread them across different positions — that's great and makes the draft more interesting.
-- Use excludePlayerIds in search_players to avoid seeing players you've already placed.
-- Use statFilter to search by raw stats (HR, SB, W, ERA, etc.) for stat-based themes.
+### Phase 2: DISCOVER
+- **Write ONE broad SQL query** via query_players that finds candidates across ALL positions. Avoid searching position-by-position.
+- For SQL discovery queries, ALWAYS include: player_id, name_first, name_last, year, team, primary_position, positions_eligible, player_type, z_score_position, and any theme-relevant stats. This gives you everything to draft directly from results.
+- For knowledge-based themes: use web_search first, then get_player_seasons to verify.
+- For subjective themes: brainstorm a list, then batch-lookup via get_player_seasons with playerIds.
 
-DRAFT QUALITY:
-- Every round should have at least one player-year with a Sandlot Score of 8+ (z-score ≥ 7.3). The max possible total score (picking the best option each round) should be ≥ 70.
-- Variety is good but not formulaic. Sometimes all 3 options are great. Sometimes 2 are mediocre but one has a golden hidden season. Surprising bad seasons from great players are interesting too.
-- Check these targets before calling preview_challenge. If a round is weak, search for a stronger themed player.
+### Phase 3: DRAFT
+- Assign candidates to all 10 positions. Choose 3 year options per player.
+- Use get_player_seasons if you need to see all available years for specific players.
+- NEVER guess years — only use years from tool results.
+- Players can cross positions — use positions_eligible to assign flexibly.
 
-EDITING WORKFLOW:
-- When the user requests changes: ONLY modify the specific rounds/players they mentioned.
+### Phase 4: EVALUATE (MANDATORY)
+- Call evaluate_challenge with your draft AND any stat constraints.
+- Review the report: fix validation errors, stat violations, weak rounds.
+- For stat-based themes, use statConstraints to automatically catch violations (e.g. [{stat:"SB", max:0, applyTo:"all_batter_years"}]).
+- Also do your own subjective check: does every player genuinely fit the theme?
+
+### Phase 5: ITERATE
+- If evaluate found issues, fix them and re-evaluate.
+- Use query_players to find replacements, or get_player_seasons to check alternative years.
+- Repeat until: 0 validation errors, 0 stat violations, no dead rounds (best < 5.0), max total ≥ 70.
+
+### Phase 6: PREVIEW
+- Call preview_challenge to show the user your lineup with Sandlot Scores.
+- Wait for approval or feedback.
+
+### Phase 7: SUBMIT
+- Only after user approval, call submit_challenge with the same lineup.
+
+## POSITION RULES (STRICT)
+- SP, RP, P: pitchers ONLY (player_type = 'pitcher'). Batters will be rejected.
+- C, 1B, 2B, SS, 3B, OF, UTIL: batters ONLY (player_type = 'batter').
+- UTIL: wildcard batter — ANY batter qualifies. In SQL, filter player_type = 'batter'.
+- P: wildcard pitcher — ANY pitcher qualifies. In SQL, filter player_type = 'pitcher'.
+
+## THEME VALIDATION
+- CRITICAL: Database matches ≠ theme fit. YOU must verify each player genuinely fits the theme.
+- If a search returns 15 players and only 3 genuinely fit, use those 3.
+
+## DRAFT QUALITY TARGETS
+- Every round should have at least one player-year with Sandlot Score 8+ (z ≥ 7.3).
+- Max possible total score ≥ 70.
+- Variety is good: mix great options, mediocre options, and surprise hidden gems. All 3 being identical scores is boring.
+- evaluate_challenge enforces these — use it.
+
+## COVERAGE
+- You must fill all 10 positions with 3 players each. No auto-fill.
+- Think holistically. Spread themed players across positions using positions_eligible.
+
+## EDITING WORKFLOW (when user requests changes)
+- ONLY modify the specific rounds/players mentioned.
 - Preserve every other round EXACTLY as-is.
-- Search for themed replacements — never introduce off-theme players unless asked.
 - Include ALL rounds (changed + unchanged) in the new preview.
 
+## REFERENCE
+
 POSITIONS: Batters = C, 1B, 2B, SS, 3B, OF, UTIL. Pitchers = SP, RP, P.
-DATABASE: 1961-2025, MLB only. Players need 3+ qualifying seasons to appear in search.
+DATABASE: 1961-2025, MLB only.
 TEAM CODES: ${teamCodes}
 
-SQL QUERIES (query_players):
-For complex themes that search_players can't express (career-relative constraints, window functions, cross-season comparisons), use query_players to write SQL against the players table.
+## SQL PATTERNS (query_players)
 
-CRITICAL GROUPING RULE: Each row in the players table is a player-season. A player's primary_position, positions_eligible, team, and stats all change from season to season. When writing career-spanning queries:
-- ALWAYS GROUP BY player_id only (and player_type if mixing batters/pitchers). NEVER include per-season columns like primary_position, positions_eligible, team, or name in the GROUP BY — this splits one player's career into multiple groups and silently breaks the query.
-- Use MAX(name_first), MAX(name_last) to retrieve names in aggregated queries.
-- Use BOOL_OR(positions_eligible LIKE '%1B%') to check if a player was EVER eligible at a position across their career.
-- Use STRING_AGG(DISTINCT primary_position, ',') if you need to see all positions played.
+CRITICAL GROUPING RULE: Each row = a player-season. When writing career queries:
+- GROUP BY player_id only. NEVER include primary_position, team, or name in GROUP BY.
+- Use MAX(name_first), MAX(name_last) for names in aggregated queries.
+- Use BOOL_OR(positions_eligible LIKE '%1B%') for position filtering across careers.
+- Use STRING_AGG(DISTINCT primary_position, ',') to see all positions played.
+- Use STRING_AGG(DISTINCT team, ',') to see all teams played for.
 
-Example patterns:
+Example: Find all batters with 3+ seasons of exactly 0 SB, sorted by best z-score, with position info:
+SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
+  STRING_AGG(DISTINCT primary_position, ',') as positions,
+  COUNT(*) as zero_sb_seasons,
+  ROUND(MAX(z_score_position::numeric), 2) as best_z,
+  STRING_AGG(DISTINCT team, ',') as teams
+FROM players
+WHERE player_type = 'batter' AND (stats->>'SB')::int = 0
+GROUP BY player_id
+HAVING COUNT(*) >= 3
+ORDER BY best_z DESC LIMIT 100
 
-1. Late bloomers — mediocre first 7 seasons (z<3.33 = Score 5), great season later (z>=6 = Score 7):
+Example: Career-only NL Central players (never played elsewhere):
+SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
+  STRING_AGG(DISTINCT primary_position, ',') as positions,
+  STRING_AGG(DISTINCT team, ',') as teams,
+  COUNT(*) as seasons, ROUND(MAX(z_score_position::numeric), 2) as best_z
+FROM players
+WHERE team IN ('PIT','SLN','CHN','CIN','MIL')
+GROUP BY player_id
+HAVING COUNT(DISTINCT CASE WHEN team NOT IN ('PIT','SLN','CHN','CIN','MIL') THEN team END) = 0
+  AND COUNT(*) >= 5
+ORDER BY best_z DESC LIMIT 100
+
+Example: Late bloomers (mediocre early, great late):
 WITH career AS (
-  SELECT player_id, name_first, name_last, positions_eligible,
-    z_score_position::numeric as z,
+  SELECT player_id, z_score_position::numeric as z,
     ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY year) as season_num
   FROM players WHERE player_type = 'batter'
 )
 SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
-  COUNT(*) as total_seasons,
-  ROUND(MAX(CASE WHEN season_num <= 7 THEN z END), 2) as early_best,
-  ROUND(MAX(CASE WHEN season_num >= 8 THEN z END), 2) as late_best
-FROM career
+  COUNT(*) as total_seasons
+FROM career JOIN players USING (player_id)
 GROUP BY player_id
-HAVING COUNT(*) >= 10
+HAVING COUNT(DISTINCT year) >= 10
   AND MAX(CASE WHEN season_num <= 7 THEN z END) < 3.33
   AND MAX(CASE WHEN season_num >= 8 THEN z END) >= 6.0
-ORDER BY late_best DESC LIMIT 50
+ORDER BY MAX(CASE WHEN season_num >= 8 THEN z END) DESC LIMIT 50
 
-To filter by position, add: AND BOOL_OR(positions_eligible LIKE '%1B%')
-
-2. One-hit wonders — exactly one elite season (z>7.33 = Score 8) in a 5+ year career:
-SELECT player_id, MAX(name_first) as name_first, MAX(name_last) as name_last,
-  COUNT(*) as total_seasons, ROUND(MAX(z_score_position::numeric), 2) as best_z
+Example: Players on a specific team in a specific year with low z-scores (ring-chasers):
+SELECT player_id, name_first, name_last, year, team, primary_position, positions_eligible,
+  player_type, ROUND(z_score_position::numeric, 2) as z
 FROM players
-GROUP BY player_id
-HAVING COUNT(*) >= 5
-  AND SUM(CASE WHEN z_score_position::numeric > 7.33 THEN 1 ELSE 0 END) = 1
-ORDER BY best_z DESC LIMIT 50
-
-3. Players who hit 40+ HR in consecutive seasons:
-WITH hr AS (
-  SELECT player_id, name_first, name_last, year, (stats->>'HR')::int as hr,
-    LAG(year) OVER (PARTITION BY player_id ORDER BY year) as prev_year,
-    LAG((stats->>'HR')::int) OVER (PARTITION BY player_id ORDER BY year) as prev_hr
-  FROM players WHERE player_type = 'batter' AND (stats->>'HR')::int >= 40
-)
-SELECT * FROM hr WHERE prev_year = year - 1 AND prev_hr >= 40 ORDER BY hr DESC LIMIT 50
-
-4. Trade upgrades — big z-score jump after changing teams:
-WITH seasons AS (
-  SELECT player_id, name_first, name_last, year, team, z_score_position::numeric as z,
-    LAG(team) OVER (PARTITION BY player_id ORDER BY year) as prev_team,
-    LAG(z_score_position::numeric) OVER (PARTITION BY player_id ORDER BY year) as prev_z
-  FROM players WHERE player_type = 'batter'
-)
-SELECT player_id, name_first, name_last, year, prev_team, team,
-  round(prev_z, 2) as before_z, round(z, 2) as after_z
-FROM seasons WHERE prev_team IS NOT NULL AND prev_team != team AND z > prev_z + 3
-ORDER BY (z - prev_z) DESC LIMIT 50
-
-WORKFLOW WITH SQL: Use query_players to discover candidate player_ids matching complex criteria, then use search_players with name filters to get their full grouped career data for year selection and challenge assembly.`;
+WHERE team = 'NYA' AND year = 1998 AND z_score_position::numeric < 3
+ORDER BY z_score_position::numeric ASC LIMIT 50`;
 }
 
 export async function runAgentBuilder(
@@ -1030,7 +1184,7 @@ export async function runAgentBuilder(
 
     // Initial or continuation call — streamed so text appears in real-time
     const baseParams = {
-      model: 'gpt-5-mini',
+      model: AGENT_MODEL,
       instructions: systemPrompt,
       tools,
       tool_choice: 'auto' as const,
@@ -1092,38 +1246,24 @@ export async function runAgentBuilder(
         send({ type: 'tool_call', tool: toolCall.name, args });
 
         let result: string;
-        if (toolCall.name === 'search_players') {
-          result = await executeFindEligiblePlayers(args);
+        if (toolCall.name === 'get_player_seasons') {
+          result = await executeGetPlayerSeasons(args);
           const parsed = JSON.parse(result);
           console.log(JSON.stringify({
             event: 'agent_tool_result',
             sessionId: sid,
-            tool: 'search_players',
+            tool: 'get_player_seasons',
             playerCount: Array.isArray(parsed) ? parsed.length : 0,
             resultSize: result.length,
           }));
-          // Send search result summary to user
           if (Array.isArray(parsed) && parsed.length > 0) {
             const names = parsed.slice(0, 5).map((p: { name: string }) => p.name).join(', ');
             const suffix = parsed.length > 5 ? `, +${parsed.length - 5} more` : '';
-            send({ type: 'thinking', message: `Found ${parsed.length} players: ${names}${suffix}` });
+            send({ type: 'thinking', message: `Loaded ${parsed.length} player(s): ${names}${suffix}` });
+          } else if (parsed.error) {
+            send({ type: 'thinking', message: `Error: ${parsed.error}` });
           } else {
-            send({ type: 'thinking', message: 'No players matched this search.' });
-          }
-        } else if (toolCall.name === 'lookup_player') {
-          result = await executeLookupPlayer(args);
-          const parsed = JSON.parse(result);
-          console.log(JSON.stringify({
-            event: 'agent_tool_result',
-            sessionId: sid,
-            tool: 'lookup_player',
-            matchCount: Array.isArray(parsed) ? parsed.length : 0,
-          }));
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const names = parsed.map((p: { name: string; totalSeasons: number }) => `${p.name} (${p.totalSeasons} seasons)`).join(', ');
-            send({ type: 'thinking', message: `Found: ${names}` });
-          } else {
-            send({ type: 'thinking', message: `No match for "${args.firstName || ''} ${args.lastName || ''}".` });
+            send({ type: 'thinking', message: 'No players found.' });
           }
         } else if (toolCall.name === 'preview_challenge') {
           const previewResult = await executePreviewChallenge(args, send);
@@ -1141,7 +1281,7 @@ export async function runAgentBuilder(
 
             // Save updated response with tool result so we can continue later
             const updatedResponse = await client.responses.create({
-              model: 'gpt-5-mini',
+              model: AGENT_MODEL,
               instructions: systemPrompt,
               previous_response_id: response.id,
               input: toolResults,
@@ -1189,9 +1329,36 @@ export async function runAgentBuilder(
           } else {
             send({ type: 'thinking', message: `Query returned ${parsed.rowCount} rows` });
           }
+        } else if (toolCall.name === 'evaluate_challenge') {
+          result = await executeEvaluateChallenge(args);
+          const parsed = JSON.parse(result);
+          const violations = parsed.statViolations?.length || 0;
+          const errors = parsed.validationErrors?.length || 0;
+          const weakCount = parsed.overall?.weakRounds?.length || 0;
+          console.log(JSON.stringify({
+            event: 'agent_tool_result',
+            sessionId: sid,
+            tool: 'evaluate_challenge',
+            violations,
+            errors,
+            weakRounds: weakCount,
+            maxScore: parsed.overall?.maxPossibleTotal,
+          }));
+          if (errors > 0) {
+            send({ type: 'thinking', message: `Evaluation: ${errors} validation error(s), fixing...` });
+          } else if (violations > 0) {
+            send({ type: 'thinking', message: `Evaluation: ${violations} stat violation(s), adjusting...` });
+          } else if (weakCount > 0) {
+            send({ type: 'thinking', message: `Evaluation: ${weakCount} weak round(s), improving...` });
+          } else {
+            send({ type: 'thinking', message: `Evaluation passed — max score ${parsed.overall?.maxPossibleTotal?.toFixed(1)}` });
+          }
         } else {
           result = JSON.stringify({ error: `Unknown tool: ${toolCall.name}` });
         }
+
+        // Send tool result to client for observability (test scripts, debugging)
+        send({ type: 'tool_result', tool: toolCall.name, result: JSON.parse(result) });
 
         // Append theme reminder to tool results to prevent drift over long conversations
         if (themeDescription && challengeTitle) {
@@ -1209,7 +1376,7 @@ export async function runAgentBuilder(
       if (iterations === checkpointAt) {
         // Send tool results so the conversation state is up to date
         const checkpointResponse = await client.responses.create({
-          model: 'gpt-5-mini',
+          model: AGENT_MODEL,
           instructions: systemPrompt,
           previous_response_id: response.id,
           input: toolResults,
