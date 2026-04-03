@@ -66,7 +66,7 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
       .from(roundOptions)
       .where(eq(roundOptions.roundId, round.id));
 
-    let bestScore = -Infinity;
+    let bestRawZ = -Infinity;
     let bestPick: EnrichedPerfectPick = { roundNumber: round.roundNumber, position: round.position, playerName: '', year: 0, legendScore: 0 };
 
     for (const option of options) {
@@ -83,9 +83,10 @@ export async function calculatePerfectLineup(challengeId: number): Promise<{
           .limit(1);
 
         if (playerRecord) {
-          const legendScore = calculateSandlotScore(toNum(playerRecord.zScorePosition));
-          if (legendScore > bestScore) {
-            bestScore = legendScore;
+          const rawZ = toNum(playerRecord.zScorePosition);
+          const legendScore = calculateSandlotScore(rawZ);
+          if (rawZ > bestRawZ) {
+            bestRawZ = rawZ;
             bestPick = {
               roundNumber: round.roundNumber,
               position: round.position,

@@ -374,9 +374,9 @@ export function useGame() {
         };
       });
 
-      // Compute perfect lineup: best option from each round
+      // Compute perfect lineup: best option from each round (use raw z-score to break ties among 10.0s)
       const perfectPicks: PerfectLineupPick[] = state.rounds.map(round => {
-        let bestScore = -Infinity;
+        let bestRawZ = -Infinity;
         let bestPick: PerfectLineupPick = {
           roundNumber: round.roundNumber,
           position: round.position,
@@ -387,8 +387,8 @@ export function useGame() {
         for (const player of round.players) {
           for (const yo of player.yearOptions) {
             const ls = calculateSandlotScore(yo.zScorePosition);
-            if (ls > bestScore) {
-              bestScore = ls;
+            if (yo.zScorePosition > bestRawZ) {
+              bestRawZ = yo.zScorePosition;
               bestPick = {
                 roundNumber: round.roundNumber,
                 position: round.position,
